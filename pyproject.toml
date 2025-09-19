@@ -1,0 +1,32 @@
+[project]
+name = "pycreative"
+version = "0.1.0"
+description = "A batteries-included creative coding framework for Python, inspired by Processing/openFrameworks, built atop PyGame."
+authors = ["Pete Haughie <pete@example.com>"]
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["pygame"]
+
+[project.optional-dependencies]
+audio = ["sounddevice"]
+video = ["opencv-python"]
+opengl = ["PyOpenGL"]
+
+test = ["pytest", "pytest-mock"]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 88
+
+[tool.isort]
+profile = "black"
+
+[tool.ruff]
+line-length = 88
+
+[project.scripts]
+pycreative = "pycreative.cli:run_sketch"

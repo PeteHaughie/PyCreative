@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtualenv
+venv/
+.env/
+
+# VSCode
+.vscode/
+
+# OS
+.DS_Store
+
+# Test/coverage
+.coverage
+htmlcov/
+*.cover
+
+# Build
+build/
+dist/
+*.egg-info/
