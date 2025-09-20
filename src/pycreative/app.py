@@ -2,9 +2,11 @@
 pycreative.app: Main Sketch class and app loop for PyCreative.
 """
 
-import pygame
 import time
-from typing import Optional, Any
+from typing import Any, Optional
+
+import pygame
+
 from pycreative.graphics import Surface
 
 

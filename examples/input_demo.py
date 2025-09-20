@@ -3,7 +3,8 @@ Example usage of pycreative.input unified event dispatch.
 """
 
 import pygame
-from pycreative import Sketch, dispatch_event, Event
+
+from pycreative import Event, Sketch, dispatch_event
 
 
 class InputSketch(Sketch):

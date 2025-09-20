@@ -2,11 +2,12 @@
 PyCreative CLI runner
 """
 
-import sys
-import importlib.util
-import pathlib
 import argparse
+import importlib.util
 import inspect
+import pathlib
+import sys
+
 from pycreative.app import Sketch as BaseSketch
 
 # Ensure project root is in sys.path for editable installs

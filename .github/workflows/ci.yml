@@ -24,6 +24,6 @@ jobs:
       - name: Run Black
         run: black --check .
       - name: Run Ruff
-        run: ruff .
+        run: ruff check .
       - name: Run Isort
         run: isort --check .
