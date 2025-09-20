@@ -93,9 +93,6 @@ class Sketch:
 		self._clock = pygame.time.Clock()
 		start_time = time.time()
 		while self._running:
-			if max_frames is not None and self.frame_count >= max_frames:
-				print(f"[Sketch.run] Reached max_frames: {self.frame_count}, closing sketch.")
-				self._running = False
 			dt = self._clock.tick(self._frame_rate) / 1000.0
 			self.t = time.time() - start_time
 			self.update(dt)
@@ -106,9 +103,13 @@ class Sketch:
 				self.on_event(event)
 				if event.type == pygame.QUIT:
 					self._running = False
+			self.frame_count += 1
+			if max_frames is not None and self.frame_count > max_frames:
+				print(f"[Sketch.run] Reached max_frames: {max_frames}, closing sketch.")
+				self._running = False
+				continue
 			self.draw()
 			pygame.display.flip()
-			self.frame_count += 1
 		self.shutdown()
 
 	def setup(self):

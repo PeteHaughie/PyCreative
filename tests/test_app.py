@@ -18,6 +18,7 @@ def test_sketch_runs_3_frames(monkeypatch):
     monkeypatch.setattr(pygame, "quit", lambda: None)
     monkeypatch.setattr(pygame.time, "Clock", lambda: type("Clock", (), {"tick": lambda self, fps=0: 16})())
     monkeypatch.setattr(pygame.event, "get", lambda: [])
+    monkeypatch.setattr(pygame.event, "pump", lambda: None)
     sketch = TestSketch()
     sketch.run(max_frames=3)
     assert frames == [1, 2, 3]
