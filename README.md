@@ -12,11 +12,11 @@ A batteries-included creative coding framework for Python, inspired by Processin
 
 ## Quickstart
 ```bash
-python examples/hello_sketch.py
+pycreative examples/hello_sketch.py
 ```
 
 ## Directory Structure
-- `pycreative/`: Main source code
+- `src/pycreative/`: Main source code
 - `examples/`: Example sketches
 - `sketches/`: User sketches
 - `tests/`: Test suite
