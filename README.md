@@ -15,6 +15,8 @@ A batteries-included creative coding framework for Python, inspired by Processin
 pycreative examples/hello_sketch.py
 ```
 
+More information is in the [docs/README.md](docs/README.md)
+
 ## Directory Structure
 - `src/pycreative/`: Main source code
 - `examples/`: Example sketches

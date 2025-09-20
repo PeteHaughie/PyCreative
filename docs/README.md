@@ -59,6 +59,16 @@ pytest tests/
 ---
 For more details, see the example sketches and module READMEs.
 
+## Contributing
+
+Code contributions, pull requests, and suggestions are welcome!
+
+- Please open an issue for bugs, feature requests, or questions.
+- Submit pull requests with clear descriptions and relevant tests/examples.
+- All contributions should follow the project's style and documentation conventions.
+
+We value community feedback and collaboration to improve PyCreative.
+
 ## Minimal Example Sketch
 
 Below is a minimal sketch that follows best practices and the format expected by `app.py`:
