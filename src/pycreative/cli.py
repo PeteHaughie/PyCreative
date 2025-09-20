@@ -1,6 +1,7 @@
 """
 PyCreative CLI runner
 """
+
 import sys
 import importlib.util
 import pathlib
@@ -12,6 +13,7 @@ from pycreative.app import Sketch as BaseSketch
 project_root = pathlib.Path(__file__).parent.parent.resolve()
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
+
 
 def run_sketch(path, max_frames=None):
     path = pathlib.Path(path)
@@ -41,7 +43,11 @@ def run_sketch(path, max_frames=None):
     # Auto-detect any Sketch subclass and run it (prefer over base Sketch)
     found_subclass = False
     for name, obj in inspect.getmembers(module):
-        if inspect.isclass(obj) and issubclass(obj, BaseSketch) and obj is not BaseSketch:
+        if (
+            inspect.isclass(obj)
+            and issubclass(obj, BaseSketch)
+            and obj is not BaseSketch
+        ):
             print(f"[pycreative.cli] Found Sketch subclass: {name}")
             found_subclass = True
             try:
@@ -61,11 +67,16 @@ def run_sketch(path, max_frames=None):
         return
     if not found_subclass:
         print(f"[pycreative.cli] No Sketch subclass found in {path}.")
-    print(f"No entry point found in {path}. Define a main(), run(), Sketch, or a subclass of Sketch.")
+    print(
+        f"No entry point found in {path}. Define a main(), run(), Sketch, or a subclass of Sketch."
+    )
+
 
 def main():
     parser = argparse.ArgumentParser(description="Run a PyCreative sketch.")
     parser.add_argument("sketch_path", help="Path to sketch file")
-    parser.add_argument("--max-frames", type=int, default=None, help="Maximum frames to run")
+    parser.add_argument(
+        "--max-frames", type=int, default=None, help="Maximum frames to run"
+    )
     args = parser.parse_args()
     run_sketch(args.sketch_path, max_frames=args.max_frames)

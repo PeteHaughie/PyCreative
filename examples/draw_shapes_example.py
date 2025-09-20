@@ -1,10 +1,13 @@
 """
 Example usage of ShapeDrawer to draw basic shapes with Pygame.
 """
+
 import pygame
 import sys
-sys.path.append('src')
+
+sys.path.append("src")
 from shapes import ShapeDrawer
+
 
 def main():
     pygame.init()
@@ -14,13 +17,12 @@ def main():
     drawer = ShapeDrawer(screen)
 
     running = True
-    while running:    
+    while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 running = False
-
 
             screen.fill((30, 30, 30))
             # Draw a filled rectangle
@@ -36,6 +38,7 @@ def main():
             clock.tick(60)
 
     pygame.quit()
+
 
 if __name__ == "__main__":
     main()

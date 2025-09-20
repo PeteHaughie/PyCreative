@@ -1,11 +1,14 @@
 """
 Example: Initializing an OpenGL context with Pygame and using FBO.
 """
+
 import pygame
 from OpenGL.GL import glClearColor, glClear, GL_COLOR_BUFFER_BIT
 import sys
-sys.path.append('src')
+
+sys.path.append("src")
 from fbo import FBO
+
 
 def main():
     pygame.init()
@@ -16,10 +19,25 @@ def main():
     fbo = FBO(256, 256)
 
     from OpenGL.GL import (
-        glClearColor, glClear, GL_COLOR_BUFFER_BIT,
-        glBegin, glEnd, glVertex2f, glColor3f, GL_TRIANGLES,
-        glEnable, glBindTexture, glTexCoord2f, GL_TEXTURE_2D, GL_QUADS, glDisable,
-        glViewport, glMatrixMode, glLoadIdentity, GL_PROJECTION, GL_MODELVIEW
+        glClearColor,
+        glClear,
+        GL_COLOR_BUFFER_BIT,
+        glBegin,
+        glEnd,
+        glVertex2f,
+        glColor3f,
+        GL_TRIANGLES,
+        glEnable,
+        glBindTexture,
+        glTexCoord2f,
+        GL_TEXTURE_2D,
+        GL_QUADS,
+        glDisable,
+        glViewport,
+        glMatrixMode,
+        glLoadIdentity,
+        GL_PROJECTION,
+        GL_MODELVIEW,
     )
     from OpenGL.GLU import gluOrtho2D
 
@@ -82,6 +100,7 @@ def main():
         pygame.time.wait(10)
 
     pygame.quit()
+
 
 if __name__ == "__main__":
     main()

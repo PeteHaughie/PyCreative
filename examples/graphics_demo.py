@@ -1,8 +1,9 @@
-
 """
 graphics_demo.py: Example sketch using pycreative.graphics.Surface primitives in Sketch format.
 """
+
 from pycreative import Sketch
+
 
 class GraphicsDemo(Sketch):
     def setup(self):
@@ -16,6 +17,7 @@ class GraphicsDemo(Sketch):
         self.ellipse(320, 240, 120, 80, color=(0, 255, 0))
         self.ellipse(420, 240, 60, 80, color=(0, 255, 0), width=3)
         self.line((100, 400), (540, 400), color=(255, 255, 0), width=5)
+
 
 if __name__ == "__main__":
     GraphicsDemo().run()
