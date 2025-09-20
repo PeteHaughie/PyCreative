@@ -2,21 +2,19 @@
 Example sketch for PyGameSynth
 """
 
-def run():
-    import pygame
-    pygame.init()
-    screen = pygame.display.set_mode((400, 300))
-    pygame.display.set_caption("Example Sketch")
-    running = True
-    while running:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                running = False
-        screen.fill((50, 50, 50))
-        pygame.display.flip()
-    pygame.quit()
+from pycreative import Sketch
+
+class MySketch(Sketch):
+    def setup(self):
+        self.size(400, 300)
+        print("Setup complete.")
+    def draw(self):
+        self.clear((50, 50, 50))
+        # Draw a moving ellipse
+        x = (self.frame_count * 5) % self.width
+        self.ellipse(x, self.height // 2, 50, 50, color=(200, 100, 100))
+    def teardown(self):
+        print("Teardown complete.")
 
 if __name__ == "__main__":
-    run()
+    MySketch().run()

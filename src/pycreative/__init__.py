@@ -1,4 +1,3 @@
-
 """
 PyCreative: Python creative coding framework built on PyGame.
 """
