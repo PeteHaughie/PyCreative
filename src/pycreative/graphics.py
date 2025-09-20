@@ -23,6 +23,14 @@ class Surface:
 		return self
 
 	def ellipse(self, x: float, y: float, w: float, h: float, color: Any = (255,255,255), width: int = 0):
+		"""
+		Draw an ellipse centered at (x, y) with width w and height h.
+		Parameters:
+		- x, y: Center coordinates
+		- w, h: Width and height
+		- color: RGB tuple
+		- width: Border thickness (0 = filled)
+		"""
 		pygame.draw.ellipse(self.surface, color, (x-w/2, y-h/2, w, h), width)
 		return self
 

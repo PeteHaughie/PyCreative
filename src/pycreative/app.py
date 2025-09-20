@@ -14,6 +14,8 @@ class Sketch:
 	>>> class MySketch(Sketch):
 	...     def setup(self):
 	...         self.size(800, 600)
+	...         self.set_title("My Sketch")
+	...         self.bg = 0
 	...     def draw(self):
 	...         self.clear(0)
 	...         self.ellipse(self.width//2, self.height//2, 200, 200)
@@ -45,18 +47,46 @@ class Sketch:
 		if self._surface:
 			self._surface.surface.fill(color)
 
-	def ellipse(self, x: float, y: float, w: float, h: float, color: Any = (255,255,255)):
+
+	def ellipse(self, x: float, y: float, w: float, h: float, color: Any = (255,255,255), width: int = 0):
+		"""
+		Draw an ellipse centered at (x, y) with width w and height h.
+		Parameters:
+		- x, y: Center coordinates
+		- w, h: Width and height
+		- color: RGB tuple
+		- width: Border thickness (0 = filled)
+		"""
 		if self._surface:
-			self._surface.ellipse(x, y, w, h, color)
+			self._surface.ellipse(x, y, w, h, color, width)
 
 	def rect(self, x: float, y: float, w: float, h: float, color: Any = (255,255,255), width: int = 0):
 		if self._surface:
 			self._surface.rect(x, y, w, h, color, width)
 
+	def line(self, start: tuple, end: tuple, color: Any = (255,255,255), width: int = 1):
+		"""
+		Draw a line between two points.
+
+		Parameters:
+		- start: (x, y) tuple for start point
+		- end: (x, y) tuple for end point
+		- color: RGB tuple
+		- width: Line thickness
+		"""
+		if self._surface:
+			self._surface.line(start, end, color, width)
+
+	def set_title(self, title: str):
+		self._custom_title = title
+		pygame.display.set_caption(title)
+
 	def run(self, max_frames: Optional[int] = None):
 		pygame.init()
 		self._running = True
 		self.setup()
+		# Set window title after setup so user can override it
+		self.set_title(getattr(self, '_custom_title', type(self).__name__))
 		flags = pygame.FULLSCREEN if self.fullscreen else 0
 		self._screen = pygame.display.set_mode((self.width, self.height), flags)
 		self._surface = Surface(self._screen)
