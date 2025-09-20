@@ -2,7 +2,6 @@
 Unit tests for pycreative.graphics.Surface drawing helpers (mocked surface).
 """
 
-import pytest
 from pycreative import Surface
 
 
