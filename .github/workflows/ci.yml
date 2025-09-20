@@ -17,6 +17,8 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install -e .[test]
+      - name: Install linting tools
+        run: pip install black ruff isort
       - name: Run tests
         run: pytest
       - name: Run Black
