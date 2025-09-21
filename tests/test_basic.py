@@ -1,5 +1,5 @@
 """
-Basic test for PyGameSynth
+Basic test for PyCreative
 """
 
 
