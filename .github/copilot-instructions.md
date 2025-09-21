@@ -98,9 +98,11 @@ Are any architectural details, workflows, or conventions unclear or missing? Let
 - Use idiomatic, modern Python 3.11+ (type hints, dataclasses where useful).
 - Keep dependencies minimal: PyGame is required; optional extras must be behind `extras_require` in `setup.cfg`/`pyproject.toml` (e.g., `video`, `audio`, `opengl`).
 - All public APIs must be documented with docstrings and a short usage example.
-- Follow PEP8 and Black formatting. Add `ruff` and `isort` configuration.
+- Follow PEP8 and Black formatting. Only use ruff.
 - Write unit tests using `pytest`. Focus on pure logic first; use integration tests for PyGame-dependent features but mark them separately.
 - Follow the simplistic API designs of Processing and openFrameworks where applicable.
+- Every class must have a corresponding test in the test suite.
+-Documentation for each class and public API must be updated regularly, especially when new features are added or APIs change.
 
 ### Development workflow for the AI
 For each top-level module, the copilot should:
