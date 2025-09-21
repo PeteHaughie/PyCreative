@@ -98,6 +98,10 @@ class Sketch:
         from pycreative.assets import Assets
 
         self.assets = Assets(self._sketch_dir)
+        # Math utilities
+        import pycreative.math as _math
+
+        self.math = _math
 
     def size(self, width: int, height: int, fullscreen: bool = False):
         self.width = width
