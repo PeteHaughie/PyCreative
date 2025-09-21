@@ -3,8 +3,9 @@ pycreative.assets: Asset manager for sketches (images, audio, video, etc.)
 """
 
 import os
-import pygame
 from typing import Optional
+
+import pygame
 
 
 class Assets:

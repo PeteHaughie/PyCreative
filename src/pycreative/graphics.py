@@ -2,8 +2,9 @@
 pycreative.graphics: Surface wrapper and drawing helpers for PyCreative.
 """
 
+from typing import Any, Optional, Tuple
+
 import pygame
-from typing import Any, Tuple, Optional
 
 
 class Surface:

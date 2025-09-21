@@ -2,10 +2,10 @@
 pycreative.input: Unified event abstraction and dispatch for PyCreative.
 """
 
-import pygame
-
 from dataclasses import dataclass
 from typing import Any, Optional
+
+import pygame
 
 
 @dataclass

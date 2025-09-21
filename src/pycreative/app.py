@@ -3,11 +3,11 @@ pycreative.app: Main Sketch class and app loop for PyCreative.
 """
 
 import time
+from typing import Any, Optional
 
 import pygame
 
 from pycreative.graphics import Surface
-from typing import Any, Optional
 
 
 class Sketch:
@@ -50,9 +50,9 @@ class Sketch:
     """
 
     def __init__(self, sketch_path: Optional[str] = None):
-        import sys
-        import os
         import inspect
+        import os
+        import sys
 
         self.width = 640
         self.height = 480

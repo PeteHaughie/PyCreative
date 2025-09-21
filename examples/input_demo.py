@@ -2,7 +2,7 @@
 input_demo.py: Example sketch showing event handling in Sketch format.
 """
 
-from pycreative import Sketch, Event
+from pycreative import Event, Sketch
 
 
 class InputDemo(Sketch):
