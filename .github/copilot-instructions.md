@@ -100,6 +100,7 @@ Are any architectural details, workflows, or conventions unclear or missing? Let
 - All public APIs must be documented with docstrings and a short usage example.
 - Follow PEP8 and Black formatting. Add `ruff` and `isort` configuration.
 - Write unit tests using `pytest`. Focus on pure logic first; use integration tests for PyGame-dependent features but mark them separately.
+- Follow the simplistic API designs of Processing and openFrameworks where applicable.
 
 ### Development workflow for the AI
 For each top-level module, the copilot should:
@@ -113,12 +114,14 @@ For each top-level module, the copilot should:
 1. `pycreative.app` — implement `Sketch` with PyGame loop and lifecycle hooks. Support `size()`, `run()`, `clear()`, `frame_rate`.
 2. `pycreative.graphics` — implement `Surface` wrapper over PyGame `Surface`, and primitives: `line`, `rect`, `ellipse`, `image`.
 3. `pycreative.input` — unify keyboard & mouse events and a simple `on_event` dispatch.
-4. CLI: `pycreative run PATH/TO/sketch.py` to run a sketch.
+4. CLI: `pycreative PATH/TO/sketch.py` to run a sketch.
 5. Tests & examples for each.
 
 ### Medium-priority tasks (iteration 1)
 - Asset loader with `pycreative.assets` and hot-reload.
 - Simple `pycreative.timing` with `Tween` and `Timeline`.
+- If no framerate is set, default to 60 FPS.
+- All animations should use an in-built delta time mechanism.
 - Basic UI widgets (Slider, Button) under `pycreative.ui`.
 
 ### Nice-to-have (iteration 2)

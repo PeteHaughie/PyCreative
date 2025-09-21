@@ -3,11 +3,11 @@ pycreative.app: Main Sketch class and app loop for PyCreative.
 """
 
 import time
-from typing import Any, Optional
 
 import pygame
 
 from pycreative.graphics import Surface
+from typing import Any, Optional
 
 
 class Sketch:
