@@ -1,4 +1,3 @@
-
 """
 pycreative.graphics: Surface wrapper and drawing helpers for PyCreative.
 """
@@ -64,7 +63,14 @@ class Surface:
         pygame.draw.line(self.surface, color, start, end, width)
         return self
 
-    def image(self, img: pygame.Surface, x: float, y: float, w: Optional[float] = None, h: Optional[float] = None):
+    def image(
+        self,
+        img: pygame.Surface,
+        x: float,
+        y: float,
+        w: Optional[float] = None,
+        h: Optional[float] = None,
+    ):
         """
         Draw an image at (x, y). If w and h are provided, scale the image to that size.
         """

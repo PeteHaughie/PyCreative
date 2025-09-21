@@ -1,7 +1,9 @@
 """
 input_demo.py: Example sketch showing event handling in Sketch format.
 """
+
 from pycreative import Sketch, Event
+
 
 class InputDemo(Sketch):
     def setup(self):
@@ -16,6 +18,7 @@ class InputDemo(Sketch):
     def draw(self):
         self.clear(self.bg)
         # Optionally draw something based on last_event
+
 
 if __name__ == "__main__":
     InputDemo().run()

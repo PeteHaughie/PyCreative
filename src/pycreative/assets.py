@@ -1,9 +1,11 @@
 """
 pycreative.assets: Asset manager for sketches (images, audio, video, etc.)
 """
+
 import os
 import pygame
 from typing import Optional
+
 
 class Assets:
     def __init__(self, sketch_dir: str):
@@ -30,7 +32,9 @@ class Assets:
         print(f"[Assets] Debug: load_image called with path={path}")
         resolved = self._resolve_path(path)
         if not resolved:
-            print(f"[Assets] Error: '{path}' not found in 'data/' or sketch directory: {self.sketch_dir}")
+            print(
+                f"[Assets] Error: '{path}' not found in 'data/' or sketch directory: {self.sketch_dir}"
+            )
             return None
         print(f"[Assets] Debug: Loading image from {resolved}")
         if resolved in self.cache:
