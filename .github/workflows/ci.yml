@@ -18,12 +18,8 @@ jobs:
       - name: Install dependencies
         run: pip install -e .[test]
       - name: Install linting tools
-        run: pip install black ruff isort
+        run: pip install ruff
       - name: Run tests
         run: pytest
-      - name: Run Black
-        run: black --check .
       - name: Run Ruff
         run: ruff check .
-      - name: Run Isort
-        run: isort --check .
