@@ -11,6 +11,19 @@ from typing import Any, Optional
 
 
 class Sketch:
+    def image(self, img, x: float, y: float, w: 'Optional[float]' = None, h: 'Optional[float]' = None):
+        """
+        Draw an image (pygame.Surface) at (x, y). If w and h are provided, scale the image.
+        """
+        if self._surface:
+            self._surface.image(img, x, y, w, h)
+    def load_image(self, path: str):
+        """
+        Load an image using the Assets manager.
+        Usage:
+            img = self.load_image("image.png")
+        """
+        return self.assets.load_image(path)
     """
     Base class for PyCreative sketches. Implements lifecycle hooks and main loop.
 
@@ -27,7 +40,8 @@ class Sketch:
     >>> MySketch().run()
     """
 
-    def __init__(self):
+    def __init__(self, sketch_path: Optional[str] = None):
+        import sys, os, inspect
         self.width = 640
         self.height = 480
         self.fullscreen = False
@@ -39,6 +53,36 @@ class Sketch:
         self._frame_rate = 60
         self.t = 0.0
         self.frame_count = 0
+        # Store sketch directory for asset loading
+        sketch_dir = None
+        if sketch_path and os.path.exists(sketch_path):
+            sketch_dir = os.path.dirname(os.path.abspath(sketch_path))
+        else:
+            # Fallback: previous logic
+            script_path = sys.argv[0]
+            if script_path.endswith('.py') and os.path.exists(script_path):
+                sketch_dir = os.path.dirname(os.path.abspath(script_path))
+            else:
+                venv_paths = [".venv", "env", "bin", "Scripts"]
+                frame = inspect.currentframe()
+                while frame:
+                    filename = frame.f_globals.get("__file__", None)
+                    if filename and filename.endswith(".py"):
+                        abs_path = os.path.abspath(filename)
+                        if "pycreative" not in abs_path and not any(p in abs_path for p in venv_paths):
+                            sketch_dir = os.path.dirname(abs_path)
+                            break
+                    frame = frame.f_back
+                if not sketch_dir:
+                    main_file = getattr(sys.modules.get("__main__"), "__file__", None)
+                    if main_file and main_file.endswith(".py"):
+                        sketch_dir = os.path.dirname(os.path.abspath(main_file))
+                    else:
+                        sketch_dir = os.getcwd()
+        self._sketch_dir = sketch_dir
+        # Asset manager
+        from pycreative.assets import Assets
+        self.assets = Assets(self._sketch_dir)
 
     def size(self, width: int, height: int, fullscreen: bool = False):
         self.width = width

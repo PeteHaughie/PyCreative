@@ -52,7 +52,7 @@ def run_sketch(path, max_frames=None):
             print(f"[pycreative.cli] Found Sketch subclass: {name}")
             found_subclass = True
             try:
-                obj().run(max_frames=max_frames)
+                obj(sketch_path=str(path)).run(max_frames=max_frames)
                 return
             except Exception as e:
                 print(f"Error running {name}: {e}")
@@ -61,7 +61,7 @@ def run_sketch(path, max_frames=None):
     if hasattr(module, "Sketch"):
         print("[pycreative.cli] Found 'Sketch' class entry point (fallback).")
         try:
-            module.Sketch().run(max_frames=max_frames)
+            module.Sketch(sketch_path=str(path)).run(max_frames=max_frames)
         except Exception as e:
             print(f"Error running Sketch: {e}")
             sys.exit(2)
