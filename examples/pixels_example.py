@@ -14,9 +14,8 @@ class PixelsGradientSketch(Sketch):
         self.surface = self.pixels.to_surface()
 
     def draw(self):
-        import pygame
-
-        pygame.display.get_surface().blit(self.surface, (0, 0))
+        # Use the Sketch API to draw the generated gradient surface
+        self.image(self.surface, 0, 0)
 
 
 if __name__ == "__main__":
