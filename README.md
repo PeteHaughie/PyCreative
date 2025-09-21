@@ -18,10 +18,11 @@ pycreative examples/hello_sketch.py
 More information is in the [docs/README.md](docs/README.md)
 
 ## Directory Structure
-- `src/pycreative/`: Main source code
-- `examples/`: Example sketches
-- `sketches/`: User sketches
-- `tests/`: Test suite
+- [src/pycreative/](src/pycreative/): Main source code
+- [docs/](docs/): Class documentation
+- [examples/](examples/): Example sketches
+- [sketches/](sketches/): User sketches
+- [tests/](tests/): Test suite
 
 ## License
 MIT
