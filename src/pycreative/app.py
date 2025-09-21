@@ -50,7 +50,9 @@ class Sketch:
     """
 
     def __init__(self, sketch_path: Optional[str] = None):
-        import sys, os, inspect
+        import sys
+        import os
+        import inspect
 
         self.width = 640
         self.height = 480
