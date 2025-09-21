@@ -1,7 +1,6 @@
 """
 Unit tests for pycreative.pixels.Pixels class.
 """
-import pytest
 import numpy as np
 import pygame
 from pycreative.pixels import Pixels
