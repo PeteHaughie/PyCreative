@@ -1,16 +1,48 @@
 """
 pycreative.app: Main Sketch class and app loop for PyCreative.
 """
-
-import time
-from typing import Any, Optional
-
 import pygame
 
 from pycreative.graphics import Surface
 
+from dataclasses import dataclass
+
+import time
+
+from typing import Any, Optional
+
+
+@dataclass
+class Pos:
+    x: int = 0
+    y: int = 0
+
+class Mouse:
+    def reset(self):
+        self.left_up = False
+        self.middle_up = False
+        self.right_up = False
+        self.left_down = False
+        self.middle_down = False
+        self.right_down = False
+    def __init__(self):
+        self.pos = Pos()
+        self.scroll = 0
+        self.left = False
+        self.middle = False
+        self.right = False
+        self.left_up = False
+        self.middle_up = False
+        self.right_up = False
+        self.left_down = False
+        self.middle_down = False
+        self.right_down = False
 
 class Sketch:
+    # Mouse state properties
+    # Remove duplicate Mouse/Pos definitions; use top-level ones
+
+
     def image(
         self,
         img,
@@ -53,7 +85,7 @@ class Sketch:
         import inspect
         import os
         import sys
-
+        self.mouse = Mouse()
         self.width = 640
         self.height = 480
         self.fullscreen = False
@@ -178,14 +210,16 @@ class Sketch:
         self._clock = pygame.time.Clock()
         start_time = time.time()
         while self._running:
+            self.mouse.reset()  # <-- Move reset to start of frame
             dt = self._clock.tick(self._frame_rate) / 1000.0
             self.t = time.time() - start_time
             self.update(dt)
             events = list(pygame.event.get())
             if not events:
                 pygame.event.pump()
+            from pycreative.input import dispatch_event
             for event in events:
-                self.on_event(event)
+                dispatch_event(self, event)
                 if event.type == pygame.QUIT:
                     self._running = False
             self.frame_count += 1
@@ -218,14 +252,42 @@ class Sketch:
         """
         pass
 
-    def on_event(self, event: pygame.event.Event):
-        """
-        Override this method to handle events in your sketch.
-
-        Parameters:
-        - event: The pygame event to handle.
-        """
-        pass
+    def on_event(self, event):
+        # Update mouse object for idiomatic access
+        if hasattr(event, "type") and event.type in ("mouse", "motion"):
+            if hasattr(event, "pos") and event.pos:
+                self.mouse.pos.x = event.pos[0]
+                self.mouse.pos.y = event.pos[1]
+            # Do not reset button states on mouse motion; only update on button events
+            if hasattr(event, "button"):
+                # Button: 1=left, 2=middle, 3=right
+                btn = event.button
+                if hasattr(event, "raw"):
+                    raw_type = getattr(event.raw, "type", None)
+                    import pygame
+                    if raw_type == pygame.MOUSEBUTTONDOWN:
+                        if btn == 1:
+                            self.mouse.left = True
+                            self.mouse.left_down = True
+                            print(f"Mouse left button DOWN at {getattr(event, 'pos', None)}")
+                        elif btn == 2:
+                            self.mouse.middle = True
+                            self.mouse.middle_down = True
+                        elif btn == 3:
+                            self.mouse.right = True
+                            self.mouse.right_down = True
+                    elif raw_type == pygame.MOUSEBUTTONUP:
+                        if btn == 1:
+                            self.mouse.left = False
+                            self.mouse.left_up = True
+                            print(f"Mouse left button UP at {getattr(event, 'pos', None)}")
+                        elif btn == 2:
+                            self.mouse.middle = False
+                            self.mouse.middle_up = True
+                        elif btn == 3:
+                            self.mouse.right = False
+                            self.mouse.right_up = True
+            # TODO: Add scroll wheel support if available in event
 
     def shutdown(self):
         """

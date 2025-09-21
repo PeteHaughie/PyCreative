@@ -22,6 +22,7 @@ class Event:
 
     @staticmethod
     def from_pygame(event: Any) -> "Event":
+        # Always set raw=event for all event types
         if event.type == pygame.KEYDOWN or event.type == pygame.KEYUP:
             return Event(type="key", key=getattr(event, "key", None), raw=event)
         elif event.type == pygame.MOUSEBUTTONDOWN or event.type == pygame.MOUSEBUTTONUP:
@@ -42,4 +43,5 @@ def dispatch_event(sketch, event: Any):
     Dispatch a normalized Event to the sketch's on_event method.
     """
     e = Event.from_pygame(event)
+    # print(f"on_event: {event.type} {getattr(event, 'button', None)} {getattr(event, 'raw', None)}")
     sketch.on_event(e)
