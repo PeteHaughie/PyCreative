@@ -39,9 +39,14 @@ class Mouse:
         self.right_down = False
 
 class Sketch:
-    # Mouse state properties
-    # Remove duplicate Mouse/Pos definitions; use top-level ones
-
+    def radians(self, degrees: float) -> float:
+        """
+        Convert degrees to radians using pycreative.math.radians.
+        Usage:
+            angle_rad = self.radians(90)
+        """
+        from pycreative.math import radians
+        return radians(degrees)
 
     def image(
         self,
@@ -223,6 +228,43 @@ class Sketch:
     ):
         if self._surface:
             self._surface.quad(x1, y1, x2, y2, x3, y3, x4, y4, color, width)
+
+    def arc(
+        self,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        start_angle: float,
+        end_angle: float,
+        color: Any = (255, 255, 255),
+        width: int = 1,
+        mode: str = "open",  # "open", "chord", or "pie"
+    ):
+        if self._surface:
+            self._surface.arc(x, y, w, h, start_angle, end_angle, color, width, mode)
+
+    def bezier(
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        x3: float,
+        y3: float,
+        x4: float,
+        y4: float,
+        color: Any = (255, 255, 255),
+        width: int = 1,
+        segments: int = 20,
+    ):
+        """
+        Draw a cubic Bezier curve from (x1, y1) to (x4, y4) with control points (x2, y2), (x3, y3).
+        """
+        if self._surface:
+            self._surface.bezier(
+                x1, y1, x2, y2, x3, y3, x4, y4, color, width, segments
+            )
 
     def set_title(self, title: str):
         self._custom_title = title

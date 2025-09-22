@@ -31,6 +31,9 @@ class GraphicsDemo(Sketch):
         self.line(self.center, (self.x, self.y), color=(255, 255, 0), width=3)
         self.triangle(60, 10, 25, 60, 75, 65, color=(0, 0, 255))
         self.quad(300, 10, 250, 80, 350, 80, 400, 10, color=(255, 0, 255))
+        self.arc(50, 50, 75, 75, self.radians(40), self.radians(320), color=(0, 255, 255), width=1)
+        self.arc(100, 100, 175, 175, self.radians(40), self.radians(320), color=(0, 255, 255), width=1, mode='pie')
+        self.bezier(500, 400, 550, 300, 600, 500, 650, 400, color=(255, 165, 0), width=3)
 
 
 if __name__ == "__main__":
