@@ -117,31 +117,45 @@ class Surface:
         color: Any = (255, 255, 255),
         width: int = 1,
         mode: str = "open",
+        segments: int = 100,
     ):
         """
         Draw an arc centered at (x, y) with width w and height h from start_angle to end_angle.
         Angles are in radians.
         mode: 'open' (default), 'chord', or 'pie'.
         - 'open': just the arc
-        - 'chord': arc plus line between endpoints
-        - 'pie': arc plus lines from endpoints to center
+        - 'chord': arc plus line between endpoints, can be filled
+        - 'pie': arc plus lines from endpoints to center, can be filled
         """
-        rect = (x - w / 2, y - h / 2, w, h)
-        # Draw the arc itself
-        pygame.draw.arc(self.surface, color, rect, start_angle, end_angle, width)
-        # Calculate endpoints
         import math
         cx, cy = x, y
         rx, ry = w / 2, h / 2
-        x0 = cx + rx * math.cos(start_angle)
-        y0 = cy + ry * math.sin(start_angle)
-        x1 = cx + rx * math.cos(end_angle)
-        y1 = cy + ry * math.sin(end_angle)
-        if mode == "chord":
-            pygame.draw.line(self.surface, color, (x0, y0), (x1, y1), width)
+        # Generate arc points
+        arc_points = [
+            (
+                cx + rx * math.cos(start_angle + (end_angle - start_angle) * i / segments),
+                cy + ry * math.sin(start_angle + (end_angle - start_angle) * i / segments),
+            )
+            for i in range(segments + 1)
+        ]
+        # Draw outline
+        if mode == "open":
+            pygame.draw.lines(self.surface, color, False, arc_points, width)
+        elif mode == "chord":
+            pygame.draw.lines(self.surface, color, False, arc_points, width)
+            pygame.draw.line(self.surface, color, arc_points[0], arc_points[-1], width)
         elif mode == "pie":
-            pygame.draw.line(self.surface, color, (cx, cy), (x0, y0), width)
-            pygame.draw.line(self.surface, color, (cx, cy), (x1, y1), width)
+            pygame.draw.lines(self.surface, color, False, arc_points, width)
+            pygame.draw.line(self.surface, color, (cx, cy), arc_points[0], width)
+            pygame.draw.line(self.surface, color, (cx, cy), arc_points[-1], width)
+        # Draw fill (polygon)
+        if width == 0:
+            if mode == "chord":
+                poly = arc_points + [arc_points[-1], arc_points[0]]
+                pygame.draw.polygon(self.surface, color, poly, 0)
+            elif mode == "pie":
+                poly = [ (cx, cy) ] + arc_points
+                pygame.draw.polygon(self.surface, color, poly, 0)
         return self
 
     def bezier(

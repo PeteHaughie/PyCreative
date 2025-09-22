@@ -39,6 +39,30 @@ class Mouse:
         self.right_down = False
 
 class Sketch:
+    # --- Global style state ---
+    _fill: Optional[Any] = (255, 255, 255)
+    _do_fill: bool = True
+    _stroke: Optional[Any] = (0, 0, 0)
+    _do_stroke: bool = True
+    _stroke_weight: int = 1
+
+    def fill(self, *args):
+        """Set global fill color."""
+        self._fill = args if len(args) > 1 else args[0]
+        self._do_fill = True
+    def noFill(self):
+        """Disable fill for subsequent shapes."""
+        self._do_fill = False
+    def stroke(self, *args):
+        """Set global stroke color."""
+        self._stroke = args if len(args) > 1 else args[0]
+        self._do_stroke = True
+    def noStroke(self):
+        """Disable stroke for subsequent shapes."""
+        self._do_stroke = False
+    def stroke_weight(self, w: int):
+        """Set global stroke width."""
+        self._stroke_weight = w
     def radians(self, degrees: float) -> float:
         """
         Convert degrees to radians using pycreative.math.radians.
@@ -158,19 +182,23 @@ class Sketch:
         y: float,
         w: float,
         h: float,
-        color: Any = (255, 255, 255),
-        width: int = 0,
+        fill: Any = None,
+        stroke: Any = None,
+        stroke_width: Optional[int] = None,
     ):
         """
         Draw an ellipse centered at (x, y) with width w and height h.
-        Parameters:
-        - x, y: Center coordinates
-        - w, h: Width and height
-        - color: RGB tuple
-        - width: Border thickness (0 = filled)
+        Per-call fill/stroke/stroke_width override global state.
         """
-        if self._surface:
-            self._surface.ellipse(x, y, w, h, color, width)
+        use_fill = fill if fill is not None else (self._fill if self._do_fill else None)
+        use_stroke = stroke if stroke is not None else (self._stroke if self._do_stroke else None)
+        use_stroke_width = stroke_width if stroke_width is not None else (self._stroke_weight if self._do_stroke else 0)
+        # Draw fill (if enabled)
+        if self._surface and use_fill is not None:
+            self._surface.ellipse(x, y, w, h, use_fill, 0)
+        # Draw stroke (if enabled)
+        if self._surface and use_stroke is not None and use_stroke_width > 0:
+            self._surface.ellipse(x, y, w, h, use_stroke, use_stroke_width)
 
     def rect(
         self,
@@ -178,11 +206,23 @@ class Sketch:
         y: float,
         w: float,
         h: float,
-        color: Any = (255, 255, 255),
-        width: int = 0,
+        fill: Any = None,
+        stroke: Any = None,
+        stroke_width: Optional[int] = None,
     ):
-        if self._surface:
-            self._surface.rect(x, y, w, h, color, width)
+        """
+        Draw a rectangle at (x, y) with width w and height h.
+        Per-call fill/stroke/stroke_width override global state.
+        """
+        use_fill = fill if fill is not None else (self._fill if self._do_fill else None)
+        use_stroke = stroke if stroke is not None else (self._stroke if self._do_stroke else None)
+        use_stroke_width = stroke_width if stroke_width is not None else (self._stroke_weight if self._do_stroke else 0)
+        # Draw fill (if enabled)
+        if self._surface and use_fill is not None:
+            self._surface.rect(x, y, w, h, use_fill, 0)
+        # Draw stroke (if enabled)
+        if self._surface and use_stroke is not None and use_stroke_width > 0:
+            self._surface.rect(x, y, w, h, use_stroke, use_stroke_width)
 
     def line(
         self,
@@ -190,19 +230,17 @@ class Sketch:
         y1: float,
         x2: float,
         y2: float,
-        color: Any = (255, 255, 255),
-        width: int = 1,
+        stroke: Any = None,
+        stroke_width: Optional[int] = None,
     ):
         """
         Draw a line from (x1, y1) to (x2, y2).
-        Parameters:
-        - x1, y1: Start coordinates
-        - x2, y2: End coordinates
-        - color: RGB tuple
-        - width: Line thickness
+        Per-call stroke/stroke_width override global state.
         """
-        if self._surface:
-            self._surface.line(x1, y1, x2, y2, color, width)
+        use_stroke = stroke if stroke is not None else (self._stroke if self._do_stroke else None)
+        use_stroke_width = stroke_width if stroke_width is not None else (self._stroke_weight if self._do_stroke else 0)
+        if self._surface and use_stroke is not None and use_stroke_width > 0:
+            self._surface.line(x1, y1, x2, y2, use_stroke, use_stroke_width)
     
     def triangle(
         self,
@@ -212,11 +250,19 @@ class Sketch:
         y2: float,
         x3: float,
         y3: float,
-        color: Any = (255, 255, 255),
-        width: int = 0,
+        fill: Any = None,
+        stroke: Any = None,
+        stroke_width: Optional[int] = None,
     ):
-        if self._surface:
-            self._surface.triangle(x1, y1, x2, y2, x3, y3, color, width)
+        use_fill = fill if fill is not None else (self._fill if self._do_fill else None)
+        use_stroke = stroke if stroke is not None else (self._stroke if self._do_stroke else None)
+        use_stroke_width = stroke_width if stroke_width is not None else (self._stroke_weight if self._do_stroke else 0)
+        # Draw fill
+        if self._surface and use_fill is not None:
+            self._surface.triangle(x1, y1, x2, y2, x3, y3, use_fill, 0)
+        # Draw stroke
+        if self._surface and use_stroke is not None and use_stroke_width > 0:
+            self._surface.triangle(x1, y1, x2, y2, x3, y3, use_stroke, use_stroke_width)
     
     def quad(
         self,
@@ -228,11 +274,19 @@ class Sketch:
         y3: float,
         x4: float,
         y4: float,
-        color: Any = (255, 255, 255),
-        width: int = 0,
+        fill: Any = None,
+        stroke: Any = None,
+        stroke_width: Optional[int] = None,
     ):
-        if self._surface:
-            self._surface.quad(x1, y1, x2, y2, x3, y3, x4, y4, color, width)
+        use_fill = fill if fill is not None else (self._fill if self._do_fill else None)
+        use_stroke = stroke if stroke is not None else (self._stroke if self._do_stroke else None)
+        use_stroke_width = stroke_width if stroke_width is not None else (self._stroke_weight if self._do_stroke else 0)
+        # Draw fill
+        if self._surface and use_fill is not None:
+            self._surface.quad(x1, y1, x2, y2, x3, y3, x4, y4, use_fill, 0)
+        # Draw stroke
+        if self._surface and use_stroke is not None and use_stroke_width > 0:
+            self._surface.quad(x1, y1, x2, y2, x3, y3, x4, y4, use_stroke, use_stroke_width)
 
     def arc(
         self,
@@ -242,12 +296,20 @@ class Sketch:
         h: float,
         start_angle: float,
         end_angle: float,
-        color: Any = (255, 255, 255),
-        width: int = 1,
-        mode: str = "open",  # "open", "chord", or "pie"
+        fill: Any = None,
+        stroke: Any = None,
+        stroke_width: Optional[int] = None,
+        mode: str = "open",
     ):
-        if self._surface:
-            self._surface.arc(x, y, w, h, start_angle, end_angle, color, width, mode)
+        use_fill = fill if fill is not None else (self._fill if self._do_fill else None)
+        use_stroke = stroke if stroke is not None else (self._stroke if self._do_stroke else None)
+        use_stroke_width = stroke_width if stroke_width is not None else (self._stroke_weight if self._do_stroke else 0)
+        # Draw fill arc (if enabled)
+        if self._surface and use_fill is not None:
+            self._surface.arc(x, y, w, h, start_angle, end_angle, use_fill, 0, mode)
+        # Draw stroke arc (if enabled)
+        if self._surface and use_stroke is not None and use_stroke_width > 0:
+            self._surface.arc(x, y, w, h, start_angle, end_angle, use_stroke, use_stroke_width, mode)
 
     def bezier(
         self,
@@ -259,17 +321,20 @@ class Sketch:
         y3: float,
         x4: float,
         y4: float,
-        color: Any = (255, 255, 255),
-        width: int = 1,
+        fill: Any = None,
+        stroke: Any = None,
+        stroke_width: Optional[int] = None,
         segments: int = 20,
     ):
-        """
-        Draw a cubic Bezier curve from (x1, y1) to (x4, y4) with control points (x2, y2), (x3, y3).
-        """
-        if self._surface:
-            self._surface.bezier(
-                x1, y1, x2, y2, x3, y3, x4, y4, color, width, segments
-            )
+        use_fill = fill if fill is not None else (self._fill if self._do_fill else None)
+        use_stroke = stroke if stroke is not None else (self._stroke if self._do_stroke else None)
+        use_stroke_width = stroke_width if stroke_width is not None else (self._stroke_weight if self._do_stroke else 0)
+        # Draw fill (if enabled)
+        if self._surface and use_fill is not None:
+            self._surface.bezier(x1, y1, x2, y2, x3, y3, x4, y4, use_fill, 0, segments)
+        # Draw stroke (if enabled)
+        if self._surface and use_stroke is not None and use_stroke_width > 0:
+            self._surface.bezier(x1, y1, x2, y2, x3, y3, x4, y4, use_stroke, use_stroke_width, segments)
 
     def set_title(self, title: str):
         self._custom_title = title

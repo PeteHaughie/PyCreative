@@ -78,6 +78,20 @@ def test_quad_calls(monkeypatch):
     s.quad(1, 2, 3, 4, 5, 6, 7, 8, color=(9, 8, 7), width=5)
     assert dummy.calls == [("polygon", (9, 8, 7), [(1, 2), (3, 4), (5, 6), (7, 8)], 5)]
 
+def test_arc_calls(monkeypatch):
+    dummy = DummySurface()
+    monkeypatch.setattr(
+        "pygame.draw.arc",
+        lambda surf, color, rect, start_angle, end_angle, width=1: surf.calls.append(
+            ("arc", color, rect, start_angle, end_angle, width)
+        ),
+    )
+    s = Surface(dummy)
+    s.arc(10, 20, 30, 40, 0.1, 0.5, color=(1, 2, 3), width=2)
+    assert dummy.calls == [
+        ("arc", (1, 2, 3), (10 - 30 / 2, 20 - 40 / 2, 30, 40), 0.1, 0.5, 2)
+    ]
+
 def test_image_calls():
     dummy = DummySurface()
     img = object()

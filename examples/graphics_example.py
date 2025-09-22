@@ -24,15 +24,17 @@ class GraphicsDemo(Sketch):
 
     def draw(self):
         self.clear(self.bg)
-        self.rect(50, 50, 200, 100, color=(255, 0, 0))
-        self.rect(50, 50, 200, 100, color=(255, 0, 0), width=5)
-        self.ellipse(320, 240, 120, 80, color=(0, 255, 0))
-        self.ellipse(420, 240, 60, 80, color=(0, 255, 0), width=3)
-        self.line(self.center[0], self.center[1], self.x, self.y, color=(255, 255, 0), width=3)
-        self.triangle(60, 10, 25, 60, 75, 65, color=(0, 0, 255))
-        self.quad(300, 10, 250, 80, 350, 80, 400, 10, color=(255, 0, 255))
-        self.arc(50, 50, 75, 75, self.radians(40), self.radians(320), color=(0, 255, 255), width=1)
-        self.arc(100, 100, 175, 175, self.radians(40), self.radians(320), color=(0, 255, 255), width=1, mode='pie')
+        self.rect(50, 50, 200, 100, stroke=(255, 0, 0))
+        self.rect(50, 50, 200, 100, fill=(255, 0, 0), stroke_width=5)
+        self.ellipse(320, 240, 120, 80, fill=(0, 255, 0))
+        self.ellipse(420, 240, 60, 80, fill=(0, 255, 0), stroke_width=3)
+        self.line(self.center[0], self.center[1], self.x, self.y, stroke=(255, 255, 0), stroke_width=3)
+        self.triangle(60, 10, 25, 60, 75, 65, fill=(0, 0, 255), stroke_width=0)
+        self.quad(300, 10, 250, 80, 350, 80, 400, 10, fill=(255, 0, 255))
+        self.noFill()
+        self.noStroke()
+        self.arc(50, 50, 75, 75, self.radians(40), self.radians(320), fill=(0, 255, 255), stroke=(255, 255, 255), stroke_width=3, mode='chord')
+        self.arc(200, 200, 175, 175, self.radians(40), self.radians(320), fill=(0, 255, 255), stroke_width=3, mode='pie')
 
 
 if __name__ == "__main__":
