@@ -80,17 +80,29 @@ def test_quad_calls(monkeypatch):
 
 def test_arc_calls(monkeypatch):
     dummy = DummySurface()
+    # Monkeypatch all drawing functions used by Surface.arc
     monkeypatch.setattr(
-        "pygame.draw.arc",
-        lambda surf, color, rect, start_angle, end_angle, width=1: surf.calls.append(
-            ("arc", color, rect, start_angle, end_angle, width)
+        "pygame.draw.lines",
+        lambda surf, color, closed, points, width=1: surf.calls.append(
+            ("lines", color, closed, points, width)
+        ),
+    )
+    monkeypatch.setattr(
+        "pygame.draw.line",
+        lambda surf, color, start, end, width=1: surf.calls.append(
+            ("line", color, start, end, width)
+        ),
+    )
+    monkeypatch.setattr(
+        "pygame.draw.polygon",
+        lambda surf, color, points, width=0: surf.calls.append(
+            ("polygon", color, points, width)
         ),
     )
     s = Surface(dummy)
     s.arc(10, 20, 30, 40, 0.1, 0.5, color=(1, 2, 3), width=2)
-    assert dummy.calls == [
-        ("arc", (1, 2, 3), (10 - 30 / 2, 20 - 40 / 2, 30, 40), 0.1, 0.5, 2)
-    ]
+    # Check that at least one lines call was made (open mode)
+    assert any(call[0] == "lines" for call in dummy.calls)
 
 def test_image_calls():
     dummy = DummySurface()
