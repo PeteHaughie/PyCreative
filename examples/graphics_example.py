@@ -30,6 +30,7 @@ class GraphicsDemo(Sketch):
         self.ellipse(420, 240, 60, 80, color=(0, 255, 0), width=3)
         self.line(self.center, (self.x, self.y), color=(255, 255, 0), width=3)
         self.triangle(60, 10, 25, 60, 75, 65, color=(0, 0, 255))
+        self.quad(300, 10, 250, 80, 350, 80, 400, 10, color=(255, 0, 255))
 
 
 if __name__ == "__main__":

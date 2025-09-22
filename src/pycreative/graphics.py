@@ -77,6 +77,22 @@ class Surface:
     ):
         pygame.draw.polygon(self.surface, color, [(x1, y1), (x2, y2), (x3, y3)], width)
         return self
+    
+    def quad(
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        x3: float,
+        y3: float,
+        x4: float,
+        y4: float,
+        color: Any = (255, 255, 255),
+        width: int = 0,
+    ):
+        pygame.draw.polygon(self.surface, color, [(x1, y1), (x2, y2), (x3, y3), (x4, y4)], width)
+        return self
 
     def image(
         self,
