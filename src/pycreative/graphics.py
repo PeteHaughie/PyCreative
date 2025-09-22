@@ -1,4 +1,4 @@
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 import pygame
 
 class Surface:
@@ -58,12 +58,22 @@ class Surface:
 
     def line(
         self,
-        start: Tuple[float, float],
-        end: Tuple[float, float],
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
         color: Any = (255, 255, 255),
         width: int = 1,
     ):
-        pygame.draw.line(self.surface, color, start, end, width)
+        """
+        Draw a line from (x1, y1) to (x2, y2).
+        Parameters:
+        - x1, y1: Start coordinates
+        - x2, y2: End coordinates
+        - color: RGB tuple
+        - width: Line thickness
+        """
+        pygame.draw.line(self.surface, color, (x1, y1), (x2, y2), width)
         return self
 
     def triangle(

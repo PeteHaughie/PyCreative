@@ -24,3 +24,6 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+
+# Test Files
+examples/tmp.py

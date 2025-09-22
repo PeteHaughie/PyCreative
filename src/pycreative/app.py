@@ -185,19 +185,24 @@ class Sketch:
             self._surface.rect(x, y, w, h, color, width)
 
     def line(
-        self, start: tuple, end: tuple, color: Any = (255, 255, 255), width: int = 1
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        color: Any = (255, 255, 255),
+        width: int = 1,
     ):
         """
-        Draw a line between two points.
-
+        Draw a line from (x1, y1) to (x2, y2).
         Parameters:
-        - start: (x, y) tuple for start point
-        - end: (x, y) tuple for end point
+        - x1, y1: Start coordinates
+        - x2, y2: End coordinates
         - color: RGB tuple
         - width: Line thickness
         """
         if self._surface:
-            self._surface.line(start, end, color, width)
+            self._surface.line(x1, y1, x2, y2, color, width)
     
     def triangle(
         self,

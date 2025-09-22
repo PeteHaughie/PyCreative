@@ -14,9 +14,9 @@ class DiagonalsSketch(Sketch):
         self.diagonals(20, 40)
 
     def diagonals(self, x, y):
-        self.line((x, y), (x + 20, y - 40))
-        self.line((x + 10, y), (x + 30, y - 40))
-        self.line((x + 20, y), (x + 40, y - 40))
+        self.line(x, y, x + 20, y - 40)
+        self.line(x + 10, y, x + 30, y - 40)
+        self.line(x + 20, y, x + 40, y - 40)
 
 if __name__ == "__main__":
     DiagonalsSketch().run()
