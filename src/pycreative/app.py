@@ -193,6 +193,20 @@ class Sketch:
         """
         if self._surface:
             self._surface.line(start, end, color, width)
+    
+    def triangle(
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        x3: float,
+        y3: float,
+        color: Any = (255, 255, 255),
+        width: int = 0,
+    ):
+        if self._surface:
+            self._surface.triangle(x1, y1, x2, y2, x3, y3, color, width)
 
     def set_title(self, title: str):
         self._custom_title = title
