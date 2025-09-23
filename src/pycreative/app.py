@@ -1,9 +1,9 @@
 """
 pycreative.app: Main Sketch class and app loop for PyCreative.
 """
+
 import pygame
 
-from pycreative.graphics import Surface
 
 from dataclasses import dataclass
 
@@ -17,6 +17,7 @@ class Pos:
     x: int = 0
     y: int = 0
 
+
 class Mouse:
     def reset(self):
         self.left_up = False
@@ -25,6 +26,7 @@ class Mouse:
         self.left_down = False
         self.middle_down = False
         self.right_down = False
+
     def __init__(self):
         self.pos = Pos()
         self.scroll = 0
@@ -38,6 +40,7 @@ class Mouse:
         self.middle_down = False
         self.right_down = False
 
+
 class Sketch:
     # --- Global style state ---
     _fill: Optional[Any] = (255, 255, 255)
@@ -50,19 +53,24 @@ class Sketch:
         """Set global fill color."""
         self._fill = args if len(args) > 1 else args[0]
         self._do_fill = True
+
     def noFill(self):
         """Disable fill for subsequent shapes."""
         self._do_fill = False
+
     def stroke(self, *args):
         """Set global stroke color."""
         self._stroke = args if len(args) > 1 else args[0]
         self._do_stroke = True
+
     def noStroke(self):
         """Disable stroke for subsequent shapes."""
         self._do_stroke = False
+
     def stroke_weight(self, w: int):
         """Set global stroke width."""
         self._stroke_weight = w
+
     def radians(self, degrees: float) -> float:
         """
         Convert degrees to radians using pycreative.math.radians.
@@ -70,6 +78,7 @@ class Sketch:
             angle_rad = self.radians(90)
         """
         from pycreative.math import radians
+
         return radians(degrees)
 
     def image(
@@ -114,13 +123,15 @@ class Sketch:
         import inspect
         import os
         import sys
+
         self.mouse = Mouse()
         self.width = 640
         self.height = 480
         self.fullscreen = False
         self.bg = 0
         self._screen: Optional[pygame.Surface] = None
-        self._surface: Optional[Surface] = None
+        # Accept both Surface and CairoSurface
+        self._surface: Optional[Any] = None
         self._clock: Optional[pygame.time.Clock] = None
         self._running = False
         self._frame_rate = 60
@@ -164,17 +175,26 @@ class Sketch:
 
         self.math = _math
 
-    def size(self, width: int, height: int, fullscreen: bool = False):
+    def size(
+        self, width: int, height: int, fullscreen: bool = False, mode: str = "pygame"
+    ):
         self.width = width
         self.height = height
         self.fullscreen = fullscreen
+        self._backend_mode = mode
 
     def frame_rate(self, fps: int):
         self._frame_rate = fps
 
     def clear(self, color: Any = 0):
         if self._surface:
-            self._surface.surface.fill(color)
+            # CairoSurface backend
+            from pycreative.graphics import CairoSurface
+
+            if isinstance(self._surface, CairoSurface):
+                self._surface.clear(color)
+            else:
+                self._surface.surface.fill(color)
 
     def ellipse(
         self,
@@ -191,8 +211,16 @@ class Sketch:
         Per-call fill/stroke/stroke_width override global state.
         """
         use_fill = fill if fill is not None else (self._fill if self._do_fill else None)
-        use_stroke = stroke if stroke is not None else (self._stroke if self._do_stroke else None)
-        use_stroke_width = stroke_width if stroke_width is not None else (self._stroke_weight if self._do_stroke else 0)
+        use_stroke = (
+            stroke
+            if stroke is not None
+            else (self._stroke if self._do_stroke else None)
+        )
+        use_stroke_width = (
+            stroke_width
+            if stroke_width is not None
+            else (self._stroke_weight if self._do_stroke else 0)
+        )
         # Draw fill (if enabled)
         if self._surface and use_fill is not None:
             self._surface.ellipse(x, y, w, h, use_fill, 0)
@@ -215,8 +243,16 @@ class Sketch:
         Per-call fill/stroke/stroke_width override global state.
         """
         use_fill = fill if fill is not None else (self._fill if self._do_fill else None)
-        use_stroke = stroke if stroke is not None else (self._stroke if self._do_stroke else None)
-        use_stroke_width = stroke_width if stroke_width is not None else (self._stroke_weight if self._do_stroke else 0)
+        use_stroke = (
+            stroke
+            if stroke is not None
+            else (self._stroke if self._do_stroke else None)
+        )
+        use_stroke_width = (
+            stroke_width
+            if stroke_width is not None
+            else (self._stroke_weight if self._do_stroke else 0)
+        )
         # Draw fill (if enabled)
         if self._surface and use_fill is not None:
             self._surface.rect(x, y, w, h, use_fill, 0)
@@ -237,11 +273,19 @@ class Sketch:
         Draw a line from (x1, y1) to (x2, y2).
         Per-call stroke/stroke_width override global state.
         """
-        use_stroke = stroke if stroke is not None else (self._stroke if self._do_stroke else None)
-        use_stroke_width = stroke_width if stroke_width is not None else (self._stroke_weight if self._do_stroke else 0)
+        use_stroke = (
+            stroke
+            if stroke is not None
+            else (self._stroke if self._do_stroke else None)
+        )
+        use_stroke_width = (
+            stroke_width
+            if stroke_width is not None
+            else (self._stroke_weight if self._do_stroke else 0)
+        )
         if self._surface and use_stroke is not None and use_stroke_width > 0:
             self._surface.line(x1, y1, x2, y2, use_stroke, use_stroke_width)
-    
+
     def triangle(
         self,
         x1: float,
@@ -255,15 +299,23 @@ class Sketch:
         stroke_width: Optional[int] = None,
     ):
         use_fill = fill if fill is not None else (self._fill if self._do_fill else None)
-        use_stroke = stroke if stroke is not None else (self._stroke if self._do_stroke else None)
-        use_stroke_width = stroke_width if stroke_width is not None else (self._stroke_weight if self._do_stroke else 0)
+        use_stroke = (
+            stroke
+            if stroke is not None
+            else (self._stroke if self._do_stroke else None)
+        )
+        use_stroke_width = (
+            stroke_width
+            if stroke_width is not None
+            else (self._stroke_weight if self._do_stroke else 0)
+        )
         # Draw fill
         if self._surface and use_fill is not None:
             self._surface.triangle(x1, y1, x2, y2, x3, y3, use_fill, 0)
         # Draw stroke
         if self._surface and use_stroke is not None and use_stroke_width > 0:
             self._surface.triangle(x1, y1, x2, y2, x3, y3, use_stroke, use_stroke_width)
-    
+
     def quad(
         self,
         x1: float,
@@ -279,14 +331,24 @@ class Sketch:
         stroke_width: Optional[int] = None,
     ):
         use_fill = fill if fill is not None else (self._fill if self._do_fill else None)
-        use_stroke = stroke if stroke is not None else (self._stroke if self._do_stroke else None)
-        use_stroke_width = stroke_width if stroke_width is not None else (self._stroke_weight if self._do_stroke else 0)
+        use_stroke = (
+            stroke
+            if stroke is not None
+            else (self._stroke if self._do_stroke else None)
+        )
+        use_stroke_width = (
+            stroke_width
+            if stroke_width is not None
+            else (self._stroke_weight if self._do_stroke else 0)
+        )
         # Draw fill
         if self._surface and use_fill is not None:
             self._surface.quad(x1, y1, x2, y2, x3, y3, x4, y4, use_fill, 0)
         # Draw stroke
         if self._surface and use_stroke is not None and use_stroke_width > 0:
-            self._surface.quad(x1, y1, x2, y2, x3, y3, x4, y4, use_stroke, use_stroke_width)
+            self._surface.quad(
+                x1, y1, x2, y2, x3, y3, x4, y4, use_stroke, use_stroke_width
+            )
 
     def arc(
         self,
@@ -302,14 +364,24 @@ class Sketch:
         mode: str = "open",
     ):
         use_fill = fill if fill is not None else (self._fill if self._do_fill else None)
-        use_stroke = stroke if stroke is not None else (self._stroke if self._do_stroke else None)
-        use_stroke_width = stroke_width if stroke_width is not None else (self._stroke_weight if self._do_stroke else 0)
+        use_stroke = (
+            stroke
+            if stroke is not None
+            else (self._stroke if self._do_stroke else None)
+        )
+        use_stroke_width = (
+            stroke_width
+            if stroke_width is not None
+            else (self._stroke_weight if self._do_stroke else 0)
+        )
         # Draw fill arc (if enabled)
         if self._surface and use_fill is not None:
             self._surface.arc(x, y, w, h, start_angle, end_angle, use_fill, 0, mode)
         # Draw stroke arc (if enabled)
         if self._surface and use_stroke is not None and use_stroke_width > 0:
-            self._surface.arc(x, y, w, h, start_angle, end_angle, use_stroke, use_stroke_width, mode)
+            self._surface.arc(
+                x, y, w, h, start_angle, end_angle, use_stroke, use_stroke_width, mode
+            )
 
     def bezier(
         self,
@@ -327,14 +399,24 @@ class Sketch:
         segments: int = 20,
     ):
         use_fill = fill if fill is not None else (self._fill if self._do_fill else None)
-        use_stroke = stroke if stroke is not None else (self._stroke if self._do_stroke else None)
-        use_stroke_width = stroke_width if stroke_width is not None else (self._stroke_weight if self._do_stroke else 0)
+        use_stroke = (
+            stroke
+            if stroke is not None
+            else (self._stroke if self._do_stroke else None)
+        )
+        use_stroke_width = (
+            stroke_width
+            if stroke_width is not None
+            else (self._stroke_weight if self._do_stroke else 0)
+        )
         # Draw fill (if enabled)
         if self._surface and use_fill is not None:
             self._surface.bezier(x1, y1, x2, y2, x3, y3, x4, y4, use_fill, 0, segments)
         # Draw stroke (if enabled)
         if self._surface and use_stroke is not None and use_stroke_width > 0:
-            self._surface.bezier(x1, y1, x2, y2, x3, y3, x4, y4, use_stroke, use_stroke_width, segments)
+            self._surface.bezier(
+                x1, y1, x2, y2, x3, y3, x4, y4, use_stroke, use_stroke_width, segments
+            )
 
     def set_title(self, title: str):
         self._custom_title = title
@@ -348,7 +430,15 @@ class Sketch:
         self.set_title(getattr(self, "_custom_title", type(self).__name__))
         flags = pygame.FULLSCREEN if self.fullscreen else 0
         self._screen = pygame.display.set_mode((self.width, self.height), flags)
-        self._surface = Surface(self._screen)
+        # Backend selection
+        if hasattr(self, "_backend_mode") and self._backend_mode == "cairo":
+            from pycreative.graphics import CairoSurface
+
+            self._surface = CairoSurface(self.width, self.height)
+        else:
+            from pycreative.graphics import Surface
+
+            self._surface = Surface(self._screen)
         self._clock = pygame.time.Clock()
         start_time = time.time()
         while self._running:
@@ -360,6 +450,7 @@ class Sketch:
             if not events:
                 pygame.event.pump()
             from pycreative.input import dispatch_event
+
             for event in events:
                 dispatch_event(self, event)
                 if event.type == pygame.QUIT:
@@ -369,7 +460,12 @@ class Sketch:
                 print(f"[Sketch.run] Reached max_frames: {max_frames}, closing sketch.")
                 self._running = False
                 continue
-            self.draw()
+            # Call user's draw method if overridden
+            user_draw = getattr(type(self), "draw", None)
+            if user_draw is not None and user_draw is not Sketch.draw:
+                user_draw(self)
+            # Call backend display logic
+            Sketch.draw(self)
             pygame.display.flip()
         self.shutdown()
 
@@ -390,9 +486,33 @@ class Sketch:
 
     def draw(self):
         """
-        Override this method to add drawing code for your sketch.
+        Handles backend display for PyGame and Cairo automatically.
+        Users should not call super().draw().
         """
-        pass
+        from pycreative.graphics import CairoSurface
+
+        display_surface = pygame.display.get_surface()
+        if display_surface is None:
+            print(
+                f"[Sketch.draw] display_surface is None! (frame {getattr(self, 'frame_count', None)})"
+            )
+            return
+        if (
+            hasattr(self, "_backend_mode")
+            and self._backend_mode == "cairo"
+            and isinstance(self._surface, CairoSurface)
+        ):
+            try:
+                pg_surface = self._surface.to_pygame_surface()
+                display_surface.blit(pg_surface, (0, 0))
+                pygame.display.update()
+            except Exception as e:
+                print(f"[Sketch.draw] Exception during CairoSurface blit: {e}")
+        # --- User draw logic ---
+        user_draw = getattr(type(self), "draw", None)
+        if user_draw is not None and user_draw is not Sketch.draw:
+            # Call user's draw method, but avoid recursion
+            user_draw(self)
 
     def on_event(self, event):
         # Update mouse object for idiomatic access
@@ -407,11 +527,14 @@ class Sketch:
                 if hasattr(event, "raw"):
                     raw_type = getattr(event.raw, "type", None)
                     import pygame
+
                     if raw_type == pygame.MOUSEBUTTONDOWN:
                         if btn == 1:
                             self.mouse.left = True
                             self.mouse.left_down = True
-                            print(f"Mouse left button DOWN at {getattr(event, 'pos', None)}")
+                            print(
+                                f"Mouse left button DOWN at {getattr(event, 'pos', None)}"
+                            )
                         elif btn == 2:
                             self.mouse.middle = True
                             self.mouse.middle_down = True
@@ -422,7 +545,9 @@ class Sketch:
                         if btn == 1:
                             self.mouse.left = False
                             self.mouse.left_up = True
-                            print(f"Mouse left button UP at {getattr(event, 'pos', None)}")
+                            print(
+                                f"Mouse left button UP at {getattr(event, 'pos', None)}"
+                            )
                         elif btn == 2:
                             self.mouse.middle = False
                             self.mouse.middle_up = True

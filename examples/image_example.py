@@ -1,9 +1,13 @@
+"""
+image_example.py: Example sketch demonstrating image loading and rendering using PyCreative.
+"""
+
 from pycreative import Sketch
 
 
 class ImageExample(Sketch):
     def setup(self):
-        self.size(640, 480)
+        self.size(640, 480, mode="cairo")
         # Load an image (ensure 'data/dont.png' is in the same directory)
         self.img = self.load_image("dont.png")
         if not self.img:

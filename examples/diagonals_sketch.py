@@ -1,8 +1,11 @@
 from pycreative import Sketch
 
+
 class DiagonalsSketch(Sketch):
     def setup(self):
-        self.size(100, 100)
+        self.size(100, 100, mode="cairo")
+        self.stroke(255)
+        self.stroke_weight(1)
 
     def update(self, dt):
         pass
@@ -17,6 +20,7 @@ class DiagonalsSketch(Sketch):
         self.line(x, y, x + 20, y - 40)
         self.line(x + 10, y, x + 30, y - 40)
         self.line(x + 20, y, x + 40, y - 40)
+
 
 if __name__ == "__main__":
     DiagonalsSketch().run()

@@ -5,8 +5,8 @@ Unit tests for pycreative.input.Event normalization and dispatch.
 from pycreative import Event, dispatch_event
 
 
-
 from pycreative import Sketch
+
 
 class SketchForTest(Sketch):
     def __init__(self):

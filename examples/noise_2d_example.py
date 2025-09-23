@@ -5,7 +5,7 @@ from pycreative.pixels import Pixels
 
 class Noise2DSketch(Sketch):
     def setup(self):
-        self.size(400, 400)
+        self.size(400, 400, mode="cairo")
         self.noise = PerlinNoise(seed=42)
         self.pixels = Pixels(self.width, self.height)
         scale = 0.05  # Controls the "zoom" of the noise

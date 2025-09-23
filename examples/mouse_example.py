@@ -4,9 +4,10 @@ Minimal mouse example for PyCreative
 
 from pycreative import Sketch
 
+
 class MouseDemo(Sketch):
     def setup(self):
-        self.size(400, 300)
+        self.size(400, 300, mode="cairo")
         self.bg = (30, 30, 30)
 
     def draw(self):
@@ -27,6 +28,7 @@ class MouseDemo(Sketch):
             self.ellipse(x, y, 40, 40, (200, 255, 200))
         if self.mouse.right_up:
             self.ellipse(x, y, 40, 40, (200, 200, 255))
+
 
 if __name__ == "__main__":
     MouseDemo().run()

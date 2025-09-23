@@ -14,7 +14,7 @@ class MySketch(Sketch):
 
     def draw(self):
         self.clear(self.bg)
-        self.ellipse(self.width / 2, self.height / 2, 100, 100, color=(255, 255, 255))
+        self.ellipse(self.width / 2, self.height / 2, 100, 100, fill=(255, 255, 255))
 
     def teardown(self):
         print("teardown called")

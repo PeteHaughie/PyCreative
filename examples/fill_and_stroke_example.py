@@ -1,10 +1,11 @@
 """
-stroke_example.py: Example sketch showing stroke customization in Sketch format.
+fill_and_stroke_example.py: Example sketch showing stroke and fill customization in Sketch format.
 """
 
 from pycreative import Sketch
 
-class StrokeExample(Sketch):
+
+class FillAndStrokeExample(Sketch):
     def setup(self):
         self.size(800, 650)
         self.set_title("Stroke Example")
@@ -19,7 +20,10 @@ class StrokeExample(Sketch):
         self.noStroke()
         self.fill(0, 255, 0)
         self.rect(100, 220, 600, 200)
-        self.rect(100, 430, 600, 200, stroke=(0, 0, 255), stroke_width=4, fill=(255, 255, 0))
+        self.rect(
+            100, 430, 600, 200, stroke=(0, 0, 255), stroke_width=4, fill=(255, 255, 0)
+        )
+
 
 if __name__ == "__main__":
-    StrokeExample().run()
+    FillAndStrokeExample().run()

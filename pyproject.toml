@@ -6,7 +6,7 @@ authors = [{name = "Pete Haughie", email = "pete@example.com"}]
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["pygame", "numpy"]
+dependencies = ["pygame", "numpy", "cairocffi", "pillow"]
 
 [project.optional-dependencies]
 audio = ["sounddevice"]

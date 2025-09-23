@@ -15,6 +15,7 @@ class DummySurface:
     def blit(self, img, pos):
         self.calls.append(("blit", img, pos))
 
+
 def test_rect_calls(monkeypatch):
     dummy = DummySurface()
     monkeypatch.setattr(
@@ -26,6 +27,7 @@ def test_rect_calls(monkeypatch):
     s = Surface(dummy)
     s.rect(1, 2, 3, 4, color=(5, 6, 7), width=2)
     assert dummy.calls == [("rect", (5, 6, 7), (1, 2, 3, 4), 2)]
+
 
 def test_ellipse_calls(monkeypatch):
     dummy = DummySurface()
@@ -42,6 +44,7 @@ def test_ellipse_calls(monkeypatch):
         ("ellipse", (1, 2, 3), (10 - 30 / 2, 20 - 40 / 2, 30, 40), 1)
     ]
 
+
 def test_line_calls(monkeypatch):
     dummy = DummySurface()
     monkeypatch.setattr(
@@ -53,6 +56,7 @@ def test_line_calls(monkeypatch):
     s = Surface(dummy)
     s.line(1, 2, 3, 4, color=(9, 8, 7), width=5)
     assert dummy.calls == [("line", (9, 8, 7), (1, 2), (3, 4), 5)]
+
 
 def test_triangle_calls(monkeypatch):
     dummy = DummySurface()
@@ -66,6 +70,7 @@ def test_triangle_calls(monkeypatch):
     s.triangle(1, 2, 3, 4, 5, 6, color=(9, 8, 7), width=5)
     assert dummy.calls == [("polygon", (9, 8, 7), [(1, 2), (3, 4), (5, 6)], 5)]
 
+
 def test_quad_calls(monkeypatch):
     dummy = DummySurface()
     monkeypatch.setattr(
@@ -77,6 +82,7 @@ def test_quad_calls(monkeypatch):
     s = Surface(dummy)
     s.quad(1, 2, 3, 4, 5, 6, 7, 8, color=(9, 8, 7), width=5)
     assert dummy.calls == [("polygon", (9, 8, 7), [(1, 2), (3, 4), (5, 6), (7, 8)], 5)]
+
 
 def test_arc_calls(monkeypatch):
     dummy = DummySurface()
@@ -103,6 +109,7 @@ def test_arc_calls(monkeypatch):
     s.arc(10, 20, 30, 40, 0.1, 0.5, color=(1, 2, 3), width=2)
     # Check that at least one lines call was made (open mode)
     assert any(call[0] == "lines" for call in dummy.calls)
+
 
 def test_image_calls():
     dummy = DummySurface()

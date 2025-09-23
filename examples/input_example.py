@@ -18,16 +18,16 @@ class InputDemo(Sketch):
     # Event helpers for discoverability
     def event_type(self):
         if self.last_event is not None:
-            return getattr(self.last_event, 'type', None)
+            return getattr(self.last_event, "type", None)
         return None
 
     def event_key(self):
-        if self.last_event is not None and hasattr(self.last_event, 'key'):
+        if self.last_event is not None and hasattr(self.last_event, "key"):
             return self.last_event.key
         return None
 
     def event_mouse_pos(self):
-        if self.last_event is not None and hasattr(self.last_event, 'pos'):
+        if self.last_event is not None and hasattr(self.last_event, "pos"):
             return self.last_event.pos
         return None
 

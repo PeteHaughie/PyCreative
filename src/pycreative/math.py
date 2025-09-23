@@ -9,6 +9,7 @@ pi = math.pi
 tau = math.tau if hasattr(math, "tau") else 2 * math.pi
 e = math.e
 
+
 def radians(degrees: float) -> float:
     """
     Convert degrees to radians.
