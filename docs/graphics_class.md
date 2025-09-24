@@ -30,12 +30,12 @@ The `pycreative.graphics` module provides the `Surface` class, a wrapper around 
 - PyCreative lets you choose: use global state for convenience, or override per shape for clarity and control.
 
 
-
 ## Surface Class
 
-    """
-    def __init__(self, surface: pygame.Surface):
-        self.surface = surface
+```python
+def __init__(self, surface: pygame.Surface):
+    self.surface = surface
+```
 ### Drawing Primitives
 - All methods return `self` for chainability.
 
@@ -45,19 +45,24 @@ surf.rect(x, y, w, h, color=(255,255,255), width=0)
 ```
 Draw a rectangle at `(x, y)` with width `w` and height `h`.
 - `color`: RGB tuple
+```
 surf.ellipse(x, y, w, h, color=(255,255,255), width=0)
 ```
 Draw an ellipse centered at `(x, y)`.
 
 #### Line
+
 ```python
 surf.line(x1, y1, x2, y2, color=(255,255,255), width=1)
 ```
+
 Draw a line from `(x1, y1)` to `(x2, y2)`.
 
+```
 surf.triangle(x1, y1, x2, y2, x3, y3, color=(255,255,255), width=0)
 ```
 Draw a triangle with three vertices.
+
 
 #### Quad
 ```python
