@@ -1,27 +1,39 @@
 [project]
 name = "pycreative"
 version = "0.1.0"
-description = "A batteries-included creative coding framework for Python, inspired by Processing/openFrameworks, built atop PyGame."
-authors = [{name = "Pete Haughie", email = "pete@example.com"}]
+description = "Batteries-included creative coding framework for Python, built atop PyGame."
+authors = ["Peter Haughie <your@email.com>"]
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["pygame", "numpy", "cairocffi", "pillow"]
+
+[project.dependencies]
+pygame = "*"
+cairocffi = "*"
+pillow = "*"
+numpy = "*"
+PyOpenGL = "*"
+opencv-python = "*"
 
 [project.optional-dependencies]
 audio = ["sounddevice"]
-video = ["opencv-python"]
-opengl = ["PyOpenGL"]
-
-test = ["pytest", "pytest-mock"]
+video = ["ffmpeg-python", "opencv-python"]
 
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.black]
+line-length = 88
+
+[tool.isort]
+profile = "black"
+
 [tool.ruff]
 line-length = 88
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
