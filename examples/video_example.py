@@ -1,5 +1,5 @@
 from pycreative import Sketch
-from pycreative.media import MediaPlayer
+from pycreative.media import MediaPlayer # TODO: Should this be re-exported from pycreative instead?
 
 class VideoSketch(Sketch):
     def setup(self):
@@ -15,23 +15,22 @@ class VideoSketch(Sketch):
             self.player = MediaPlayer(video_path)
             self.player.loop = True
             self.player.video_fps = 20.0
-            self.playing = True
             self.player.play()
+            # set initial state now that playback has started
+            self.playing = True
 
     def draw(self):
         self.clear(0)
 
-        if hasattr(self, "player") and self.player:
-            frame_surface = self.player.resize(self.width, self.height)
-            if frame_surface is not None and self._screen:
-                self._screen.blit(frame_surface, (0, 0))
+        self.video(self.player, 0, 0, self.width, self.height)
 
+        if not self.player == None:
             if self.mouse.left_down:
                 if self.playing:
                     self.player.pause()
                 else:
                     self.player.resume()
-                self.playing = not self.playing
+            self.playing = not self.playing
 
     def teardown(self):
         if hasattr(self, "player") and self.player:

@@ -50,6 +50,14 @@ class Mouse:
 
 
 class Sketch:
+    def video(self, player, x: int, y: int, w: int, h: int):
+        """
+        Draw a video frame from a MediaPlayer at (x, y) with width w and height h.
+        """
+        if player and hasattr(player, 'resize') and self._screen:
+            frame = player.resize(w, h)
+            if frame:
+                self._screen.blit(frame, (x, y))
     # --- Global style state ---
     _fill: Optional[Any] = (255, 255, 255)
     _do_fill: bool = True
