@@ -7,7 +7,7 @@ license = "MIT"
 readme = "README.md"
 requires-python = ">=3.11"
 
-project.dependencies = [
+dependencies = [
     "pygame",
     "cairocffi",
     "pillow",
