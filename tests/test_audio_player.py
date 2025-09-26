@@ -1,6 +1,5 @@
 import pytest
 from pycreative.audio import AudioPlayer
-import pygame
 import os
 
 def test_audio_player_load_and_play():

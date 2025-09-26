@@ -54,7 +54,6 @@ class MediaPlayer:
         self.paused = False
 
     def _decode_loop(self):
-        import time
         while self.running:
             if self.paused:
                 time.sleep(0.05)
@@ -97,7 +96,6 @@ class MediaPlayer:
         print(f"[MediaPlayer] resume() called. running={self.running}, paused={self.paused}, thread_alive={self.thread.is_alive() if self.thread else None}")
         self.paused = False
         print(f"[MediaPlayer] paused set to False. paused={self.paused}")
-        import time
         self._last_frame_time = time.time()
 
     def stop(self):

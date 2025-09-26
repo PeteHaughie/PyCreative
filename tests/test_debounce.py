@@ -1,4 +1,3 @@
-import pytest
 from pycreative.app import Sketch, Mouse
 import pygame
 

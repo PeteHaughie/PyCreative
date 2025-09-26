@@ -24,7 +24,7 @@ class VideoSketch(Sketch):
 
         self.video(self.player, 0, 0, self.width, self.height)
 
-        if not self.player == None:
+        if self.player is not None:
             if self.mouse.left_down:
                 if self.playing:
                     self.player.pause()
