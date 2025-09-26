@@ -2,7 +2,7 @@
 name = "pycreative"
 version = "0.1.0"
 description = "Batteries-included creative coding framework for Python, built atop PyGame."
-authors = ["Peter Haughie <your@email.com>"]
+authors = [{name = "Pete Haughie", email = "pete@example.com"}]
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.11"
