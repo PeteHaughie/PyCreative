@@ -26,6 +26,9 @@ class Mouse:
         self.left_down = False
         self.middle_down = False
         self.right_down = False
+        self.left_click = False
+        self.middle_click = False
+        self.right_click = False
 
     def __init__(self):
         self.pos = Pos()
@@ -39,6 +42,11 @@ class Mouse:
         self.left_down = False
         self.middle_down = False
         self.right_down = False
+        self.left_click = False
+        self.middle_click = False
+        self.right_click = False
+        self._down_this_frame = {1: False, 2: False, 3: False}
+        self._clicked_this_frame = {1: False, 2: False, 3: False}
 
 
 class Sketch:
@@ -51,16 +59,25 @@ class Sketch:
 
     def fill(self, *args):
         """Set global fill color."""
-        self._fill = args if len(args) > 1 else args[0]
+        if len(args) == 0:
+            self._fill = None
+        elif len(args) > 1:
+            self._fill = args
+        else:
+            self._fill = args[0]
         self._do_fill = True
 
     def noFill(self):
         """Disable fill for subsequent shapes."""
         self._do_fill = False
-
     def stroke(self, *args):
         """Set global stroke color."""
-        self._stroke = args if len(args) > 1 else args[0]
+        if len(args) == 0:
+            self._stroke = None
+        elif len(args) > 1:
+            self._stroke = args
+        else:
+            self._stroke = args[0]
         self._do_stroke = True
 
     def noStroke(self):
@@ -125,6 +142,7 @@ class Sketch:
         import sys
 
         self.mouse = Mouse()
+        self._mouse_event_queue = []
         self.width = 640
         self.height = 480
         self.fullscreen = False
@@ -196,37 +214,54 @@ class Sketch:
             else:
                 self._surface.surface.fill(color)
 
+    def on_event(self, event):
+        # Update mouse object for idiomatic access
+        if hasattr(event, "type") and event.type in ("mouse", "motion"):
+            if hasattr(event, "pos") and event.pos:
+                self.mouse.pos.x = event.pos[0]
+                self.mouse.pos.y = event.pos[1]
+            # Queue mouse button events for processing after draw
+            if hasattr(event, "button"):
+                btn = event.button
+                if hasattr(event, "raw"):
+                    raw_type = getattr(event.raw, "type", None)
+                    import pygame
+                    if raw_type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
+                        self._mouse_event_queue.append((raw_type, btn, event.pos))
+                        print(f"[MouseQueue] Queued event: {raw_type}, btn={btn}, pos={event.pos}")
+            # TODO: Add scroll wheel support if available in event
+
     def ellipse(
-        self,
-        x: float,
-        y: float,
-        w: float,
-        h: float,
-        fill: Any = None,
-        stroke: Any = None,
-        stroke_width: Optional[int] = None,
-    ):
-        """
-        Draw an ellipse centered at (x, y) with width w and height h.
-        Per-call fill/stroke/stroke_width override global state.
-        """
-        use_fill = fill if fill is not None else (self._fill if self._do_fill else None)
-        use_stroke = (
-            stroke
-            if stroke is not None
-            else (self._stroke if self._do_stroke else None)
-        )
-        use_stroke_width = (
-            stroke_width
-            if stroke_width is not None
-            else (self._stroke_weight if self._do_stroke else 0)
-        )
-        # Draw fill (if enabled)
-        if self._surface and use_fill is not None:
-            self._surface.ellipse(x, y, w, h, use_fill, 0)
-        # Draw stroke (if enabled)
-        if self._surface and use_stroke is not None and use_stroke_width > 0:
-            self._surface.ellipse(x, y, w, h, use_stroke, use_stroke_width)
+            self,
+            x: float,
+            y: float,
+            w: float,
+            h: float,
+            fill: Any = None,
+            stroke: Any = None,
+            stroke_width: Optional[int] = None,
+        ):
+            """
+            Draw an ellipse centered at (x, y) with width w and height h.
+            Per-call fill/stroke/stroke_width override global state.
+            """
+            use_fill = fill if fill is not None else (self._fill if self._do_fill else None)
+            use_stroke = (
+                stroke
+                if stroke is not None
+                else (self._stroke if self._do_stroke else None)
+            )
+            use_stroke_width = (
+                stroke_width
+                if stroke_width is not None
+                else (self._stroke_weight if self._do_stroke else 0)
+            )
+            # Draw fill (if enabled)
+            if self._surface and use_fill is not None:
+                self._surface.ellipse(x, y, w, h, use_fill, 0)
+            # Draw stroke (if enabled)
+            if self._surface and use_stroke is not None and use_stroke_width > 0:
+                self._surface.ellipse(x, y, w, h, use_stroke, use_stroke_width)
 
     def rect(
         self,
@@ -491,6 +526,9 @@ class Sketch:
         """
         from pycreative.graphics import CairoSurface
 
+        # Process mouse event queue before user draw
+        self._process_mouse_event_queue()
+
         display_surface = pygame.display.get_surface()
         if display_surface is None:
             print(
@@ -514,47 +552,36 @@ class Sketch:
             # Call user's draw method, but avoid recursion
             user_draw(self)
 
-    def on_event(self, event):
-        # Update mouse object for idiomatic access
-        if hasattr(event, "type") and event.type in ("mouse", "motion"):
-            if hasattr(event, "pos") and event.pos:
-                self.mouse.pos.x = event.pos[0]
-                self.mouse.pos.y = event.pos[1]
-            # Do not reset button states on mouse motion; only update on button events
-            if hasattr(event, "button"):
-                # Button: 1=left, 2=middle, 3=right
-                btn = event.button
-                if hasattr(event, "raw"):
-                    raw_type = getattr(event.raw, "type", None)
-                    import pygame
-
-                    if raw_type == pygame.MOUSEBUTTONDOWN:
-                        if btn == 1:
-                            self.mouse.left = True
-                            self.mouse.left_down = True
-                            print(
-                                f"Mouse left button DOWN at {getattr(event, 'pos', None)}"
-                            )
-                        elif btn == 2:
-                            self.mouse.middle = True
-                            self.mouse.middle_down = True
-                        elif btn == 3:
-                            self.mouse.right = True
-                            self.mouse.right_down = True
-                    elif raw_type == pygame.MOUSEBUTTONUP:
-                        if btn == 1:
-                            self.mouse.left = False
-                            self.mouse.left_up = True
-                            print(
-                                f"Mouse left button UP at {getattr(event, 'pos', None)}"
-                            )
-                        elif btn == 2:
-                            self.mouse.middle = False
-                            self.mouse.middle_up = True
-                        elif btn == 3:
-                            self.mouse.right = False
-                            self.mouse.right_up = True
-            # TODO: Add scroll wheel support if available in event
+    def _process_mouse_event_queue(self):
+        # Only set one-shot flags once per frame, based on final event state
+        for raw_type, btn, pos in self._mouse_event_queue:
+            import pygame
+            if raw_type == pygame.MOUSEBUTTONDOWN:
+                if btn == 1:
+                    self.mouse.left = True
+                    self.mouse.left_down = True
+                    print(f"[MouseQueue] Processed DOWN: btn={btn}, pos={pos}")
+                elif btn == 2:
+                    self.mouse.middle = True
+                    self.mouse.middle_down = True
+                elif btn == 3:
+                    self.mouse.right = True
+                    self.mouse.right_down = True
+            elif raw_type == pygame.MOUSEBUTTONUP:
+                if btn == 1:
+                    self.mouse.left = False
+                    self.mouse.left_up = True
+                    self.mouse.left_click = True
+                    print(f"[MouseQueue] Processed UP: btn={btn}, pos={pos}")
+                elif btn == 2:
+                    self.mouse.middle = False
+                    self.mouse.middle_up = True
+                    self.mouse.middle_click = True
+                elif btn == 3:
+                    self.mouse.right = False
+                    self.mouse.right_up = True
+                    self.mouse.right_click = True
+        self._mouse_event_queue.clear()
 
     def shutdown(self):
         """

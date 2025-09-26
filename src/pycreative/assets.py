@@ -50,4 +50,13 @@ class Assets:
             print("[Assets] Error loading image '{resolved}': {e}")
             return None
 
-    # Future: load_audio, load_video, etc.
+    def load_media(self, path: str) -> Optional[str]:
+        """Return the resolved file path for audio/video assets."""
+        resolved = self._resolve_path(path)
+        if not resolved:
+            print(
+                f"[Assets] Error: '{path}' not found in 'data/' or sketch directory: {self.sketch_dir}"
+            )
+            return None
+        return resolved
+
