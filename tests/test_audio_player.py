@@ -3,6 +3,7 @@ from pycreative.audio import AudioPlayer
 import os
 
 def test_audio_player_load_and_play():
+    os.environ["SDL_AUDIODRIVER"] = "dummy"
     # Use a short, valid audio file for CI (replace with actual test asset)
     test_path = 'examples/data/groove.mp3'
     if not os.path.exists(test_path):
