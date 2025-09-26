@@ -50,6 +50,22 @@ class Mouse:
 
 
 class Sketch:
+    def text(self, s, x, y, center=False, color=(0,0,0), size=20):
+        """
+        Draw text at (x, y) with optional centering, color, and size.
+        """
+        import pygame
+        if not hasattr(self, '_screen') or self._screen is None:
+            return
+        font = pygame.font.SysFont(None, size)
+        surf = font.render(s, True, color)
+        rect = surf.get_rect()
+        if center:
+            rect.center = (x, y)
+        else:
+            rect.topleft = (x, y)
+        self._screen.blit(surf, rect)
+
     def video(self, player, x: int, y: int, w: int, h: int):
         """
         Draw a video frame from a MediaPlayer at (x, y) with width w and height h.
