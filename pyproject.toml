@@ -7,13 +7,14 @@ license = "MIT"
 readme = "README.md"
 requires-python = ">=3.11"
 
-[project.dependencies]
-pygame = "*"
-cairocffi = "*"
-pillow = "*"
-numpy = "*"
-PyOpenGL = "*"
-opencv-python = "*"
+project.dependencies = [
+    "pygame",
+    "cairocffi",
+    "pillow",
+    "numpy",
+    "PyOpenGL",
+    "opencv-python",
+]
 
 [project.optional-dependencies]
 audio = ["sounddevice"]
