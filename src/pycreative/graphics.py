@@ -17,6 +17,9 @@ import io
 
 class SurfaceBase(ABC):
     @abstractmethod
+    def polyline(self, points, color=(255, 255, 255), width=1) -> Self:
+        pass
+    @abstractmethod
     def rect(self, x, y, w, h, color=(255, 255, 255), width=0) -> Self:
         pass
 
@@ -77,6 +80,8 @@ class SurfaceBase(ABC):
 
 
 class CairoSurface(SurfaceBase):
+
+    # this should be in the color.py file
     def _normalize_color(self, color):
         # Accept int or tuple/list for RGB
         if isinstance(color, int):
@@ -102,6 +107,41 @@ class CairoSurface(SurfaceBase):
         self.height = height
         self.surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
         self.ctx = cairo.Context(self.surface)
+
+    def set_line_cap(self, cap: str):
+        if not cairo:
+            return
+        cap_map = {
+            "butt": cairo.LINE_CAP_BUTT,
+            "round": cairo.LINE_CAP_ROUND,
+            "square": cairo.LINE_CAP_SQUARE,
+        }
+        self.ctx.set_line_cap(cap_map.get(cap, cairo.LINE_CAP_BUTT))
+
+    def set_line_join(self, join: str):
+        if not cairo:
+            return
+        join_map = {
+            "miter": cairo.LINE_JOIN_MITER,
+            "round": cairo.LINE_JOIN_ROUND,
+            "bevel": cairo.LINE_JOIN_BEVEL,
+        }
+        self.ctx.set_line_join(join_map.get(join, cairo.LINE_JOIN_MITER))
+
+    def polyline(self, points, color=(255, 255, 255), width=1) -> Self:
+        r, g, b = self._normalize_color(color)
+        self.ctx.save()
+        self.ctx.set_source_rgb(r, g, b)
+        self.ctx.set_line_width(width)
+        if not points:
+            self.ctx.restore()
+            return self
+        self.ctx.move_to(*points[0])
+        for pt in points[1:]:
+            self.ctx.line_to(*pt)
+        self.ctx.stroke()
+        self.ctx.restore()
+        return self
 
     def line(self, x1, y1, x2, y2, color=(255, 255, 255), width=1) -> Self:
         r, g, b = self._normalize_color(color)
@@ -246,6 +286,7 @@ class CairoSurface(SurfaceBase):
         self.ctx.restore()
         return self
 
+    # I'm not a huge fan of having image in the graphics class
     def image(self, img, x, y, w=None, h=None) -> Self:
         """
         Draw an image onto the CairoSurface. Accepts PIL.Image or PyGame Surface.
@@ -308,6 +349,13 @@ class CairoSurface(SurfaceBase):
 
 
 class Surface(SurfaceBase):
+    def polyline(self, points, color=(255, 255, 255), width=1) -> Self:
+        import pygame
+        if len(points) < 2:
+            return self
+        pygame.draw.lines(self.surface, color, False, points, width)
+        return self
+    # we probably need a dummy method in the Surface class to cover the stroke caps and miters
     def __init__(self, surface: pygame.Surface):
         self.surface = surface
 

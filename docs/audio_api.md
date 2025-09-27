@@ -18,6 +18,10 @@ player.resume()
 
 # To stop:
 player.stop()
+
+# Error handling:
+# If the file is missing or unsupported, AudioPlayer prints an error and player.sound will be None.
+# Always check player.sound before calling playback methods if you want to handle errors gracefully.
 ```
 
 ## Attributes
@@ -57,9 +61,12 @@ player.stop()
 - AudioPlayer uses PyGame's mixer, so supported formats are WAV, MP3, OGG, etc.
 - All attributes are public and can be set or read at any time.
 - For advanced use, you can access the PyGame `Sound` and `Channel` objects directly.
+- If the file is missing or unsupported, AudioPlayer prints an error and player.sound will be None.
+- Always check player.sound before calling playback methods if you want to handle errors gracefully.
 
 ## Troubleshooting
 - If playback does not start, check that the audio file exists and is supported by PyGame.
+- If player.sound is None, loading failed (see stderr for error message).
 - For best results, use audio files with standard codecs.
 - If you need to change volume or loop state at runtime, set the attribute and call `play()` or `set_volume()` as needed.
 

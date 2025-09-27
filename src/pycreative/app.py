@@ -50,6 +50,12 @@ class Mouse:
 
 
 class Sketch:
+    def polyline(self, points, color=(255, 255, 255), width: int = 1):
+        """
+        Draw a multi-segmented straight line through the given points.
+        """
+        if self._surface:
+            self._surface.polyline(points, color=color, width=width)
     def text(self, s, x, y, center=False, color=(0,0,0), size=20):
         """
         Draw text at (x, y) with optional centering, color, and size.
