@@ -229,6 +229,12 @@ class Sketch:
         import pycreative.math as _math
 
         self.math = _math
+        # Print available UVC devices on Sketch init
+        try:
+            from pycreative.capture import list_devices
+            list_devices()
+        except Exception as e:
+            print(f"[Sketch] Could not list UVC devices: {e}")
 
     def size(
         self, width: int, height: int, fullscreen: bool = False, mode: str = "pygame"

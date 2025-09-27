@@ -27,7 +27,7 @@ class CairoCapsMitersSketch(Sketch):
             self.stroke_cap(self._caps[i % len(self._caps)])
             self.stroke((200, 80, 40))
             self.polyline([(180, y), (300, y - 50), (420, y)], color=(40, 80, 200), width=18)
-            self.text(f"join: {join}", 180, y - 30, color=(40,40,40), size=18)
+            self.text(f"join: {join}", x0, y, color=(40,40,40), size=18)
             y += 40
 
     def stroke_cap(self, cap):

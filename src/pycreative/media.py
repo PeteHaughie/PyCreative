@@ -32,12 +32,16 @@ class MediaPlayer:
         player.video_fps = 24.0
         player.play()
     """
-    def resize(self, w: int, h: int):
+    def resize(self, w, h):
         """
         Return the current frame scaled to (w, h) using pygame.transform.scale.
+        Accepts float or int, but warns if non-integer values are passed.
         """
+        if not isinstance(w, int) or not isinstance(h, int):
+            print(f"[MediaPlayer] Warning: resize() expects integer dimensions, got w={w} (type {type(w)}), h={h} (type {type(h)}). Casting to int. Prefer whole numbers for pixel dimensions.")
+        iw, ih = int(w), int(h)
         if self.frame is not None:
-            return pygame.transform.scale(self.frame, (w, h))
+            return pygame.transform.scale(self.frame, (iw, ih))
         return None
 
     def __init__(self, media_path: str, loop: bool = False, video_fps: 'Optional[float]' = None):
