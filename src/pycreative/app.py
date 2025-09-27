@@ -59,7 +59,14 @@ class Sketch:
     def text(self, s, x, y, center=False, color=(0,0,0), size=20):
         """
         Draw text at (x, y) with optional centering, color, and size.
+        Uses Cairo-native text rendering in Cairo mode.
         """
+        if hasattr(self, '_surface') and self._surface:
+            # Use Cairo-native text if available
+            if hasattr(self._surface, 'text'):
+                self._surface.text(s, x, y, color=color, size=size, center=center)
+                return
+        # Fallback to PyGame
         import pygame
         if not hasattr(self, '_screen') or self._screen is None:
             return

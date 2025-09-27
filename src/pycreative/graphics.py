@@ -108,6 +108,27 @@ class CairoSurface(SurfaceBase):
         self.surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
         self.ctx = cairo.Context(self.surface)
 
+    def text(self, s, x, y, color=(0,0,0), size=20, center=False):
+        """
+        Draw text at (x, y) using Cairo. Centering is approximate.
+        """
+        if not cairo:
+            return
+        self.ctx.save()
+        r, g, b = self._normalize_color(color)
+        self.ctx.set_source_rgb(r, g, b)
+        # Set font size and family
+        self.ctx.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        self.ctx.set_font_size(size)
+        xbearing, ybearing, width, height, xadvance, yadvance = self.ctx.text_extents(s)
+        tx, ty = x, y
+        if center:
+            tx -= width / 2
+            ty += height / 2
+        self.ctx.move_to(tx, ty)
+        self.ctx.show_text(s)
+        self.ctx.restore()
+
     def set_line_cap(self, cap: str):
         if not cairo:
             return
