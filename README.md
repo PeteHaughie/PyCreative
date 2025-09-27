@@ -10,6 +10,9 @@ A batteries-included creative coding framework for Python, inspired by Processin
 - Asset management, hot-reload, and live-coding support
 - Simple, discoverable, and chainable APIs
 
+## Why?
+When Processing and openFrameworks already exist why bother making *another* creative coding framework with the same API? I love both Processing and openFrameworks but they both come with some pretty serious caveats to the end user. Processing is simple to use and is fast to launch but it is not suitable for building hardware devices like video synths. openFrameworks is close to the tin and very suitable for hardware devices but it also comes with a heavy dependency on complicated toolchains like cmake and make or IDEs like Xcode and Visual Studio Code and C++ addons to extend from the base application. I've built many many art projects and tools with both frameworks and love them dearly. So then why build it again? Portability and extensibility. PyGame is a highly optimised game engine designed for moving things around a canvas quickly. However it also has its own idiosyncratic quirks such as blitting which are not easy to tame when you're just trying to build a prototype shape generator for a gallery for example. With a few well maintained and tested libraries under the hood hidden behind the Processing idiomatic API it becomes a very capable framework for rapid prototyping and creative coding - yet another tool in the toolbox with a familiar API suitable for low power devices such as the Raspberry Pi or even on higher end hardware across Mac OS, Windows, and Linux - all out of the box with no complicated toolchain and able to make the most from the wide world of Python libraries that already exist for intigration with MIDI, OSC, GPIO etc.
+
 ## Quickstart
 ```bash
 pycreative examples/hello_sketch.py
