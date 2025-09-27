@@ -1,18 +1,3 @@
-# Utility: List available UVC devices
-def list_devices(max_devices: int = 10):
-    print("[Capture] Scanning for available UVC devices...")
-    found = []
-    for i in range(max_devices):
-        cap = cv2.VideoCapture(i)
-        if cap.isOpened():
-            print(f"[Capture] Device {i}: AVAILABLE")
-            found.append(i)
-        else:
-            print(f"[Capture] Device {i}: not found")
-        cap.release()
-    if not found:
-        print("[Capture] No UVC devices found.")
-    return found
 """
 pycreative.capture: Webcam/UVC device capture class for PyCreative.
 """
@@ -62,6 +47,7 @@ class Capture:
         self.running = False
         self.thread = None
 
+
     def _capture_loop(self):
         while self.running:
             ret, frame = self.cap.read()
@@ -94,6 +80,23 @@ class Capture:
 
     def __del__(self):
         self.stop()
+
+# Utility: List available UVC devices
+def list_devices(max_devices: int = 10):
+    print("[Capture] Scanning for available UVC devices...")
+    found = []
+    for i in range(max_devices):
+        cap = cv2.VideoCapture(i)
+        if cap.isOpened():
+            print(f"[Capture] Device {i}: AVAILABLE")
+            found.append(i)
+        else:
+            print(f"[Capture] Device {i}: not found")
+        cap.release()
+    if not found:
+        print("[Capture] No UVC devices found.")
+    return found
+
 
 # Usage Example:
 # cam = Capture(0)
