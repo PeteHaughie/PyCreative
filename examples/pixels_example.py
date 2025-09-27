@@ -4,7 +4,7 @@ from pycreative.pixels import Pixels
 
 class PixelsGradientSketch(Sketch):
     def setup(self):
-        self.size(400, 400, mode="cairo")
+        self.size(400, 400)
         self.pixels = Pixels(self.width, self.height)
         # Fill with a horizontal grayscale gradient
         for x in range(self.width):

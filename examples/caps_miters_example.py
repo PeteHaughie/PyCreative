@@ -2,7 +2,7 @@ from pycreative import Sketch
 
 class CairoCapsMitersSketch(Sketch):
     def setup(self):
-        self.size(600, 400, mode="cairo")
+        self.size(600, 400)
         self.set_title("Cairo Stroke Caps & Miters Example")
         self.bg = (255)
         self.stroke_weight(16)

@@ -7,7 +7,7 @@ from pycreative import Sketch
 
 class MouseDemo(Sketch):
     def setup(self):
-        self.size(400, 300, mode="cairo")
+        self.size(400, 300)
         self.bg = (30, 30, 30)
 
     def draw(self):

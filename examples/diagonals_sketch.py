@@ -3,7 +3,7 @@ from pycreative import Sketch
 
 class DiagonalsSketch(Sketch):
     def setup(self):
-        self.size(100, 100, mode="cairo")
+        self.size(100, 100)
         self.stroke(255)
         self.stroke_weight(1)
 

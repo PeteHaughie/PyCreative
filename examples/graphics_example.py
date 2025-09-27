@@ -11,7 +11,7 @@ class GraphicsDemo(Sketch):
         It is possible to switch between the CairoSurface and Pygame Surface backends by changing the mode parameter in self.size().
         For CairoSurface, use mode='cairo'. For Pygame Surface, omit the mode parameter.
         """
-        self.size(800, 600, mode="cairo")
+        self.size(800, 600)
         self.bg = 100 # it also accepts an RGB tuple for color
         # self.bg = (10, 10, 10)
         self.set_title("Graphics Example")

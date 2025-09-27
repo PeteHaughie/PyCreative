@@ -237,7 +237,7 @@ class Sketch:
             print(f"[Sketch] Could not list UVC devices: {e}")
 
     def size(
-        self, width: int, height: int, fullscreen: bool = False, mode: str = "pygame"
+        self, width: int, height: int, fullscreen: bool = False, mode: str = "cairo"
     ):
         self.width = width
         self.height = height

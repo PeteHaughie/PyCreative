@@ -7,7 +7,7 @@ from pycreative import Sketch
 
 class ImageExample(Sketch):
     def setup(self):
-        self.size(640, 480, mode="cairo")
+        self.size(640, 480)
         # Load an image (ensure 'data/dont.png' is in the same directory)
         self.img = self.load_image("dont.png")
         if not self.img:
