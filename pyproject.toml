@@ -16,7 +16,7 @@ dependencies = [
     "opencv-python",
 ]
 
-[project.optional-dependencies]
+[optional-dependencies]
 audio = ["sounddevice"]
 video = ["ffmpeg-python", "opencv-python"]
 
