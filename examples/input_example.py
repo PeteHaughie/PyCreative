@@ -35,6 +35,10 @@ class InputDemo(Sketch):
         self.clear(self.bg)
         # Optionally draw something based on last_event
 
+    def teardown(self):
+        # Clean up resources if needed (no-op for the example)
+        pass
+
 
 if __name__ == "__main__":
     InputDemo().run()

@@ -9,7 +9,7 @@ requires-python = ">=3.11"
 
 dependencies = [
     "pygame",
-    "cairocffi",
+    "skia-python",
     "pillow",
     "numpy",
     "PyOpenGL",
@@ -23,12 +23,6 @@ video = ["ffmpeg-python", "opencv-python"]
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
-
-[tool.black]
-line-length = 88
-
-[tool.isort]
-profile = "black"
 
 [tool.ruff]
 line-length = 88
