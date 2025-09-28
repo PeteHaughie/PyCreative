@@ -15,7 +15,9 @@ class Sketch:
     so examples and tests can run during bootstrapping.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, sketch_path: Optional[str] = None) -> None:
+        # Optional path to the user sketch file that instantiated this Sketch
+        self.sketch_path: Optional[str] = sketch_path
         self.width: int = 640
         self.height: int = 480
         self.fullscreen: bool = False
@@ -69,7 +71,7 @@ class Sketch:
             pygame.draw.ellipse(self._surface, fill, rect)
 
     # --- Run loop ---
-    def run(self) -> None:
+    def run(self, max_frames: Optional[int] = None) -> None:
         pygame.init()
         # Call setup early so user can call self.size() there
         try:
@@ -112,6 +114,9 @@ class Sketch:
 
             pygame.display.flip()
             self.frame_count += 1
+            # If max_frames is provided, stop after reaching it
+            if max_frames is not None and self.frame_count >= int(max_frames):
+                self._running = False
             # enforce framerate
             if self._clock is not None:
                 self._clock.tick(self._frame_rate)
