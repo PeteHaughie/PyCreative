@@ -14,6 +14,8 @@ import pygame
 import numpy as np
 import io
 
+from pycreative.style import GraphicsStyle
+
 
 class SurfaceBase(ABC):
     @abstractmethod
@@ -369,7 +371,10 @@ class CairoSurface(SurfaceBase):
         self.ctx.restore()
 
 
-class Surface(SurfaceBase):
+class Surface(SurfaceBase, GraphicsStyle):
+    def __init__(self, surface: pygame.Surface):
+        super().__init__()
+        self.surface = surface
     def polyline(self, points, color=(255, 255, 255), width=1) -> Self:
         import pygame
         if len(points) < 2:
