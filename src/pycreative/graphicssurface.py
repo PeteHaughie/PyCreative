@@ -1,4 +1,11 @@
 from pycreative.style import GraphicsStyle
+import pygame
+import numpy as np
+try:
+    import cairocffi as cairo
+except ImportError:
+    cairo = None
+from typing import Optional
 
 class GraphicsSurface(GraphicsStyle):
     """
@@ -23,45 +30,6 @@ class GraphicsSurface(GraphicsStyle):
         ...
         sketch.image(g.surface, x, y, w, h)
     """
-    def __init__(self, width: int, height: int):
-        super().__init__()
-        self.width = width
-        self.height = height
-        self._cairo_surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
-        self.ctx = cairo.Context(self._cairo_surface)
-        self._pygame_surface = None
-"""
-pycreative.graphics: GraphicsSurface for in-memory drawing and manipulation (offscreen surface).
-
-Offscreen graphics surface for in-memory drawing and manipulation.
-Uses Cairo for all rendering and pixel operations.
-
-Args:
-    width (int): Surface width
-    height (int): Surface height
-
-Attributes:
-    surface: PyGame Surface (converted from Cairo ImageSurface)
-    ctx: Cairo Context
-    width: int
-    height: int
-
-Usage:
-    g = GraphicsSurface(320, 240)
-    g.clear((0,0,0))
-    g.line(0,0,100,100,color=(255,0,0),width=2)
-    ...
-    sketch.image(g.surface, x, y, w, h)
-"""
-import pygame
-import numpy as np
-try:
-    import cairocffi as cairo
-except ImportError:
-    cairo = None
-from typing import Optional
-
-class GraphicsSurface:
     def translate(self, x: float, y: float):
         """
         Translate the origin by (x, y).

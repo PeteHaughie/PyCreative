@@ -375,15 +375,6 @@ class Surface(SurfaceBase, GraphicsStyle):
     def __init__(self, surface: pygame.Surface):
         super().__init__()
         self.surface = surface
-    def polyline(self, points, color=(255, 255, 255), width=1) -> Self:
-        import pygame
-        if len(points) < 2:
-            return self
-        pygame.draw.lines(self.surface, color, False, points, width)
-        return self
-    # we probably need a dummy method in the Surface class to cover the stroke caps and miters
-    def __init__(self, surface: pygame.Surface):
-        self.surface = surface
 
     def rect(self, x, y, w, h, color=(255, 255, 255), width=0) -> Self:
         pygame.draw.rect(self.surface, color, (x, y, w, h), width)
@@ -396,6 +387,14 @@ class Surface(SurfaceBase, GraphicsStyle):
     def line(self, x1, y1, x2, y2, color=(255, 255, 255), width=1) -> Self:
         pygame.draw.line(self.surface, color, (x1, y1), (x2, y2), width)
         return self
+
+    def polyline(self, points, color=(255, 255, 255), width=1) -> Self:
+        import pygame
+        if len(points) < 2:
+            return self
+        pygame.draw.lines(self.surface, color, False, points, width)
+        return self
+
 
     def triangle(self, x1, y1, x2, y2, x3, y3, color=(255, 255, 255), width=0) -> Self:
         pygame.draw.polygon(self.surface, color, [(x1, y1), (x2, y2), (x3, y3)], width)
