@@ -179,6 +179,30 @@ class Surface:
         """Return (width, height) of the underlying surface."""
         return self._surf.get_size()
 
+    # Backwards-compatible methods: tests and some examples call `rect_mode()`
+    # and `ellipse_mode()` as setter/getter functions. Provide a method that
+    # acts as a getter when called with no arguments and a setter when called
+    # with a mode argument.
+    def rect_mode(self, mode: str | None = None) -> str | None:
+        """Get or set rectangle mode. Call with no args to get current mode,
+        or pass `Surface.MODE_CORNER` / `Surface.MODE_CENTER` to set it.
+        """
+        if mode is None:
+            return self._rect_mode
+        if mode in (self.MODE_CORNER, self.MODE_CENTER):
+            self._rect_mode = mode
+        return None
+
+    def ellipse_mode(self, mode: str | None = None) -> str | None:
+        """Get or set ellipse mode. Call with no args to get current mode,
+        or pass `Surface.MODE_CORNER` / `Surface.MODE_CENTER` to set it.
+        """
+        if mode is None:
+            return self._ellipse_mode
+        if mode in (self.MODE_CORNER, self.MODE_CENTER):
+            self._ellipse_mode = mode
+        return None
+
     @property
     def size(self) -> tuple[int, int]:
         """Convenience property returning (width, height) of the surface."""
