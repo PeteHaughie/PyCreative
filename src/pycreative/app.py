@@ -44,6 +44,12 @@ class Sketch:
         # Runtime no-loop control (if True, draw() runs once then is suppressed)
         self._no_loop_mode = False
         self._has_drawn_once = False
+        # Optional per-sketch snapshots folder (preferred over env var)
+        # Can be set by assignment: `self.save_folder = 'snapshots'` or via
+        # the helper `self.set_save_folder('snapshots')`.
+        # Use a plain assignment (no forward annotation) to avoid static
+        # analysis issues in older type-checkers.
+        self._save_folder = None
 
     # --- Lifecycle hooks (override in subclasses) ---
     def setup(self) -> None:
@@ -66,6 +72,30 @@ class Sketch:
         self.width = int(w)
         self.height = int(h)
         self.fullscreen = bool(fullscreen)
+
+    def set_save_folder(self, folder: Optional[str]) -> None:
+        """Set a per-sketch snapshots folder.
+
+        Example:
+            self.set_save_folder('snapshots')
+
+        This preferred per-sketch value will be used by `save_snapshot()` when
+        resolving relative paths. Use `None` to clear and fall back to the
+        environment variable (if present) or the sketch directory.
+        """
+        self._save_folder = None if folder is None else str(folder)
+
+    @property
+    def save_folder(self) -> Optional[str]:
+        """Property alias for the per-sketch snapshots folder.
+
+        You can set this directly in a sketch: `self.save_folder = 'shots'`.
+        """
+        return self._save_folder
+
+    @save_folder.setter
+    def save_folder(self, folder: Optional[str]) -> None:
+        self.set_save_folder(folder)
 
     def set_title(self, title: str) -> None:
         self._title = str(title)
@@ -225,6 +255,95 @@ class Sketch:
         # scale image
         scaled = pygame.transform.smoothscale(img, (int(w), int(h)))
         self.surface.blit_image(scaled, int(x), int(y))
+
+    def save_snapshot(self, path: str) -> None:
+        """Save the current main surface to disk.
+
+        This helper exists so sketches don't need to `import pygame` themselves
+        just to save a PNG snapshot. It's best-effort and will not raise on
+        failure (keeps examples convenient).
+        """
+        if self.surface is None:
+            return
+        try:
+            # If a relative path is provided, save relative to the sketch file
+            # so examples that call `self.save_snapshot('out.png')` end up next
+            # to the sketch instead of the project root.
+            # Prefer a per-sketch configured directory (`self.save_folder`) if set;
+            # otherwise fall back to the `PYCREATIVE_SNAP_DIR` environment variable.
+            snapshots_dir = self._save_folder if self._save_folder is not None else os.getenv("PYCREATIVE_SNAP_DIR")
+
+            target = path
+            if not os.path.isabs(target):
+                base_dir = os.path.dirname(self.sketch_path) if self.sketch_path else os.getcwd()
+                if snapshots_dir:
+                    # snapshots_dir may be relative to sketch dir
+                    if not os.path.isabs(snapshots_dir):
+                        snapshots_dir = os.path.join(base_dir, snapshots_dir)
+                    # ensure snapshots dir exists
+                    try:
+                        os.makedirs(snapshots_dir, exist_ok=True)
+                    except Exception:
+                        pass
+                    target = os.path.join(snapshots_dir, target)
+                else:
+                    target = os.path.join(base_dir, target)
+
+            # Support sequential numbering for contiguous sequences.
+            # Patterns supported:
+            #  - filename_{n}.png  -> will replace {n} with next integer
+            #  - filename_###.png   -> will replace ### with zero-padded next int
+            # If no pattern is present, we leave the name as-is.
+            def _next_sequence_name(path_template: str) -> str:
+                dirname, fname = os.path.split(path_template)
+                name, ext = os.path.splitext(fname)
+                # {n} style
+                if "{n}" in name:
+                    # find existing matches and pick next
+                    i = 1
+                    while True:
+                        candidate = name.replace("{n}", str(i)) + ext
+                        cand_path = os.path.join(dirname, candidate)
+                        if not os.path.exists(cand_path):
+                            return cand_path
+                        i += 1
+                # #### style: sequence of # characters
+                hashes = None
+                for seq in ["#" * k for k in range(6, 0, -1)]:
+                    if seq in name:
+                        hashes = seq
+                        break
+                if hashes:
+                    pad = len(hashes)
+                    base = name.replace(hashes, "{}")
+                    i = 1
+                    while True:
+                        candidate = (base.format(str(i).zfill(pad))) + ext
+                        cand_path = os.path.join(dirname, candidate)
+                        if not os.path.exists(cand_path):
+                            return cand_path
+                        i += 1
+                # otherwise, return as-is
+                return path_template
+
+            target = _next_sequence_name(target)
+
+            # ensure directory exists when a directory component is provided
+            d = os.path.dirname(target)
+            if d:
+                try:
+                    os.makedirs(d, exist_ok=True)
+                except Exception:
+                    # ignore directory creation errors; we'll attempt save anyway
+                    pass
+
+            pygame.image.save(self.surface.raw, target)
+        except Exception as e:
+            # best-effort; don't raise from examples, but include useful debug info
+            import traceback
+
+            print(f"Failed to save snapshot to {path}: {e}")
+            traceback.print_exc()
 
     def radians(self, deg: float) -> float:
         import math

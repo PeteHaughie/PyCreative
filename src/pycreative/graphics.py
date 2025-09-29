@@ -3,6 +3,41 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 import pygame
+from typing import Any
+
+try:
+    import numpy as _np  # type: ignore
+    _HAS_NUMPY = True
+except Exception:
+    _np = None  # type: ignore
+    _HAS_NUMPY = False
+
+
+class PixelView:
+    """Thin adapter around either a numpy array or a nested list that provides
+    uniform (h,w,c) indexing and a 'shape' attribute. This keeps sketches
+    from needing to import numpy directly while preserving fast paths.
+    """
+    def __init__(self, data: Any):
+        self._data = data
+
+    @property
+    def shape(self):
+        if hasattr(self._data, "shape"):
+            return self._data.shape
+        h = len(self._data)
+        w = len(self._data[0]) if h > 0 else 0
+        c = len(self._data[0][0]) if w > 0 else 0
+        return (h, w, c)
+
+    def __getitem__(self, idx):
+        return self._data[idx]
+
+    def __setitem__(self, idx, value):
+        self._data[idx] = value
+
+    def raw(self):
+        return self._data
 
 
 class Surface:
@@ -38,39 +73,15 @@ class Surface:
         # Curve tightness: 0.0 => standard Catmull-Rom; 1.0 => zero tangents (looser)
         self._curve_tightness: float = 0.0
 
-    @property
-    def size(self) -> Tuple[int, int]:
-        return self._surf.get_size()
+    # --- pixel view helpers ---
+    def is_numpy_backed(self) -> bool:
+        """Return True if the surface pixel helpers will return a numpy-backed array."""
+        return bool(_HAS_NUMPY)
 
     @property
     def raw(self) -> pygame.Surface:
+        """Expose the underlying pygame.Surface for use by helpers (e.g., save)."""
         return self._surf
-
-    # --- state setters (Processing-like names simplified for Python) ---
-    def fill(self, color: Optional[Tuple[int, int, int]]):
-        """Set fill color; pass None to disable fill."""
-        self._fill = color
-
-    def no_fill(self) -> None:
-        self._fill = None
-
-    def stroke(self, color: Optional[Tuple[int, int, int]]):
-        """Set stroke color; pass None to disable stroke."""
-        self._stroke = color
-
-    def no_stroke(self) -> None:
-        self._stroke = None
-
-    def stroke_weight(self, w: int) -> None:
-        self._stroke_weight = max(1, int(w))
-
-    def rect_mode(self, mode: str) -> None:
-        if mode in (self.MODE_CORNER, self.MODE_CENTER):
-            self._rect_mode = mode
-
-    def ellipse_mode(self, mode: str) -> None:
-        if mode in (self.MODE_CORNER, self.MODE_CENTER):
-            self._ellipse_mode = mode
 
     # --- basic operations ---
     def clear(self, color: Tuple[int, int, int]) -> None:
@@ -117,6 +128,8 @@ class Surface:
         finally:
             self._line_cap = prev_cap
             self._line_join = prev_join
+
+ 
 
     def ellipse(
         self,
@@ -608,6 +621,124 @@ class Surface:
                     pygame.draw.polygon(self._surf, self._fill, poly)
                 if self._stroke is not None and self._stroke_weight > 0:
                     pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
+
+    # --- pixel helpers (copy-based) ---
+    def get_pixels(self) -> Any:
+        """Return a copy of the surface pixel array as (H, W, C) uint8.
+
+        - Prefers numpy + pygame.surfarray for speed. Falls back to per-pixel reads
+          using `Surface.get_at` when numpy/surfarray isn't available.
+        - Returns channels=3 (RGB) or 4 (RGBA) depending on surface alpha.
+        """
+        w, h = self._surf.get_size()
+        has_alpha = bool(self._surf.get_flags() & pygame.SRCALPHA)
+
+        # Fast path: numpy + surfarray
+        try:
+            from pygame import surfarray
+
+            if _HAS_NUMPY:
+                rgb = surfarray.array3d(self._surf)  # shape (w,h,3)
+                # transpose to (h,w,3)
+                rgb = _np.transpose(rgb, (1, 0, 2)).copy()
+                if has_alpha:
+                    a = surfarray.array_alpha(self._surf)  # shape (w,h)
+                    a = _np.transpose(a, (1, 0)).copy()
+                    rgba = _np.dstack((rgb, a))
+                    return PixelView(rgba.astype(_np.uint8, copy=True))
+                return PixelView(rgb.astype(_np.uint8, copy=True))
+        except Exception:
+            pass
+
+        # Fallback: per-pixel get_at
+        try:
+            arr = []
+            for y in range(h):
+                row = []
+                for x in range(w):
+                    c = self._surf.get_at((x, y))
+                    if has_alpha:
+                        row.append((c.r, c.g, c.b, c.a))
+                    else:
+                        row.append((c.r, c.g, c.b))
+                arr.append(row)
+            # Prefer returning numpy if available
+            if _HAS_NUMPY:
+                return PixelView(_np.array(arr, dtype=_np.uint8))
+            return PixelView(arr)
+        except Exception:
+            # Last-resort: return empty
+            return PixelView([])
+
+    def set_pixels(self, arr: Any) -> None:
+        """Write a (H,W,3) or (H,W,4) array into the surface.
+
+        Accepts numpy arrays, lists, or other array-like objects. Values are
+        clamped/coerced to uint8.
+        """
+        w, h = self._surf.get_size()
+        # unwrap PixelView if provided
+        if isinstance(arr, PixelView):
+            arr = arr.raw()
+
+        # coerce to numpy if available
+        if _HAS_NUMPY:
+            a = _np.asarray(arr)
+            if a.ndim != 3 or a.shape[0] != h or a.shape[1] != w:
+                raise ValueError(f"set_pixels: expected shape (h,w,c) matching surface {(h,w)}, got {a.shape}")
+            if a.dtype != _np.uint8:
+                a = a.astype(_np.uint8, copy=False)
+            channels = a.shape[2]
+            try:
+                from pygame import surfarray
+
+                if channels == 3:
+                    # transpose to (w,h,3) for surfarray
+                    rgb = _np.transpose(a, (1, 0, 2))
+                    surfarray.blit_array(self._surf, rgb)
+                    return
+                elif channels == 4:
+                    rgb = _np.transpose(a[:, :, :3], (1, 0, 2))
+                    alpha = _np.transpose(a[:, :, 3], (1, 0))
+                    surfarray.blit_array(self._surf, rgb)
+                    # write alpha channel if supported
+                    try:
+                        pixels_a = surfarray.pixels_alpha(self._surf)
+                        pixels_a[:, :] = alpha
+                        del pixels_a
+                    except Exception:
+                        # Fallback: set alpha per-pixel (slow)
+                        for yy in range(h):
+                            for xx in range(w):
+                                c = self._surf.get_at((xx, yy))
+                                c.a = int(alpha[xx, yy])
+                                self._surf.set_at((xx, yy), c)
+                    return
+            except Exception:
+                pass
+
+        # Fallback: iterate per-pixel
+        try:
+            for y in range(h):
+                for x in range(w):
+                    v = arr[y][x]
+                    if len(v) == 4:
+                        self._surf.set_at((x, y), (int(v[0]) & 255, int(v[1]) & 255, int(v[2]) & 255, int(v[3]) & 255))
+                    else:
+                        self._surf.set_at((x, y), (int(v[0]) & 255, int(v[1]) & 255, int(v[2]) & 255))
+        except Exception:
+            raise
+
+    def get_pixel(self, x: int, y: int) -> Tuple[int, ...]:
+        """Return a single pixel color tuple (RGB) or (RGBA)."""
+        c = self._surf.get_at((int(x), int(y)))
+        if bool(self._surf.get_flags() & pygame.SRCALPHA):
+            return (c.r, c.g, c.b, c.a)
+        return (c.r, c.g, c.b)
+
+    def set_pixel(self, x: int, y: int, color: Tuple[int, ...]) -> None:
+        """Set a single pixel color. Accepts (r,g,b) or (r,g,b,a)."""
+        self._surf.set_at((int(x), int(y)), color)
 
 
 class OffscreenSurface(Surface):
