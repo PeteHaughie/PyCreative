@@ -27,6 +27,8 @@ class Surface:
         # Line styling options (cap: 'butt'|'round'|'square', join: 'miter'|'round'|'bevel')
         self._line_cap: str = "butt"
         self._line_join: str = "miter"
+        # shape construction buffer for begin/vertex/end
+        self._shape_points = []
 
     @property
     def size(self) -> Tuple[int, int]:
@@ -182,6 +184,30 @@ class OffscreenSurface(Surface):
             pygame.draw.polygon(self._surf, self._fill, pts)
         if self._stroke is not None and self._stroke_weight > 0:
             pygame.draw.polygon(self._surf, self._stroke, pts, int(self._stroke_weight))
+
+    # --- shape construction helpers (beginShape/vertex/endShape) ---
+    def begin_shape(self) -> None:
+        """Start collecting vertices for a custom shape (beginShape in Processing)."""
+        self._shape_points = []
+
+    def vertex(self, x: float, y: float) -> None:
+        """Add a vertex to the current shape under construction."""
+        self._shape_points.append((x, y))
+
+    def end_shape(self, close: bool = False) -> None:
+        """Finish the current shape and draw it.
+
+        If `close` is True the shape is closed (polygon), otherwise it's drawn
+        as an open polyline.
+        """
+        if not self._shape_points:
+            return
+        if close:
+            self.polygon(self._shape_points)
+        else:
+            self.polyline(self._shape_points)
+        # clear buffer
+        self._shape_points = []
 
     def polyline(self, points: list[tuple[float, float]]) -> None:
         """Draw an open polyline connecting the sequence of points.

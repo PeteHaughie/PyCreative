@@ -54,6 +54,11 @@ pytest tests/
 ---
 For more details, see the example sketches and module READMEs.
 
+## Guides
+
+- Offscreen surfaces and caching: `offscreen.md`
+- Shape construction (begin/vertex/end): `shapes.md`
+
 ## Contributing
 
 Code contributions, pull requests, and suggestions are welcome!
