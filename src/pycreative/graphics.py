@@ -33,6 +33,10 @@ class Surface:
         self._shape_points: list = []
         # Default sampling detail for bezier flattening (used by bezier())
         self._bezier_detail: int = 20
+        # Default sampling/detail and tightness for Catmull-Rom style curves
+        self._curve_detail: int = 20
+        # Curve tightness: 0.0 => standard Catmull-Rom; 1.0 => zero tangents (looser)
+        self._curve_tightness: float = 0.0
 
     @property
     def size(self) -> Tuple[int, int]:
@@ -395,6 +399,85 @@ class Surface:
         dx = 3 * ((p1[0] - p0[0]) * (mt ** 2) + 2 * (p2[0] - p1[0]) * mt * t + (p3[0] - p2[0]) * (t ** 2))
         dy = 3 * ((p1[1] - p0[1]) * (mt ** 2) + 2 * (p2[1] - p1[1]) * mt * t + (p3[1] - p2[1]) * (t ** 2))
         return (dx, dy)
+
+    # --- curve helpers (Catmull-Rom / Processing-style) ---
+    def curve_detail(self, steps: int) -> None:
+        """Set sampling resolution used by `curve()` when flattening into line segments."""
+        self._curve_detail = max(2, int(steps))
+
+    def curve_tightness(self, tightness: float) -> None:
+        """Set the curve tightness (0.0 = Catmull-Rom default). Higher values reduce tangents."""
+        try:
+            self._curve_tightness = float(tightness)
+        except Exception:
+            return
+
+    def curve_point(self, p0, p1, p2, p3, t: float):
+        """Evaluate a Catmull-Rom-like curve (Hermite form) at parameter t in [0,1].
+
+        Accepts scalar coordinates or 2D tuples. Uses p1 and p2 as endpoints and
+        constructs tangents from p0/p2 and p1/p3 scaled by (1 - tightness)/2.
+        """
+        t = float(t)
+        mt = 1.0 - t
+        # tangent scale
+        k = (1.0 - float(self._curve_tightness)) * 0.5
+
+        def _eval_scalar(a, b, c, d):
+            m1 = k * (c - a)
+            m2 = k * (d - b)
+            h00 = (2 * t ** 3) - (3 * t ** 2) + 1
+            h10 = (t ** 3) - (2 * t ** 2) + t
+            h01 = (-2 * t ** 3) + (3 * t ** 2)
+            h11 = (t ** 3) - (t ** 2)
+            return h00 * b + h10 * m1 + h01 * c + h11 * m2
+
+        # tuple (2D) vs scalar
+        if not hasattr(p0, "__iter__"):
+            return _eval_scalar(p0, p1, p2, p3)
+        x = _eval_scalar(p0[0], p1[0], p2[0], p3[0])
+        y = _eval_scalar(p0[1], p1[1], p2[1], p3[1])
+        return (x, y)
+
+    def curve_tangent(self, p0, p1, p2, p3, t: float):
+        """Compute tangent (derivative) of the curve at parameter t.
+
+        Returns scalar or 2-tuple depending on input.
+        """
+        t = float(t)
+        # tangent scale
+        k = (1.0 - float(self._curve_tightness)) * 0.5
+
+        def _eval_scalar_deriv(a, b, c, d):
+            m1 = k * (c - a)
+            m2 = k * (d - b)
+            # derivatives of Hermite basis
+            dh00 = 6 * t ** 2 - 6 * t
+            dh10 = 3 * t ** 2 - 4 * t + 1
+            dh01 = -6 * t ** 2 + 6 * t
+            dh11 = 3 * t ** 2 - 2 * t
+            return dh00 * b + dh10 * m1 + dh01 * c + dh11 * m2
+
+        if not hasattr(p0, "__iter__"):
+            return _eval_scalar_deriv(p0, p1, p2, p3)
+        dx = _eval_scalar_deriv(p0[0], p1[0], p2[0], p3[0])
+        dy = _eval_scalar_deriv(p0[1], p1[1], p2[1], p3[1])
+        return (dx, dy)
+
+    def curve(self, x0: float, y0: float, x1: float, y1: float, x2: float, y2: float, x3: float, y3: float) -> None:
+        """Draw a Catmull-Rom-like curve from (x1,y1) to (x2,y2) with (x0,y0) and (x3,y3) as neighboring points.
+
+        The curve is flattened into straight segments using `curve_detail`.
+        Only stroke is respected (matching Processing semantics).
+        """
+        pts: list[tuple[float, float]] = []
+        steps = max(2, int(self._curve_detail))
+        for i in range(steps + 1):
+            t = i / steps
+            p = self.curve_point((x0, y0), (x1, y1), (x2, y2), (x3, y3), t)
+            pts.append(p)
+        # draw as open polyline
+        self.polyline(pts)
 
     def polyline(self, points: list[tuple[float, float]]) -> None:
         # default simple wrapper uses the current stroke/weight

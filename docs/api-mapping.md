@@ -45,7 +45,7 @@ Graphics primitives & drawing
  - point(x, y) -> self.point(x, y) — Done
 
 Shape construction
- - beginShape()/vertex()/endShape(CLOSE) -> self.begin_shape(); self.vertex(...); self.end_shape(close=True/False) — Todo
+ - beginShape()/vertex()/endShape(CLOSE) -> self.begin_shape(); self.vertex(...); self.end_shape(close=True/False) — Done
  - bezier(), bezierVertex(), curve(), curveVertex() -> self.bezier(...), self.curve(...) — Todo
 
 Drawing state & styles
