@@ -1,7 +1,8 @@
-```markdown
 # Shape Construction (begin_shape / vertex / end_shape)
 
-This page documents PyCreative's immediate-mode shape construction helpers which mirror the familiar Processing API:
+This page documents PyCreative's immediate-mode shape construction helpers which mirror the familiar Processing API.
+
+Core helpers
 
 - `begin_shape()` — start collecting vertices for a shape.
 - `vertex(x, y)` — add a vertex to the current shape.
@@ -18,6 +19,7 @@ Behavior and examples
 
 - The shape uses the current `fill()`, `stroke()`, and `stroke_weight()` state from the drawing surface. If you need to preserve or change state for the shape, call the relevant state methods before calling `begin_shape()`.
 - The shape will be filled using the current fill color if a fill is set. If you only want an outline, call `fill(None)` before `begin_shape()`.
+- Per-call style overrides are supported by the drawing primitives. You can pass `fill=`, `stroke=`, and `stroke_weight=` directly to `end_shape()` or to primitives that draw pre-composed shapes.
 
 Example — draw a triangle on the main canvas
 
@@ -44,7 +46,7 @@ if __name__ == '__main__':
     TriangleSketch().run()
 ```
 
-Example — pre-rendered polygon in an offscreen buffer (see `examples/shape_example.py`)
+Example — pre-rendered polygon in an offscreen buffer
 
 ```py
 class PreRenderShape(Sketch):
@@ -79,4 +81,3 @@ Compatibility
 - These helpers are intentionally small and predictable. They match the Processing semantics for basic polygon construction. More advanced vertex types (bezierVertex, curveVertex) are on the roadmap.
 
 If you'd like additional examples (complex star shapes, winding rules, or an SVG export example), tell me which and I'll add them to this page.
-```

@@ -1,6 +1,6 @@
 # App / Sketch API
 
-This page documents the high-level `Sketch` runtime and convenience helpers that make writing sketches concise and idiomatic.
+This page documents the high-level `Sketch` runtime and convenience helpers. It focuses on the APIs most commonly used by authors of sketches and small apps.
 
 ## Overview
 
@@ -19,113 +19,113 @@ if __name__ == '__main__':
     MySketch(sketch_path=__file__).run()
 ```
 
-When invoked from the CLI (`pycreative examples/my_sketch.py`) the runner sets `sketch_path` automatically.
+When invoked from the CLI (`pycreative examples/my_sketch.py`) the runner sets `sketch_path` automatically and will configure headless mode if requested.
 
 ## Running and headless mode
 
-- `Sketch.run(max_frames=None)` — starts the pygame loop. Provide `max_frames` to stop after N frames.
-- Headless runs (useful for tests or rendering frames) should be invoked via the CLI which sets `SDL_VIDEODRIVER` early. Example:
+- `Sketch.run(max_frames=None)` — starts the pygame loop. Provide `max_frames` to stop after N frames. Useful for batch rendering or tests.
+- Headless runs (useful for tests or rendering frames) are supported by the CLI which sets `SDL_VIDEODRIVER` before importing pygame. Example:
 
 ```bash
 pycreative examples/my_sketch.py --headless --max-frames 1
 ```
 
-## Window and frame helpers
+## Window, frame, and basic helpers
 
 - `size(w, h, fullscreen=False)` — set the sketch size (call in `setup`).
 - `set_title(title)` — set window title.
-- `frame_rate(fps)` — request a framerate; the run loop will throttle using pygame.Clock.
-- `no_loop()` / runtime `no-loop` mode — use `self.no_loop()` to draw once and stop updating.
+- `frame_rate(fps)` — request a target framerate; the run loop uses a `pygame.Clock` to throttle.
+- `no_loop()` / `loop()` — runtime controls: `no_loop()` causes the runtime to draw once and stop; `loop()` resumes.
 
-## Drawing state helpers
+Sketch convenience properties (from the main surface):
 
-State is managed on `self.surface` (a `Surface` wrapper). The `Sketch` provides thin convenience shims that forward to the surface:
+- `width`, `height` — current window size
+- `surface.size` — `(width,height)` tuple on the active `Surface` object
+
+## Drawing state helpers and style context
+
+Drawing state (fill/stroke/stroke_weight, caps/joins) is stored on the `Surface` wrapper (accessible at `self.surface`). The `Sketch` exposes thin shims to make common calls concise:
 
 - `fill(color)` / `no_fill()`
 - `stroke(color)` / `no_stroke()`
 - `stroke_weight(w)`
 
-Per-call overrides are also accepted by high-level primitives; for example `self.rect(x,y,w,h, fill=(r,g,b))` will apply the fill for that call only.
+Temporary style overrides are available as a context manager which mirrors Processing's push/pop style:
+
+```py
+with self.style(fill=(255,0,0), stroke=(0,0,0), stroke_weight=2):
+    self.rect(10, 10, 100, 100)
+# style restored automatically here
+```
+
+Additionally, all shape primitives accept per-call style keyword arguments. These override the current state for the single call and do not mutate the persistent surface style. Supported per-call keys include: `fill=`, `stroke=`, `stroke_weight=` (alias `stroke_width=` accepted).
+
+Example:
+
+```py
+self.rect(10, 10, 100, 50, fill=(200, 20, 20), stroke=(0,255,0), stroke_weight=4)
+```
 
 ## Primitives and helpers
 
-Common helpers available on the Sketch or on `self.surface`:
+Most drawing helpers are available directly on the Sketch and delegate to `self.surface`:
 
 - `clear(color)` — clear the canvas.
 - `rect(x,y,w,h, fill=None, stroke=None, stroke_weight=None)`
 - `ellipse(x,y,w,h, fill=None, stroke=None, stroke_weight=None)`
-- `line(x1,y1,x2,y2, color=None, width=None)`
+- `line(x1,y1,x2,y2, stroke=None, width=None)`
 - `point(x,y,color)`
-- `image(img, x, y, w=None, h=None)` — draws or scales an image.
-- `bezier(...)`, `bezier_detail(steps)` — cubic bezier helpers.
-- `curve(...)`, `curve_detail(steps)`, `curve_tightness(t)` — curve helpers.
+- `image(img, x, y, w=None, h=None)` — draws or scales an image/OffscreenSurface.
 
-If you need an offscreen buffer, use `create_graphics(w,h, inherit_state=False)` which returns an `OffscreenSurface` with the same API as `self.surface`.
+Use `self.surface` directly when you need the Surface-level APIs (pixels, low-level blits, or style copying to offscreen surfaces).
 
-## Convenience: save snapshots and sequences
+## Offscreen drawing
 
-`Sketch.save_snapshot(path)` writes the current main surface to disk. Behavior:
+Use `create_graphics(w, h, inherit_state=False)` to create an `OffscreenSurface`. When `inherit_state=True` the new offscreen buffer copies the current surface's drawing state (fill/stroke/stroke_weight) so common patterns (rendering text or shapes with the same style) are convenient.
 
-- If `path` is relative it is resolved next to the sketch file (the directory of `sketch_path`) so examples that call `self.save_snapshot('out.png')` save beside the sketch.
-- Prefer a per-sketch setting: set `self.save_folder = 'snapshots'` in `setup()` or call
-    `self.set_save_folder('snapshots')`. This value is used in preference to the
-    environment variable if present. Example:
+`OffscreenSurface` behaves like the main surface and supports a context manager for scoped drawing:
 
 ```py
-def setup(self):
-        self.save_folder = 'snapshots'   # or: self.set_save_folder('snapshots')
+off = self.create_graphics(300, 200, inherit_state=True)
+with off:
+    off.clear((0,0,0))
+    off.ellipse(150,100,100,100, fill=(255,128,0))
+
+# draw to main surface
+self.image(off, 20, 20)
 ```
 
-If you don't set a per-sketch folder, `PYCREATIVE_SNAP_DIR` remains a supported
-fallback and may point to a directory relative to the sketch file.
-
-- Sequential numbering is supported using placeholders:
-  - `{n}` — replaced with the next integer (1,2,3...).
-  - `###` (1-6 `#`) — replaced with a zero-padded integer with width equal to number of `#`.
-
-Examples:
-
-```py
-self.save_snapshot('frame_{n}.png')    # frame_1.png, frame_2.png, ...
-self.save_snapshot('frame_####.png')   # frame_0001.png, frame_0002.png
-```
-
-Processing note: Processing's `saveFrame()` uses `####`-style placeholders. We support a similar pattern plus `{n}` which is easier to generate programmatically.
+See `docs/offscreen.md` for more patterns and caching helpers.
 
 ## Pixel access and image helpers
 
-For full guidance on pixel access and the `PixelView` object returned by `get_pixels()`, see `docs/pixels.md`.
+High level pixel APIs are summarized here; for full details and examples see `docs/pixels.md`.
 
-Short summary:
+- `with self.surface.pixels() as px:` — context manager providing a `PixelView` for read-modify-write pixel operations. The view hides numpy details and writes back on exit.
+- `get_pixels()` / `set_pixels()` — copy-based helpers that return/accept array-like buffers.
+- `load_image(path)` and `image(img, x, y, w=None, h=None)` — `load_image()` returns an `OffscreenSurface` or a Surface-like wrapper so images can be manipulated with the same API (pixels(), copy_to, blit).
 
-- `get_pixels()` returns a `PixelView` (shape `(H,W,C)`) that wraps a numpy array when available or a nested list fallback.
-- `set_pixels(arr)` writes the array back to the surface (accepts `PixelView` as well).
-- Use `self.surface.is_numpy_backed()` to detect whether you can operate on a numpy ndarray (lazy import of numpy recommended).
+## Saving snapshots and sequences
 
-## CLI and examples
+`Sketch.save_snapshot(path)` writes the current main surface to disk. Behavior:
 
-Use the `pycreative` CLI to run sketches, set headless mode, and limit frames. The CLI ensures `SDL_VIDEODRIVER` is set before importing pygame for headless use.
+- Relative paths are resolved next to the sketch file (`sketch_path`).
+- Set `self.save_folder` in `setup()` to change where snapshots are written for that sketch.
+- Support for sequential patterns: `{n}` and `###`-style placeholders for frame numbering are supported.
 
-Example basic sketch:
+Example:
 
 ```py
-from pycreative.app import Sketch
-
-class MySketch(Sketch):
-    def setup(self):
-        self.size(320, 240)
-    def draw(self):
-        self.clear((0,0,0))
-        self.ellipse(self.width/2, self.height/2, 100, 100, fill=(200,20,20))
-
-if __name__ == '__main__':
-    MySketch().run()
+self.save_snapshot('frames/frame_{n}.png')
 ```
+
+## Debugging and testing tips
+
+- For headless tests use the CLI `--headless` flag or set `SDL_VIDEODRIVER=dummy` before importing pygame.
+- In tests, create small surfaces and inspect pixels after drawing to assert expected behavior.
 
 ## Where to look next
 
 - `docs/pixels.md` — pixel API and PixelView usage.
-- `examples/` — runnable sketches demonstrating features.
-- `src/pycreative/app.py` and `src/pycreative/graphics.py` — source for runtime and drawing primitives.
-
-If you want, I can add a small `docs/usage.md` with quick recipes (record a frame sequence, render offscreen buffers, headless CI tips). Which recipes would be most helpful? 
+- `docs/offscreen.md` — offscreen buffers, caching patterns, and examples.
+- `src/pycreative/app.py` and `src/pycreative/graphics.py` — implementation of runtime and primitives.

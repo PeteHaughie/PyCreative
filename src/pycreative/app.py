@@ -11,6 +11,10 @@ from .graphics import Surface as GraphicsSurface
 from .graphics import OffscreenSurface
 from .assets import Assets
 
+# Sentinel for pending state fields so we can distinguish "no pending value"
+# from an explicit `None` which means "disable this style" (e.g., no_fill()).
+_PENDING_UNSET = object()
+
 
 class Sketch:
     """Minimal Sketch runtime: lifecycle hooks and a pygame-based run loop.
@@ -37,13 +41,17 @@ class Sketch:
         self._title: str = "PyCreative"
         # Generic cache store for sketches (used by cached graphics helpers)
         self._cache_store = {}
-        # Pending drawing state if user sets it before the Surface is created
-        self._pending_fill: Optional[Tuple[int, int, int]] = None
-        self._pending_stroke: Optional[Tuple[int, int, int]] = None
-        self._pending_stroke_weight: Optional[int] = None
+        # Pending drawing state if user sets it before the Surface is created.
+        # Use a sentinel to distinguish "no pending change" from an explicit
+        # `None` (which means disable fill/stroke).
+        self._pending_fill = _PENDING_UNSET
+        self._pending_stroke = _PENDING_UNSET
+        self._pending_stroke_weight = _PENDING_UNSET
+
         # Runtime no-loop control (if True, draw() runs once then is suppressed)
         self._no_loop_mode = False
         self._has_drawn_once = False
+
         # Optional per-sketch snapshots folder (preferred over env var)
         # Can be set by assignment: `self.save_folder = 'snapshots'` or via
         # the helper `self.set_save_folder('snapshots')`.
@@ -156,20 +164,26 @@ class Sketch:
         # prefer assets manager which handles resolution and caching
         try:
             if hasattr(self, "assets") and self.assets:
-                return self.assets.load_image(path)
+                img = self.assets.load_image(path)
+                if img is not None:
+                    return OffscreenSurface(getattr(img, "raw", img))
         except Exception as e:
             print(f"Sketch: Assets.load_image failed for '{path}': {e}")
 
         # fallback to surface loader if available
         try:
             if self.surface is not None:
-                return self.surface.load_image(path)
+                img = self.surface.load_image(path)
+                # surface.load_image returns a pygame.Surface; wrap in OffscreenSurface
+                if img is not None:
+                    return OffscreenSurface(getattr(img, "raw", img))
         except Exception:
             pass
 
         # final fallback to pygame
         try:
-            return pygame.image.load(path)
+            img = pygame.image.load(path)
+            return OffscreenSurface(img)
         except Exception:
             print(f"Failed to load image: {path}")
             return None
@@ -192,15 +206,20 @@ class Sketch:
         # forward per-call styles to Surface.rect
         self.surface.rect(x, y, w, h, fill=fill, stroke=stroke, stroke_weight=stroke_width)
 
-    def triangle(self, x1, y1, x2, y2, x3, y3):
+    def triangle(self, x1, y1, x2, y2, x3, y3, fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_width: Optional[int] = None):
         if self.surface is None:
             return
-        self.surface.polygon([(x1, y1), (x2, y2), (x3, y3)])
+        pts = [(x1, y1), (x2, y2), (x3, y3)]
+        # forward per-call styles to Surface.polygon_with_style
+        self.surface.polygon_with_style(pts, fill=fill, stroke=stroke, stroke_weight=stroke_width)
 
-    def quad(self, x1, y1, x2, y2, x3, y3, x4, y4):
+    def quad(self, x1, y1, x2, y2, x3, y3, x4, y4, fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_width: Optional[int] = None):
         if self.surface is None:
             return
-        self.surface.polygon([(x1, y1), (x2, y2), (x3, y3), (x4, y4)])
+        pts = [(x1, y1), (x2, y2), (x3, y3), (x4, y4)]
+        # forward per-call styles to Surface.polygon_with_style for parity
+        # with other shape helpers.
+        self.surface.polygon_with_style(pts, fill=fill, stroke=stroke, stroke_weight=stroke_width)
 
     def polyline(self, points: list[tuple[float, float]], stroke: Optional[Tuple[int, int, int]] = None, stroke_width: Optional[int] = None):
         """Draw an open polyline. Accepts list of (x,y) points and optional stroke/stroke_width.
@@ -249,12 +268,47 @@ class Sketch:
     def image(self, img, x, y, w=None, h=None):
         if self.surface is None or img is None:
             return
+        src = getattr(img, "raw", img)
         if w is None or h is None:
-            self.surface.blit_image(img, int(x), int(y))
+            self.surface.blit_image(src, int(x), int(y))
             return
-        # scale image
-        scaled = pygame.transform.smoothscale(img, (int(w), int(h)))
+        # scale image using the underlying surface
+        scaled = pygame.transform.smoothscale(src, (int(w), int(h)))
         self.surface.blit_image(scaled, int(x), int(y))
+
+    def style(self, *args, **kwargs):
+        """Return a context manager that temporarily overrides drawing style on the active surface.
+
+        Example:
+            with self.style(fill=None):
+                self.rect(10,10,100,100)
+        """
+        if self.surface is None:
+            # no-op context manager
+            from contextlib import contextmanager
+
+            @contextmanager
+            def _noop():
+                yield None
+
+            return _noop()
+        return self.surface.style(*args, **kwargs)
+
+    # --- PImage-style convenience wrappers ---
+    def get(self, *args):
+        if self.surface is None:
+            raise RuntimeError("No surface available")
+        return self.surface.get(*args)
+
+    def copy(self, *args):
+        if self.surface is None:
+            raise RuntimeError("No surface available")
+        return self.surface.copy(*args)
+
+    def set(self, x, y, value):
+        if self.surface is None:
+            raise RuntimeError("No surface available")
+        return self.surface.set(x, y, value)
 
     def save_snapshot(self, path: str) -> None:
         """Save the current main surface to disk.
@@ -368,6 +422,7 @@ class Sketch:
         fill: Optional[Tuple[int, int, int]] = None,
         stroke: Optional[Tuple[int, int, int]] = None,
         stroke_weight: Optional[int] = None,
+        stroke_width: Optional[int] = None,
     ) -> None:
         """Draw an ellipse. Backwards-compatible parameters (fill/stroke/stroke_weight)
         are applied temporarily to the surface state if provided.
@@ -385,11 +440,18 @@ class Sketch:
                 self.surface.fill(fill)
             if stroke is not None:
                 self.surface.stroke(stroke)
-            if stroke_weight is not None:
-                self.surface.stroke_weight(stroke_weight)
+            # accept both stroke_weight and stroke_width for compatibility;
+            # prefer stroke_width if provided by caller.
+            chosen_sw = None
+            if stroke_width is not None:
+                chosen_sw = int(stroke_width)
+            elif stroke_weight is not None:
+                chosen_sw = int(stroke_weight)
+            if chosen_sw is not None:
+                self.surface.stroke_weight(chosen_sw)
 
             # forward per-call styles to Surface.ellipse
-            self.surface.ellipse(x, y, w, h, fill=fill, stroke=stroke, stroke_weight=stroke_weight)
+            self.surface.ellipse(x, y, w, h, fill=fill, stroke=stroke, stroke_weight=chosen_sw)
         finally:
             # Restore previous state
             self.surface._fill = prev_fill
@@ -422,11 +484,12 @@ class Sketch:
         self.surface = GraphicsSurface(self._surface)
         # Apply any drawing state set earlier in setup() before the Surface existed
         try:
-            if self._pending_fill is not None:
+            if self._pending_fill is not _PENDING_UNSET:
+                # explicit None means disable fill
                 self.surface.fill(self._pending_fill)
-            if self._pending_stroke is not None:
+            if self._pending_stroke is not _PENDING_UNSET:
                 self.surface.stroke(self._pending_stroke)
-            if self._pending_stroke_weight is not None:
+            if self._pending_stroke_weight is not _PENDING_UNSET:
                 self.surface.stroke_weight(self._pending_stroke_weight)
         except Exception:
             # best-effort; don't fail startup for state application

@@ -12,13 +12,13 @@ class GraphicsDemo(Sketch):
         For CairoSurface, use mode='cairo'. For Pygame Surface, omit the mode parameter.
         """
         self.size(800, 600)
-        self.bg = 100 # it also accepts an RGB tuple for color
+        self.bg = (100, 100, 100) # it also accepts an RGB tuple for color
         # self.bg = (10, 10, 10)
         self.set_title("Graphics Example")
-        self.img = self.load_image("dont.png")
+        self.img = self.load_image("flowers.jpg")
         if not self.img:
             print(
-                "Failed to load image. Make sure 'data/dont.png' is in the same directory."
+                "Failed to load image. Make sure 'data/flowers.jpg' is in the same directory."
             )
             self.img = None
         """
@@ -31,6 +31,8 @@ class GraphicsDemo(Sketch):
         self.fill(r, g, b, a)  # Set fill color with alpha
         self.noFill()  # Disable fill
         """
+        self.no_stroke()
+        self.no_fill()
 
     def draw(self):
         self.clear(self.bg)
@@ -44,11 +46,32 @@ class GraphicsDemo(Sketch):
                 stroke=(255, 255, 255),
                 stroke_width=1,
             )
-        self.rect(50, self.height / 2 - 100, self.width / 2 - 50, 100)
-        self.ellipse(225, self.height - 150, 200, 200)
+        self.rect(
+            50,
+            self.height / 2 - 100,
+            self.width / 2 - 50,
+            100,
+            fill=(255, 100, 100),
+            stroke=(0, 0, 0),
+            stroke_width=2,
+        )
+        self.ellipse(
+            225,
+            self.height - 150,
+            200,
+            200,
+            fill=(100, 255, 100),
+            stroke=(0, 0, 0),
+            stroke_width=2
+        )
         # right hand side of canvas
         self.triangle(
-            self.width / 2 + 50, 50, self.width - 50, 50, self.width - 200, 150
+            self.width / 2 + 50, 50,
+            self.width - 50, 50,
+            self.width - 200, 150,
+            stroke=(255, 255, 0),
+            stroke_width=3,
+            fill=(0, 0, 255)
         )
         self.quad(
             self.width / 2 + 50,
@@ -59,6 +82,9 @@ class GraphicsDemo(Sketch):
             self.height / 2,
             self.width / 2 + 100,
             self.height / 2,
+            stroke=(0, 255, 255),
+            stroke_width=3,
+            fill=(255, 0, 0)
         )
         self.arc(
             self.width / 2 + 100,
@@ -100,8 +126,8 @@ class GraphicsDemo(Sketch):
             # Draw the image at the center of the window
             img_w, img_h = self.img.get_size()
             self.image(
-                self.img, 100, 150, img_w / 10, img_h / 10
-            )  # Draw at (100, 150) at 10% size
+                self.img, 100, 150, img_w / 5, img_h / 5
+            )  # Draw at (100, 150) at 20% size
 
 
 if __name__ == "__main__":

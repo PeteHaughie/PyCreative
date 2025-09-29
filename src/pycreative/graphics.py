@@ -4,6 +4,7 @@ from typing import Optional, Tuple
 
 import pygame
 from typing import Any
+from contextlib import contextmanager
 
 try:
     import numpy as _np  # type: ignore
@@ -83,6 +84,28 @@ class Surface:
         """Expose the underlying pygame.Surface for use by helpers (e.g., save)."""
         return self._surf
 
+    def get_size(self) -> tuple[int, int]:
+        """Return (width, height) of the underlying surface."""
+        return self._surf.get_size()
+
+    @property
+    def size(self) -> tuple[int, int]:
+        """Convenience property returning (width, height) of the surface."""
+        return self.get_size()
+
+    def text(self, txt: str, x: int, y: int, font_name: Optional[str] = None, size: int = 24, color: Tuple[int, int, int] = (0, 0, 0)) -> None:
+        """Render text onto the surface. Provided on Surface for convenience so
+        sketches can call `self.surface.text(...)` regardless of whether the
+        surface is on- or off-screen.
+        """
+        try:
+            font = pygame.font.SysFont(font_name, int(size))
+            surf = font.render(str(txt), True, color)
+            self._surf.blit(surf, (int(x), int(y)))
+        except Exception:
+            # best-effort; don't crash sketches if font rendering isn't available
+            return
+
     # --- basic operations ---
     def clear(self, color: Tuple[int, int, int]) -> None:
         self._surf.fill(color)
@@ -96,6 +119,7 @@ class Surface:
         fill: Optional[Tuple[int, int, int]] = None,
         stroke: Optional[Tuple[int, int, int]] = None,
         stroke_weight: Optional[int] = None,
+        stroke_width: Optional[int] = None,
         cap: Optional[str] = None,
         join: Optional[str] = None,
     ) -> None:
@@ -117,9 +141,16 @@ class Surface:
             if join is not None:
                 self.set_line_join(join)
 
+            # prefer explicit stroke_width alias if provided
+            if stroke_width is not None:
+                sw = int(stroke_width)
+            elif stroke_weight is not None:
+                sw = int(stroke_weight)
+            else:
+                sw = int(self._stroke_weight)
+
             fill_col = fill if fill is not None else self._fill
             stroke_col = stroke if stroke is not None else self._stroke
-            sw = int(stroke_weight) if stroke_weight is not None else int(self._stroke_weight)
 
             if fill_col is not None:
                 pygame.draw.rect(self._surf, fill_col, rect)
@@ -140,6 +171,7 @@ class Surface:
         fill: Optional[Tuple[int, int, int]] = None,
         stroke: Optional[Tuple[int, int, int]] = None,
         stroke_weight: Optional[int] = None,
+        stroke_width: Optional[int] = None,
         cap: Optional[str] = None,
         join: Optional[str] = None,
     ) -> None:
@@ -158,9 +190,17 @@ class Surface:
             if join is not None:
                 self.set_line_join(join)
 
+            # accept both stroke_weight and stroke_width for compatibility;
+            # prefer stroke_width if provided by caller.
+            if stroke_width is not None:
+                sw = int(stroke_width)
+            elif stroke_weight is not None:
+                sw = int(stroke_weight)
+            else:
+                sw = int(self._stroke_weight)
+
             fill_col = fill if fill is not None else self._fill
             stroke_col = stroke if stroke is not None else self._stroke
-            sw = int(stroke_weight) if stroke_weight is not None else int(self._stroke_weight)
 
             if fill_col is not None:
                 pygame.draw.ellipse(self._surf, fill_col, rect)
@@ -170,6 +210,11 @@ class Surface:
             self._line_cap = prev_cap
             self._line_join = prev_join
 
+    # Backwards-compatible alias: `img` -> `image`
+    def img(self, *args, **kwargs) -> None:
+        """Compatibility alias matching some examples that call `img(...)` on surfaces."""
+        return self.image(*args, **kwargs)
+
     def line(
         self,
         x1: float,
@@ -178,6 +223,9 @@ class Surface:
         y2: float,
         color: Optional[Tuple[int, int, int]] = None,
         width: Optional[int] = None,
+        # compatibility aliases
+        stroke: Optional[Tuple[int, int, int]] = None,
+        stroke_width: Optional[int] = None,
         cap: Optional[str] = None,
         join: Optional[str] = None,
     ) -> None:
@@ -185,8 +233,12 @@ class Surface:
         current stroke and stroke_weight are used. Optional `cap` and `join`
         temporarily override line cap/join styles for this draw call.
         """
-        col = color if color is not None else self._stroke
-        w = int(width) if width is not None else int(self._stroke_weight)
+        # prefer explicit alias arguments if provided
+        col = stroke if stroke is not None else (color if color is not None else self._stroke)
+        if stroke_width is not None:
+            w = int(stroke_width)
+        else:
+            w = int(width) if width is not None else int(self._stroke_weight)
         if col is None or w <= 0:
             # nothing to draw
             return
@@ -211,6 +263,72 @@ class Surface:
             # restore
             self._line_cap = prev_cap
             self._line_join = prev_join
+
+    # Convenience shape helpers to mirror Sketch API on Surface so OffscreenSurface
+    # supports triangle/quad directly.
+    def triangle(self, x1, y1, x2, y2, x3, y3, fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
+        pts = [(x1, y1), (x2, y2), (x3, y3)]
+        # prefer stroke_width
+        sw = int(stroke_width) if stroke_width is not None else (int(stroke_weight) if stroke_weight is not None else None)
+        self.polygon_with_style(pts, fill=fill, stroke=stroke, stroke_weight=sw)
+
+    def quad(self, x1, y1, x2, y2, x3, y3, x4, y4, fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
+        pts = [(x1, y1), (x2, y2), (x3, y3), (x4, y4)]
+        sw = int(stroke_width) if stroke_width is not None else (int(stroke_weight) if stroke_weight is not None else None)
+        self.polygon_with_style(pts, fill=fill, stroke=stroke, stroke_weight=sw)
+
+    def arc(self, x: float, y: float, w: float, h: float, start_rad: float, end_rad: float, mode: str = "open", fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
+        """Draw an arc; accepts per-call fill/stroke/stroke_weight (or stroke_width) like Sketch.arc."""
+        # save previous state
+        prev_fill = self._fill
+        prev_stroke = self._stroke
+        prev_sw = self._stroke_weight
+        try:
+            if fill is not None:
+                self.fill(fill)
+            if stroke is not None:
+                self.stroke(stroke)
+            # prefer stroke_width alias
+            if stroke_width is not None:
+                self.stroke_weight(int(stroke_width))
+            elif stroke_weight is not None:
+                self.stroke_weight(int(stroke_weight))
+            # delegate to existing implementation (which uses self._fill/_stroke/_stroke_weight)
+            # Note: reuse original arc implementation body by calling the internal arc logic
+            rect = pygame.Rect(int(x - w / 2), int(y - h / 2), int(w), int(h))
+            if mode == "open":
+                if self._stroke is not None:
+                    pygame.draw.arc(self._surf, self._stroke, rect, float(start_rad), float(end_rad), int(self._stroke_weight))
+            else:
+                import math
+
+                steps = max(6, int((end_rad - start_rad) * 10))
+                pts = []
+                cx = x
+                cy = y
+                rx = w / 2.0
+                ry = h / 2.0
+                for i in range(steps + 1):
+                    t = start_rad + (end_rad - start_rad) * (i / max(1, steps))
+                    px = cx + rx * math.cos(t)
+                    py = cy + ry * math.sin(t)
+                    pts.append((px, py))
+                if mode == "pie":
+                    poly = [(int(cx), int(cy))] + [(int(px), int(py)) for px, py in pts]
+                    if self._fill is not None:
+                        pygame.draw.polygon(self._surf, self._fill, poly)
+                    if self._stroke is not None and self._stroke_weight > 0:
+                        pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
+                elif mode == "chord":
+                    poly = [(int(px), int(py)) for px, py in pts]
+                    if self._fill is not None:
+                        pygame.draw.polygon(self._surf, self._fill, poly)
+                    if self._stroke is not None and self._stroke_weight > 0:
+                        pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
+        finally:
+            self._fill = prev_fill
+            self._stroke = prev_stroke
+            self._stroke_weight = prev_sw
 
     def point(self, x: float, y: float, color: Tuple[int, int, int]) -> None:
         self._surf.set_at((int(x), int(y)), color)
@@ -552,6 +670,86 @@ class Surface:
         if join in ("miter", "round", "bevel"):
             self._line_join = join
 
+    # --- style state helpers (public API) ---
+    def fill(self, color: Optional[Tuple[int, int, int]]) -> None:
+        """Set the fill color. Use `None` to disable filling (noFill())."""
+        if color is None:
+            self._fill = None
+            return
+        try:
+            self._fill = (int(color[0]) & 255, int(color[1]) & 255, int(color[2]) & 255)
+        except Exception:
+            # best-effort: ignore invalid input
+            self._fill = None
+
+    def no_fill(self) -> None:
+        """Disable filling for subsequent shape draws."""
+        self._fill = None
+
+    def stroke(self, color: Optional[Tuple[int, int, int]]) -> None:
+        """Set the stroke color. Use `None` to disable stroke (noStroke())."""
+        if color is None:
+            self._stroke = None
+            return
+        try:
+            self._stroke = (int(color[0]) & 255, int(color[1]) & 255, int(color[2]) & 255)
+        except Exception:
+            self._stroke = None
+
+    def no_stroke(self) -> None:
+        """Disable stroke for subsequent shape draws."""
+        self._stroke = None
+
+    def stroke_weight(self, w: int) -> None:
+        """Set the stroke weight (line width) for subsequent shapes."""
+        try:
+            self._stroke_weight = int(w)
+        except Exception:
+            # ignore invalid values
+            pass
+
+    @contextmanager
+    def style(self, fill: object = ... , stroke: object = ... , stroke_weight: object = ... , cap: object = ... , join: object = ...):
+        """Temporarily override drawing style state inside a `with` block.
+
+        Usage:
+            with surface.style(fill=None):  # disable fill for block
+                surface.rect(...)
+
+        Passing `...` (ellipsis, the default) means "don't change this value".
+        To explicitly disable fill or stroke pass `None`.
+        """
+        prev_fill = self._fill
+        prev_stroke = self._stroke
+        prev_sw = self._stroke_weight
+        prev_cap = self._line_cap
+        prev_join = self._line_join
+        try:
+            if fill is not ...:
+                if fill is None:
+                    self.no_fill()
+                else:
+                    self.fill(fill)
+            if stroke is not ...:
+                if stroke is None:
+                    self.no_stroke()
+                else:
+                    self.stroke(stroke)
+            if stroke_weight is not ...:
+                self.stroke_weight(int(stroke_weight))
+            if cap is not ...:
+                self.set_line_cap(cap)
+            if join is not ...:
+                self.set_line_join(join)
+            yield self
+        finally:
+            # restore previous style state
+            self._fill = prev_fill
+            self._stroke = prev_stroke
+            self._stroke_weight = prev_sw
+            self._line_cap = prev_cap
+            self._line_join = prev_join
+
     def stroke_path(self, points: list[tuple[float, float]], closed: bool = False, cap: Optional[str] = None, join: Optional[str] = None, miter_limit: float = 10.0) -> None:
         """Unified stroking method that honors cap/join/miter options.
 
@@ -583,44 +781,63 @@ class Surface:
             self._line_cap = prev_cap
             self._line_join = prev_join
 
-    def arc(self, x: float, y: float, w: float, h: float, start_rad: float, end_rad: float, mode: str = "open") -> None:
-        """Draw an arc. mode can be 'open' (stroke-only arc), 'pie' (filled pie), or 'chord'.
+    def arc(self, x: float, y: float, w: float, h: float, start_rad: float, end_rad: float, mode: str = "open", fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
+        """Draw an arc. Accepts optional per-call fill/stroke/stroke_weight (or stroke_width).
 
         This is a best-effort implementation using pygame drawing primitives.
         """
-        rect = pygame.Rect(int(x - w / 2), int(y - h / 2), int(w), int(h))
-        if mode == "open":
-            # Draw arc outline only
-            if self._stroke is not None:
-                pygame.draw.arc(self._surf, self._stroke, rect, float(start_rad), float(end_rad), int(self._stroke_weight))
-        else:
-            # For pie/chord, construct polygon points along the ellipse arc
-            import math
+        # Save previous style state
+        prev_fill = self._fill
+        prev_stroke = self._stroke
+        prev_sw = self._stroke_weight
+        try:
+            if fill is not None:
+                self.fill(fill)
+            if stroke is not None:
+                self.stroke(stroke)
+            if stroke_width is not None:
+                self.stroke_weight(int(stroke_width))
+            elif stroke_weight is not None:
+                self.stroke_weight(int(stroke_weight))
 
-            steps = max(6, int((end_rad - start_rad) * 10))
-            pts = []
-            cx = x
-            cy = y
-            rx = w / 2.0
-            ry = h / 2.0
-            for i in range(steps + 1):
-                t = start_rad + (end_rad - start_rad) * (i / max(1, steps))
-                px = cx + rx * math.cos(t)
-                py = cy + ry * math.sin(t)
-                pts.append((px, py))
-            if mode == "pie":
-                # close to center
-                poly = [(int(cx), int(cy))] + [(int(px), int(py)) for px, py in pts]
-                if self._fill is not None:
-                    pygame.draw.polygon(self._surf, self._fill, poly)
-                if self._stroke is not None and self._stroke_weight > 0:
-                    pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
-            elif mode == "chord":
-                poly = [(int(px), int(py)) for px, py in pts]
-                if self._fill is not None:
-                    pygame.draw.polygon(self._surf, self._fill, poly)
-                if self._stroke is not None and self._stroke_weight > 0:
-                    pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
+            rect = pygame.Rect(int(x - w / 2), int(y - h / 2), int(w), int(h))
+            if mode == "open":
+                # Draw arc outline only
+                if self._stroke is not None:
+                    pygame.draw.arc(self._surf, self._stroke, rect, float(start_rad), float(end_rad), int(self._stroke_weight))
+            else:
+                # For pie/chord, construct polygon points along the ellipse arc
+                import math
+
+                steps = max(6, int((end_rad - start_rad) * 10))
+                pts = []
+                cx = x
+                cy = y
+                rx = w / 2.0
+                ry = h / 2.0
+                for i in range(steps + 1):
+                    t = start_rad + (end_rad - start_rad) * (i / max(1, steps))
+                    px = cx + rx * math.cos(t)
+                    py = cy + ry * math.sin(t)
+                    pts.append((px, py))
+                if mode == "pie":
+                    # close to center
+                    poly = [(int(cx), int(cy))] + [(int(px), int(py)) for px, py in pts]
+                    if self._fill is not None:
+                        pygame.draw.polygon(self._surf, self._fill, poly)
+                    if self._stroke is not None and self._stroke_weight > 0:
+                        pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
+                elif mode == "chord":
+                    poly = [(int(px), int(py)) for px, py in pts]
+                    if self._fill is not None:
+                        pygame.draw.polygon(self._surf, self._fill, poly)
+                    if self._stroke is not None and self._stroke_weight > 0:
+                        pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
+        finally:
+            # Restore previous style state
+            self._fill = prev_fill
+            self._stroke = prev_stroke
+            self._stroke_weight = prev_sw
 
     # --- pixel helpers (copy-based) ---
     def get_pixels(self) -> Any:
@@ -739,6 +956,173 @@ class Surface:
     def set_pixel(self, x: int, y: int, color: Tuple[int, ...]) -> None:
         """Set a single pixel color. Accepts (r,g,b) or (r,g,b,a)."""
         self._surf.set_at((int(x), int(y)), color)
+
+    # --- PImage-style pixel helpers ---
+    @contextmanager
+    def pixels(self):
+        """Context manager for pixel access. Yields a `PixelView` and writes
+        the data back to the surface on exit.
+
+        Usage:
+            with surface.pixels() as pv:
+                pv[y,x] = (r,g,b)
+        """
+        pv = self.get_pixels()
+        try:
+            yield pv
+        finally:
+            # Always attempt to write back; let exceptions surface to the caller
+            self.set_pixels(pv)
+
+    def load_pixels(self) -> Any:
+        """Compatibility shim: returns a PixelView copy of the surface pixels."""
+        return self.get_pixels()
+
+    def update_pixels(self, arr: Any) -> None:
+        """Compatibility shim: write pixels back to the surface.
+
+        Requires an array or PixelView argument.
+        """
+        if arr is None:
+            raise ValueError("update_pixels requires a pixel array or PixelView")
+        self.set_pixels(arr)
+
+    def get(self, *args):
+        """PImage-style get().
+
+        - get() -> OffscreenSurface (copy of whole image)
+        - get(x,y) -> color tuple (r,g,b) or (r,g,b,a)
+        - get(x,y,w,h) -> OffscreenSurface (clipped region)
+        """
+        if len(args) == 0:
+            return OffscreenSurface(self._surf.copy())
+
+        if len(args) == 2:
+            x, y = int(args[0]), int(args[1])
+            w, h = self._surf.get_size()
+            if x < 0 or y < 0 or x >= w or y >= h:
+                # Out-of-bounds: return black (with alpha if supported)
+                if bool(self._surf.get_flags() & pygame.SRCALPHA):
+                    return (0, 0, 0, 0)
+                return (0, 0, 0)
+            return self.get_pixel(x, y)
+
+        if len(args) == 4:
+            x, y, rw, rh = map(int, args)
+            sw, sh = self._surf.get_size()
+            # Clip to surface bounds
+            ix1 = max(0, x)
+            iy1 = max(0, y)
+            ix2 = min(sw, x + rw)
+            iy2 = min(sh, y + rh)
+            iw = max(0, ix2 - ix1)
+            ih = max(0, iy2 - iy1)
+            flags = pygame.SRCALPHA if (self._surf.get_flags() & pygame.SRCALPHA) else 0
+            new = pygame.Surface((max(0, iw), max(0, ih)), flags)
+            if iw > 0 and ih > 0:
+                new.blit(self._surf, (0, 0), pygame.Rect(ix1, iy1, iw, ih))
+            return OffscreenSurface(new)
+
+        raise TypeError("get() accepts 0, 2, or 4 arguments")
+
+    def copy(self, *args) -> None:
+        """PImage-style copy.
+
+        Signatures:
+          - copy() -> returns self (no-op)
+          - copy(sx, sy, sw, sh, dx, dy, dw, dh)
+          - copy(src_surface, sx, sy, sw, sh, dx, dy, dw, dh)
+        """
+        # copy() -> return self (Processing returns PImage)
+        if len(args) == 0:
+            return self
+
+        # copy from other surface: first arg is source
+        if len(args) == 9:
+            src = args[0]
+            try:
+                sx, sy, sw, sh, dx, dy, dw, dh = map(int, args[1:9])
+            except Exception:
+                raise TypeError("copy(src, sx, sy, sw, sh, dx, dy, dw, dh) expects integer coords")
+            src_surf = getattr(src, "raw", src)
+        elif len(args) == 8:
+            try:
+                sx, sy, sw, sh, dx, dy, dw, dh = map(int, args)
+            except Exception:
+                raise TypeError("copy(sx, sy, sw, sh, dx, dy, dw, dh) expects integer coords")
+            src_surf = self._surf
+        else:
+            raise TypeError("copy() signature not recognized")
+
+        # Clip source rect to source surface
+        ssw, ssh = src_surf.get_size()
+        sx1 = max(0, sx)
+        sy1 = max(0, sy)
+        sx2 = min(ssw, sx + sw)
+        sy2 = min(ssh, sy + sh)
+        real_sw = max(0, sx2 - sx1)
+        real_sh = max(0, sy2 - sy1)
+
+        if real_sw == 0 or real_sh == 0:
+            # nothing to copy
+            return None
+
+        # Extract the source region into a temporary surface
+        tmp_flags = pygame.SRCALPHA if (src_surf.get_flags() & pygame.SRCALPHA) else 0
+        tmp = pygame.Surface((real_sw, real_sh), tmp_flags)
+        tmp.blit(src_surf, (0, 0), pygame.Rect(sx1, sy1, real_sw, real_sh))
+
+        # Scale if necessary
+        if (real_sw, real_sh) != (dw, dh):
+            try:
+                tmp = pygame.transform.smoothscale(tmp, (dw, dh))
+            except Exception:
+                tmp = pygame.transform.scale(tmp, (dw, dh))
+
+        # Blit into destination (self._surf)
+        try:
+            self._surf.blit(tmp, (dx, dy))
+        except Exception as e:
+            raise RuntimeError(f"copy failed: {e}")
+
+    def copy_to(self, dest: "Surface", sx: int, sy: int, sw: int, sh: int, dx: int, dy: int, dw: int, dh: int) -> None:
+        """Copy a rect from this surface into `dest`.
+
+        Convenience wrapper which makes image-like objects able to copy
+        their pixels into another surface without the caller needing to
+        call the destination's copy signature. Example:
+            img.copy_to(self.surface, sx, sy, sw, sh, dx, dy, dw, dh)
+        """
+        # Delegate to the destination Surface.copy using this surface as src
+        return dest.copy(self, sx, sy, sw, sh, dx, dy, dw, dh)
+
+    def set(self, x: int, y: int, value) -> None:
+        """PImage-style set. If `value` is a color tuple, set a single pixel.
+        If `value` is an image/surface-like, blit it with upper-left at (x,y).
+        """
+        w, h = self._surf.get_size()
+        if isinstance(value, (tuple, list)):
+            # Single pixel set
+            if x < 0 or y < 0 or x >= w or y >= h:
+                # Write a helpful hint to console, but don't raise
+                print(f"set: pixel ({x},{y}) out of bounds for surface size {(w,h)}")
+                return
+            # Clamp values and set
+            try:
+                if len(value) == 4:
+                    self._surf.set_at((int(x), int(y)), (int(value[0]) & 255, int(value[1]) & 255, int(value[2]) & 255, int(value[3]) & 255))
+                else:
+                    self._surf.set_at((int(x), int(y)), (int(value[0]) & 255, int(value[1]) & 255, int(value[2]) & 255))
+            except Exception as e:
+                raise RuntimeError(f"set pixel failed: {e}")
+            return
+
+        # If value is surface-like, delegate to image() which handles scaling/clipping
+        src = getattr(value, "raw", value)
+        try:
+            self.image(src, int(x), int(y))
+        except Exception as e:
+            raise RuntimeError(f"set image failed: {e}")
 
 
 class OffscreenSurface(Surface):
@@ -1005,41 +1389,60 @@ class OffscreenSurface(Surface):
             self._line_cap = prev_cap
             self._line_join = prev_join
 
-    def arc(self, x: float, y: float, w: float, h: float, start_rad: float, end_rad: float, mode: str = "open") -> None:
-        """Draw an arc. mode can be 'open' (stroke-only arc), 'pie' (filled pie), or 'chord'.
+    def arc(self, x: float, y: float, w: float, h: float, start_rad: float, end_rad: float, mode: str = "open", fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
+        """Draw an arc. Accepts optional per-call fill/stroke/stroke_weight (or stroke_width).
 
         This is a best-effort implementation using pygame drawing primitives.
         """
-        rect = pygame.Rect(int(x - w / 2), int(y - h / 2), int(w), int(h))
-        if mode == "open":
-            # Draw arc outline only
-            if self._stroke is not None:
-                pygame.draw.arc(self._surf, self._stroke, rect, float(start_rad), float(end_rad), int(self._stroke_weight))
-        else:
-            # For pie/chord, construct polygon points along the ellipse arc
-            import math
+        # Save previous style state
+        prev_fill = self._fill
+        prev_stroke = self._stroke
+        prev_sw = self._stroke_weight
+        try:
+            if fill is not None:
+                self.fill(fill)
+            if stroke is not None:
+                self.stroke(stroke)
+            if stroke_width is not None:
+                self.stroke_weight(int(stroke_width))
+            elif stroke_weight is not None:
+                self.stroke_weight(int(stroke_weight))
 
-            steps = max(6, int((end_rad - start_rad) * 10))
-            pts = []
-            cx = x
-            cy = y
-            rx = w / 2.0
-            ry = h / 2.0
-            for i in range(steps + 1):
-                t = start_rad + (end_rad - start_rad) * (i / max(1, steps))
-                px = cx + rx * math.cos(t)
-                py = cy + ry * math.sin(t)
-                pts.append((px, py))
-            if mode == "pie":
-                # close to center
-                poly = [(int(cx), int(cy))] + [(int(px), int(py)) for px, py in pts]
-                if self._fill is not None:
-                    pygame.draw.polygon(self._surf, self._fill, poly)
-                if self._stroke is not None and self._stroke_weight > 0:
-                    pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
-            elif mode == "chord":
-                poly = [(int(px), int(py)) for px, py in pts]
-                if self._fill is not None:
-                    pygame.draw.polygon(self._surf, self._fill, poly)
-                if self._stroke is not None and self._stroke_weight > 0:
-                    pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
+            rect = pygame.Rect(int(x - w / 2), int(y - h / 2), int(w), int(h))
+            if mode == "open":
+                # Draw arc outline only
+                if self._stroke is not None:
+                    pygame.draw.arc(self._surf, self._stroke, rect, float(start_rad), float(end_rad), int(self._stroke_weight))
+            else:
+                # For pie/chord, construct polygon points along the ellipse arc
+                import math
+
+                steps = max(6, int((end_rad - start_rad) * 10))
+                pts = []
+                cx = x
+                cy = y
+                rx = w / 2.0
+                ry = h / 2.0
+                for i in range(steps + 1):
+                    t = start_rad + (end_rad - start_rad) * (i / max(1, steps))
+                    px = cx + rx * math.cos(t)
+                    py = cy + ry * math.sin(t)
+                    pts.append((px, py))
+                if mode == "pie":
+                    # close to center
+                    poly = [(int(cx), int(cy))] + [(int(px), int(py)) for px, py in pts]
+                    if self._fill is not None:
+                        pygame.draw.polygon(self._surf, self._fill, poly)
+                    if self._stroke is not None and self._stroke_weight > 0:
+                        pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
+                elif mode == "chord":
+                    poly = [(int(px), int(py)) for px, py in pts]
+                    if self._fill is not None:
+                        pygame.draw.polygon(self._surf, self._fill, poly)
+                    if self._stroke is not None and self._stroke_weight > 0:
+                        pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
+        finally:
+            # Restore previous style state
+            self._fill = prev_fill
+            self._stroke = prev_stroke
+            self._stroke_weight = prev_sw

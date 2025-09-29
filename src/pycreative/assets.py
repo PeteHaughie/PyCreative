@@ -15,18 +15,23 @@ class Assets:
 
     def _resolve_path(self, path: str) -> Optional[str]:
         parts = path.replace("\\", "/").split("/")
-        data_path = os.path.join(self.sketch_dir, "data", *parts)
-        sketch_path = os.path.join(self.sketch_dir, *parts)
+        candidates = []
+        # Primary: sketch_dir/data/<path>
+        candidates.append(os.path.join(self.sketch_dir, "data", *parts))
+        # Secondary: sketch_dir/<path>
+        candidates.append(os.path.join(self.sketch_dir, *parts))
+        # Common alternate locations to support running examples from repo root
+        candidates.append(os.path.join(self.sketch_dir, "examples", "data", *parts))
+        candidates.append(os.path.join(self.sketch_dir, "examples", *parts))
+
         print(f"[Assets] Debug: sketch_dir={self.sketch_dir}")
-        print(f"[Assets] Debug: Trying data_path={data_path}")
-        print(f"[Assets] Debug: Trying sketch_path={sketch_path}")
-        if os.path.exists(data_path):
-            print("[Assets] Debug: Found in data_path")
-            return data_path
-        if os.path.exists(sketch_path):
-            print("[Assets] Debug: Found in sketch_path")
-            return sketch_path
-        print("[Assets] Debug: Not found in either location")
+        for p in candidates:
+            print(f"[Assets] Debug: Trying {p}")
+            if os.path.exists(p):
+                print(f"[Assets] Debug: Found asset at {p}")
+                return p
+
+        print("[Assets] Debug: Not found in candidate locations")
         return None
 
     def load_image(self, path: str) -> Optional[pygame.Surface]:

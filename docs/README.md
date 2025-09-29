@@ -58,6 +58,8 @@ For more details, see the example sketches and module READMEs.
 
 - Offscreen surfaces and caching: `offscreen.md`
 - Shape construction (begin/vertex/end): `shapes.md`
+- Pixel object: `pixels.md`
+- Pixels Image object: `pixels_image.md`
 
 ## Contributing
 

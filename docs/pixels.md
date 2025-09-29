@@ -1,67 +1,63 @@
 # Pixels API
 
-PyCreative exposes simple, copy-based pixel helpers on `Surface` and `OffscreenSurface`.
+PyCreative exposes a small, pragmatic pixels API designed to be safe for beginners and fast for power users.
 
-Key methods
+Overview
 
-- `get_pixels()` -> returns a H x W x C uint8 array (preferably a numpy array) where C is 3 (RGB) or 4 (RGBA).
-- `set_pixels(arr)` -> write a H x W x C array back into the surface. Accepts array-like inputs.
-- `get_pixel(x, y)` -> returns a (r,g,b) or (r,g,b,a) tuple for the given pixel.
-- `set_pixel(x, y, color)` -> set a single pixel. `color` may be an (r,g,b) or (r,g,b,a) tuple.
+- `Surface.pixels()` — context manager that yields a `PixelView` for read-modify-write access. The context manager writes pixels back to the surface when the block exits.
+- `Surface.get_pixels()` / `Surface.set_pixels()` — copy-based helpers for simple read/write patterns.
+- `Surface.get_pixel(x,y)` / `Surface.set_pixel(x,y,color)` — single-pixel accessors.
 
-Notes
+PixelView semantics
 
-- The public API normalizes arrays to shape (height, width, channels) even though some pygame surfarray helpers use (width, height, channels). This choice maps naturally to row-major array conventions (first index is y).
-- Default behavior is copy-based and safe. For high-performance, in-place access may be added later via a context-manager API.
-- The implementation prefers numpy + `pygame.surfarray` when available and falls back to per-pixel `get_at`/`set_at` when it's not.
+- The `PixelView` has `.shape` in (H, W, C) format and supports indexing as `pv[y, x, c]` or `pv[y, x]` for color tuples.
+- The public `PixelView` hides whether numpy is used internally. If numpy is available and used, `pv.raw()` returns the underlying ndarray; otherwise `pv.raw()` may return a nested list-like structure.
+- The context manager guarantees that any mutations are flushed back to the surface when the `with` block exits, so sketches can remain agnostic to copy-vs-inplace semantics.
 
-Example
+Examples
+
+Read-modify-write with the context manager (recommended):
 
 ```py
-# Read-modify-write
-arr = surface.get_pixels()          # (H,W,3)
-arr[10:20, 10:20] = [255, 0, 0]     # paint a red square
+with surface.pixels() as pv:
+	h, w, c = pv.shape
+	for y in range(10, 20):
+		for x in range(10, 20):
+			pv[y, x] = (255, 0, 0, 255)
+```
+
+Copy-based usage:
+
+```py
+arr = surface.get_pixels()      # returns an array-like (H,W,C)
+arr[10:20, 10:20] = [255, 0, 0]
 surface.set_pixels(arr)
 ```
 
-Idiomatic usage and numpy
--------------------------
+Numpy interop and vectorized ops
 
-The library prefers to keep sketches free of heavy, top-level imports. To that end:
-
-- `get_pixels()` returns a PixelView object which provides a `.shape` attribute and supports `[y,x,c]` indexing. Under the hood the PixelView wraps either a numpy ndarray (fast) or a nested Python list (fallback).
-- Use `surface.is_numpy_backed()` to check whether numpy-based fast paths are available. If you need numpy-only operations (vectorized transforms, broadcasting, filters), import numpy lazily inside `setup()` or `draw()` and operate on `arr.raw()` (the underlying ndarray):
+If your sketch needs numpy for vectorized work, import numpy lazily inside `setup()` or `draw()` and operate on `pv.raw()` when available:
 
 ```py
-def draw(self):
-	pv = self.surface.get_pixels()  # PixelView
-	h, w, c = pv.shape
-	try:
-		# lazy import so module-level imports don't force numpy dependency
+with surface.pixels() as pv:
+	if surface.is_numpy_backed():
+		arr = pv.raw()  # numpy ndarray: shape (H,W,C)
 		import numpy as np
+		gx = np.linspace(0, 255, arr.shape[1], dtype=np.uint8)[np.newaxis, :, np.newaxis]
+		arr[:, :, 0] = gx[:, :, 0]
+		# mutations are written back on context exit
+	else:
+		# fallback: pure Python loops
+		h, w, _ = pv.shape
+		for y in range(h):
+			for x in range(w):
+				pv[y, x, 0] = int(x * 255 / max(1, w - 1))
 
-		if self.surface.is_numpy_backed() and hasattr(pv.raw(), 'astype'):
-			arr = pv.raw()            # numpy ndarray
-			# vectorized operation
-			gx = np.linspace(0, 255, w, dtype=np.uint8)[np.newaxis, :, np.newaxis]
-			gy = np.linspace(0, 255, h, dtype=np.uint8)[:, np.newaxis, np.newaxis]
-			arr[:, :, 0] = gx[:, :, 0]
-			arr[:, :, 1] = gy[:, :, 0]
-			arr[:, :, 2] = 80
-			self.surface.set_pixels(pv)
-			return
-	except Exception:
-		pass
-
-# fallback: operate on the PixelView with pure-Python loops
-for y in range(h):
-	gy = int(y * 255 / max(1, h - 1))
-	for x in range(w):
-		gx = int(x * 255 / max(1, w - 1))
-		pv[y, x, 0] = gx
-		pv[y, x, 1] = gy
-		pv[y, x, 2] = 80
-self.surface.set_pixels(pv)
 ```
 
-This keeps examples and sketches idiomatic while still allowing power users to use numpy when available.
+Tips
+- Prefer `with surface.pixels()` for most use-cases: it keeps code simple and ensures state is synchronized.
+- Use `surface.is_numpy_backed()` to detect fast-path availability if you plan to use numpy-specific constructs.
+- The API keeps row-major indexing `(y,x,channel)` for compatibility with image-processing libraries and to match common Python conventions.
+
+See also: `docs/pixels_image.md` for image-specific helpers and interoperability notes.
