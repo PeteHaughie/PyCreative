@@ -2,7 +2,7 @@
 Example sketch for PyCreative
 """
 
-from pycreative import Sketch
+from pycreative.app import Sketch
 
 
 class MySketch(Sketch):

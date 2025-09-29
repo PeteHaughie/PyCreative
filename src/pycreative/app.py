@@ -37,6 +37,10 @@ class Sketch:
         self._title: str = "PyCreative"
         # Generic cache store for sketches (used by cached graphics helpers)
         self._cache_store = {}
+        # Pending drawing state if user sets it before the Surface is created
+        self._pending_fill: Optional[Tuple[int, int, int]] = None
+        self._pending_stroke: Optional[Tuple[int, int, int]] = None
+        self._pending_stroke_weight: Optional[int] = None
         # Runtime no-loop control (if True, draw() runs once then is suppressed)
         self._no_loop_mode = False
         self._has_drawn_once = False
@@ -75,22 +79,32 @@ class Sketch:
     def fill(self, color: Optional[Tuple[int, int, int]]):
         if self.surface is not None:
             self.surface.fill(color)
+        else:
+            self._pending_fill = color
 
     def no_fill(self) -> None:
         if self.surface is not None:
             self.surface.no_fill()
+        else:
+            self._pending_fill = None
 
     def stroke(self, color: Optional[Tuple[int, int, int]]):
         if self.surface is not None:
             self.surface.stroke(color)
+        else:
+            self._pending_stroke = color
 
     def no_stroke(self) -> None:
         if self.surface is not None:
             self.surface.no_stroke()
+        else:
+            self._pending_stroke = None
 
     def stroke_weight(self, w: int) -> None:
         if self.surface is not None:
             self.surface.stroke_weight(w)
+        else:
+            self._pending_stroke_weight = int(w)
 
     def rect_mode(self, mode: str) -> None:
         if self.surface is not None:
@@ -135,32 +149,18 @@ class Sketch:
             self.surface.blit_image(img, x=x, y=y)
 
     # --- Backwards-compatible primitive wrappers (old example APIs) ---
-    def line(self, x1, y1, x2, y2, stroke=(0, 0, 0), stroke_width=1):
+    def line(self, x1, y1, x2, y2, stroke: Optional[Tuple[int, int, int]] = None, stroke_width: Optional[int] = None, cap: Optional[str] = None, join: Optional[str] = None):
         if self.surface is None:
             return
-        col = stroke
-        w = stroke_width
-        self.surface.line(x1, y1, x2, y2, col, width=w)
+        # If stroke/stroke_width are None, Surface.line will use the global
+        # stroke/stroke_weight state.
+        self.surface.line(x1, y1, x2, y2, color=stroke, width=stroke_width, cap=cap, join=join)
 
     def rect(self, x, y, w, h, fill=None, stroke=None, stroke_width=None):
         if self.surface is None:
             return
-        # Temporarily apply state
-        prev_fill = self.surface._fill
-        prev_stroke = self.surface._stroke
-        prev_sw = self.surface._stroke_weight
-        try:
-            if fill is not None:
-                self.surface.fill(fill)
-            if stroke is not None:
-                self.surface.stroke(stroke)
-            if stroke_width is not None:
-                self.surface.stroke_weight(stroke_width)
-            self.surface.rect(x, y, w, h)
-        finally:
-            self.surface._fill = prev_fill
-            self.surface._stroke = prev_stroke
-            self.surface._stroke_weight = prev_sw
+        # forward per-call styles to Surface.rect
+        self.surface.rect(x, y, w, h, fill=fill, stroke=stroke, stroke_weight=stroke_width)
 
     def triangle(self, x1, y1, x2, y2, x3, y3):
         if self.surface is None:
@@ -179,17 +179,23 @@ class Sketch:
         """
         if self.surface is None:
             return
-        prev_stroke = self.surface._stroke
-        prev_sw = self.surface._stroke_weight
-        try:
-            if stroke is not None:
-                self.surface.stroke(stroke)
-            if stroke_width is not None:
-                self.surface.stroke_weight(stroke_width)
-            self.surface.polyline(points)
-        finally:
-            self.surface._stroke = prev_stroke
-            self.surface._stroke_weight = prev_sw
+        # forward per-call styles to Surface.polyline_with_style
+        self.surface.polyline_with_style(points, stroke=stroke, stroke_weight=stroke_width)
+
+    def bezier(self, x1: float, y1: float, cx1: float, cy1: float, cx2: float, cy2: float, x2: float, y2: float) -> None:
+        """Draw a cubic bezier curve. Delegates to the active surface.
+
+        Signature matches Processing's `bezier(x1,y1,cx1,cy1,cx2,cy2,x2,y2)`.
+        """
+        if self.surface is None:
+            return
+        self.surface.bezier(x1, y1, cx1, cy1, cx2, cy2, x2, y2)
+
+    def bezier_detail(self, steps: int) -> None:
+        """Set bezier sampling detail on the active surface."""
+        if self.surface is None:
+            return
+        self.surface.bezier_detail(steps)
 
     def arc(self, x, y, w, h, start_rad, end_rad, mode="open", fill=None, stroke=None, stroke_width=None):
         if self.surface is None:
@@ -263,7 +269,8 @@ class Sketch:
             if stroke_weight is not None:
                 self.surface.stroke_weight(stroke_weight)
 
-            self.surface.ellipse(x, y, w, h)
+            # forward per-call styles to Surface.ellipse
+            self.surface.ellipse(x, y, w, h, fill=fill, stroke=stroke, stroke_weight=stroke_weight)
         finally:
             # Restore previous state
             self.surface._fill = prev_fill
@@ -294,6 +301,17 @@ class Sketch:
         self._surface = pygame.display.set_mode((self.width, self.height), flags)
         pygame.display.set_caption(self._title)
         self.surface = GraphicsSurface(self._surface)
+        # Apply any drawing state set earlier in setup() before the Surface existed
+        try:
+            if self._pending_fill is not None:
+                self.surface.fill(self._pending_fill)
+            if self._pending_stroke is not None:
+                self.surface.stroke(self._pending_stroke)
+            if self._pending_stroke_weight is not None:
+                self.surface.stroke_weight(self._pending_stroke_weight)
+        except Exception:
+            # best-effort; don't fail startup for state application
+            pass
         self._clock = pygame.time.Clock()
         self._running = True
 
