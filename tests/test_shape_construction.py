@@ -1,6 +1,5 @@
-import os
 import pygame
-from pycreative.graphics import Surface, OffscreenSurface
+from pycreative.graphics import OffscreenSurface
 
 
 def test_begin_vertex_end_triangle():

@@ -5,7 +5,6 @@ from typing import Optional, Tuple
 import pygame
 from typing import Any
 from contextlib import contextmanager
-from math import cos, sin
 
 from .transforms import (
     identity_matrix,
@@ -16,7 +15,6 @@ from .transforms import (
     transform_point,
     transform_points,
     decompose_scale,
-    linear_determinant,
 )
 
 try:
@@ -677,7 +675,6 @@ class Surface:
         for many UI and artistic purposes.
         """
         pts: list[tuple[float, float]] = []
-        import math
 
         steps = max(2, int(steps))
         for i in range(steps + 1):
@@ -754,7 +751,7 @@ class Surface:
         constructs tangents from p0/p2 and p1/p3 scaled by (1 - tightness)/2.
         """
         t = float(t)
-        mt = 1.0 - t
+        # mt = 1.0 - t
         # tangent scale
         k = (1.0 - float(self._curve_tightness)) * 0.5
 
@@ -985,63 +982,6 @@ class Surface:
             self._line_cap = prev_cap
             self._line_join = prev_join
 
-    def arc(self, x: float, y: float, w: float, h: float, start_rad: float, end_rad: float, mode: str = "open", fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
-        """Draw an arc. Accepts optional per-call fill/stroke/stroke_weight (or stroke_width).
-
-        This is a best-effort implementation using pygame drawing primitives.
-        """
-        # Save previous style state
-        prev_fill = self._fill
-        prev_stroke = self._stroke
-        prev_sw = self._stroke_weight
-        try:
-            if fill is not None:
-                self.fill(fill)
-            if stroke is not None:
-                self.stroke(stroke)
-            if stroke_width is not None:
-                self.stroke_weight(int(stroke_width))
-            elif stroke_weight is not None:
-                self.stroke_weight(int(stroke_weight))
-
-            rect = pygame.Rect(int(x - w / 2), int(y - h / 2), int(w), int(h))
-            if mode == "open":
-                # Draw arc outline only
-                if self._stroke is not None:
-                    pygame.draw.arc(self._surf, self._stroke, rect, float(start_rad), float(end_rad), int(self._stroke_weight))
-            else:
-                # For pie/chord, construct polygon points along the ellipse arc
-                import math
-
-                steps = max(6, int((end_rad - start_rad) * 10))
-                pts = []
-                cx = x
-                cy = y
-                rx = w / 2.0
-                ry = h / 2.0
-                for i in range(steps + 1):
-                    t = start_rad + (end_rad - start_rad) * (i / max(1, steps))
-                    px = cx + rx * math.cos(t)
-                    py = cy + ry * math.sin(t)
-                    pts.append((px, py))
-                if mode == "pie":
-                    # close to center
-                    poly = [(int(cx), int(cy))] + [(int(px), int(py)) for px, py in pts]
-                    if self._fill is not None:
-                        pygame.draw.polygon(self._surf, self._fill, poly)
-                    if self._stroke is not None and self._stroke_weight > 0:
-                        pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
-                elif mode == "chord":
-                    poly = [(int(px), int(py)) for px, py in pts]
-                    if self._fill is not None:
-                        pygame.draw.polygon(self._surf, self._fill, poly)
-                    if self._stroke is not None and self._stroke_weight > 0:
-                        pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
-        finally:
-            # Restore previous style state
-            self._fill = prev_fill
-            self._stroke = prev_stroke
-            self._stroke_weight = prev_sw
 
     # --- pixel helpers (copy-based) ---
     def get_pixels(self) -> Any:
@@ -1458,7 +1398,6 @@ class OffscreenSurface(Surface):
         for many UI and artistic purposes.
         """
         pts: list[tuple[float, float]] = []
-        import math
 
         steps = max(2, int(steps))
         for i in range(steps + 1):

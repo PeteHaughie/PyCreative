@@ -1,5 +1,4 @@
 from pycreative.app import Sketch
-import pygame
 
 
 class CurveExample(Sketch):

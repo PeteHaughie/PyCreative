@@ -1,7 +1,4 @@
-import os
 import pygame
-import tempfile
-import pytest
 
 from pycreative.graphics import OffscreenSurface
 

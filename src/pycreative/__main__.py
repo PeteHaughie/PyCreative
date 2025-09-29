@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError:
         print(f"pycreative: file not found: {sketch_path}", file=sys.stderr)
         return 3
-    except SystemExit as e:
+    except SystemExit:
         # propagate real sys.exit calls
         raise
     except Exception:

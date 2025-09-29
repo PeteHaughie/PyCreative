@@ -134,8 +134,6 @@ class OffscreenExample(Sketch):
 
         # query the offscreen pixel size from the OffscreenSurface public API
         w, h = 800, 600
-        x = (self.width - w) // 2
-        y = (self.height - h) // 2
 
         # blit the pre-rendered offscreen onto the main canvas
         self.image(self.off, 10, 10, w - 20, h - 20)

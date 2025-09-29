@@ -1,3 +1,6 @@
+from pycreative.graphics import OffscreenSurface
+
+import pygame
 import os
 import sys
 
@@ -5,9 +8,6 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(__file__))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
-
-import pygame
-from pycreative.graphics import OffscreenSurface, Surface
 
 
 def test_offscreen_draw_and_blit():
