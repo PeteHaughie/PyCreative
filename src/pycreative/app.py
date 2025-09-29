@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable, Any
 
 import time
+import os
 import pygame
 
 from . import input as input_mod
+from .graphics import Surface as GraphicsSurface
+from .graphics import OffscreenSurface
+from .assets import Assets
 
 
 class Sketch:
@@ -23,10 +27,19 @@ class Sketch:
         self.fullscreen: bool = False
         self._frame_rate: int = 60
         self._surface: Optional[pygame.Surface] = None
+        # High-level wrapper for drawing primitives
+        self.surface: Optional[GraphicsSurface] = None
+        # Assets manager (initialized when running the sketch)
+        self.assets: Optional[Assets] = None
         self._clock: Optional[pygame.time.Clock] = None
         self._running: bool = False
         self.frame_count: int = 0
         self._title: str = "PyCreative"
+        # Generic cache store for sketches (used by cached graphics helpers)
+        self._cache_store = {}
+        # Runtime no-loop control (if True, draw() runs once then is suppressed)
+        self._no_loop_mode = False
+        self._has_drawn_once = False
 
     # --- Lifecycle hooks (override in subclasses) ---
     def setup(self) -> None:
@@ -58,21 +71,215 @@ class Sketch:
     def frame_rate(self, fps: int) -> None:
         self._frame_rate = int(fps)
 
+    # --- Surface state helpers (delegate to self.surface) ---
+    def fill(self, color: Optional[Tuple[int, int, int]]):
+        if self.surface is not None:
+            self.surface.fill(color)
+
+    def no_fill(self) -> None:
+        if self.surface is not None:
+            self.surface.no_fill()
+
+    def stroke(self, color: Optional[Tuple[int, int, int]]):
+        if self.surface is not None:
+            self.surface.stroke(color)
+
+    def no_stroke(self) -> None:
+        if self.surface is not None:
+            self.surface.no_stroke()
+
+    def stroke_weight(self, w: int) -> None:
+        if self.surface is not None:
+            self.surface.stroke_weight(w)
+
+    def rect_mode(self, mode: str) -> None:
+        if self.surface is not None:
+            self.surface.rect_mode(mode)
+
+    def ellipse_mode(self, mode: str) -> None:
+        if self.surface is not None:
+            self.surface.ellipse_mode(mode)
+
+    def text(self, txt: str, x: int, y: int, font_name: Optional[str] = None, size: int = 24, color: Tuple[int, int, int] = (0, 0, 0)) -> None:
+        if self.surface is not None:
+            self.surface.text(txt, x, y, font_name=font_name, size=size, color=color)
+
+    def load_image(self, path: str) -> object:
+        """Load an image using the Assets manager if available.
+
+        The Assets manager searches sketch/data and the sketch directory and caches images.
+        """
+        # prefer assets manager which handles resolution and caching
+        try:
+            if hasattr(self, "assets") and self.assets:
+                return self.assets.load_image(path)
+        except Exception as e:
+            print(f"Sketch: Assets.load_image failed for '{path}': {e}")
+
+        # fallback to surface loader if available
+        try:
+            if self.surface is not None:
+                return self.surface.load_image(path)
+        except Exception:
+            pass
+
+        # final fallback to pygame
+        try:
+            return pygame.image.load(path)
+        except Exception:
+            print(f"Failed to load image: {path}")
+            return None
+
+    def blit_image(self, img: object, x: int = 0, y: int = 0) -> None:
+        if self.surface is not None and img is not None:
+            self.surface.blit_image(img, x=x, y=y)
+
+    # --- Backwards-compatible primitive wrappers (old example APIs) ---
+    def line(self, x1, y1, x2, y2, stroke=(0, 0, 0), stroke_width=1):
+        if self.surface is None:
+            return
+        col = stroke
+        w = stroke_width
+        self.surface.line(x1, y1, x2, y2, col, width=w)
+
+    def rect(self, x, y, w, h, fill=None, stroke=None, stroke_width=None):
+        if self.surface is None:
+            return
+        # Temporarily apply state
+        prev_fill = self.surface._fill
+        prev_stroke = self.surface._stroke
+        prev_sw = self.surface._stroke_weight
+        try:
+            if fill is not None:
+                self.surface.fill(fill)
+            if stroke is not None:
+                self.surface.stroke(stroke)
+            if stroke_width is not None:
+                self.surface.stroke_weight(stroke_width)
+            self.surface.rect(x, y, w, h)
+        finally:
+            self.surface._fill = prev_fill
+            self.surface._stroke = prev_stroke
+            self.surface._stroke_weight = prev_sw
+
+    def triangle(self, x1, y1, x2, y2, x3, y3):
+        if self.surface is None:
+            return
+        self.surface.polygon([(x1, y1), (x2, y2), (x3, y3)])
+
+    def quad(self, x1, y1, x2, y2, x3, y3, x4, y4):
+        if self.surface is None:
+            return
+        self.surface.polygon([(x1, y1), (x2, y2), (x3, y3), (x4, y4)])
+
+    def polyline(self, points: list[tuple[float, float]], stroke: Optional[Tuple[int, int, int]] = None, stroke_width: Optional[int] = None):
+        """Draw an open polyline. Accepts list of (x,y) points and optional stroke/stroke_width.
+
+        This temporarily applies stroke settings like other compatibility shims.
+        """
+        if self.surface is None:
+            return
+        prev_stroke = self.surface._stroke
+        prev_sw = self.surface._stroke_weight
+        try:
+            if stroke is not None:
+                self.surface.stroke(stroke)
+            if stroke_width is not None:
+                self.surface.stroke_weight(stroke_width)
+            self.surface.polyline(points)
+        finally:
+            self.surface._stroke = prev_stroke
+            self.surface._stroke_weight = prev_sw
+
+    def arc(self, x, y, w, h, start_rad, end_rad, mode="open", fill=None, stroke=None, stroke_width=None):
+        if self.surface is None:
+            return
+        prev_fill = self.surface._fill
+        prev_stroke = self.surface._stroke
+        prev_sw = self.surface._stroke_weight
+        try:
+            if fill is not None:
+                self.surface.fill(fill)
+            if stroke is not None:
+                self.surface.stroke(stroke)
+            if stroke_width is not None:
+                self.surface.stroke_weight(stroke_width)
+            self.surface.arc(x, y, w, h, start_rad, end_rad, mode=mode)
+        finally:
+            self.surface._fill = prev_fill
+            self.surface._stroke = prev_stroke
+            self.surface._stroke_weight = prev_sw
+
+    def image(self, img, x, y, w=None, h=None):
+        if self.surface is None or img is None:
+            return
+        if w is None or h is None:
+            self.surface.blit_image(img, int(x), int(y))
+            return
+        # scale image
+        scaled = pygame.transform.smoothscale(img, (int(w), int(h)))
+        self.surface.blit_image(scaled, int(x), int(y))
+
+    def radians(self, deg: float) -> float:
+        import math
+
+        return math.radians(deg)
+
+    def stroke_width(self, w: int) -> None:
+        if self.surface is not None:
+            self.surface.stroke_weight(w)
+
     # --- Basic drawing primitives ---
     def clear(self, color: Tuple[int, int, int]) -> None:
-        if self._surface is not None:
-            self._surface.fill(color)
+        if self.surface is not None:
+            self.surface.clear(color)
 
-    def ellipse(self, x: float, y: float, w: float, h: float, fill: Optional[Tuple[int, int, int]] = None, stroke=None) -> None:
-        if self._surface is None:
+    def ellipse(
+        self,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        fill: Optional[Tuple[int, int, int]] = None,
+        stroke: Optional[Tuple[int, int, int]] = None,
+        stroke_weight: Optional[int] = None,
+    ) -> None:
+        """Draw an ellipse. Backwards-compatible parameters (fill/stroke/stroke_weight)
+        are applied temporarily to the surface state if provided.
+        """
+        if self.surface is None:
             return
-        rect = pygame.Rect(int(x - w / 2), int(y - h / 2), int(w), int(h))
-        if fill is not None:
-            pygame.draw.ellipse(self._surface, fill, rect)
+
+        # Save previous state
+        prev_fill = self.surface._fill
+        prev_stroke = self.surface._stroke
+        prev_stroke_weight = self.surface._stroke_weight
+
+        try:
+            if fill is not None:
+                self.surface.fill(fill)
+            if stroke is not None:
+                self.surface.stroke(stroke)
+            if stroke_weight is not None:
+                self.surface.stroke_weight(stroke_weight)
+
+            self.surface.ellipse(x, y, w, h)
+        finally:
+            # Restore previous state
+            self.surface._fill = prev_fill
+            self.surface._stroke = prev_stroke
+            self.surface._stroke_weight = prev_stroke_weight
 
     # --- Run loop ---
     def run(self, max_frames: Optional[int] = None) -> None:
         pygame.init()
+        # Initialize assets manager early so setup() can use it
+        sketch_dir = os.path.dirname(self.sketch_path) if self.sketch_path else os.getcwd()
+        try:
+            self.assets = Assets(sketch_dir)
+        except Exception:
+            self.assets = None
+
         # Call setup early so user can call self.size() there
         try:
             self.setup()
@@ -86,6 +293,7 @@ class Sketch:
 
         self._surface = pygame.display.set_mode((self.width, self.height), flags)
         pygame.display.set_caption(self._title)
+        self.surface = GraphicsSurface(self._surface)
         self._clock = pygame.time.Clock()
         self._running = True
 
@@ -103,7 +311,13 @@ class Sketch:
 
             try:
                 self.update(dt)
-                self.draw()
+                # Respect runtime no-loop mode: if enabled, call draw() only once
+                if getattr(self, "_no_loop_mode", False):
+                    if not getattr(self, "_has_drawn_once", False):
+                        self.draw()
+                        self._has_drawn_once = True
+                else:
+                    self.draw()
             except Exception:
                 # On error, attempt teardown and stop
                 try:
@@ -126,3 +340,96 @@ class Sketch:
             self.teardown()
         finally:
             pygame.quit()
+
+    def create_graphics(self, w: int, h: int, inherit_state: bool = False) -> OffscreenSurface:
+        """Create an offscreen drawing surface matching the public Surface API.
+
+        Returns an `OffscreenSurface` which supports the same primitives as
+        the main surface and can be blitted via `blit_image` or `blit`.
+        """
+        surf = pygame.Surface((int(w), int(h)), flags=pygame.SRCALPHA)
+        off = OffscreenSurface(surf)
+        if inherit_state and self.surface is not None:
+            # copy drawing state from main surface to the offscreen surface
+            try:
+                off._fill = getattr(self.surface, "_fill", off._fill)
+                off._stroke = getattr(self.surface, "_stroke", off._stroke)
+                off._stroke_weight = getattr(self.surface, "_stroke_weight", off._stroke_weight)
+                off._rect_mode = getattr(self.surface, "_rect_mode", off._rect_mode)
+                off._ellipse_mode = getattr(self.surface, "_ellipse_mode", off._ellipse_mode)
+                # line styling
+                off._line_cap = getattr(self.surface, "_line_cap", off._line_cap)
+                off._line_join = getattr(self.surface, "_line_join", off._line_join)
+            except Exception:
+                # best-effort; don't fail create_graphics if copying fails
+                pass
+        return off
+
+    # --- Caching helpers ---
+    def cache_once(self, key: str, factory: Callable[[], Any]) -> Any:
+        """Run a factory once and cache its result by key.
+
+        Typical usage: cache expensive offscreen renders so they only run once.
+        """
+        if key not in self._cache_store:
+            try:
+                self._cache_store[key] = factory()
+            except Exception:
+                # don't crash the sketch if cache creation fails
+                self._cache_store[key] = None
+        return self._cache_store[key]
+
+    def clear_cache(self, key: Optional[str] = None) -> None:
+        """Clear a specific cache entry or the entire cache if key is None."""
+        if key is None:
+            self._cache_store.clear()
+        else:
+            self._cache_store.pop(key, None)
+
+    def cached_graphics(self, key: str, w: int, h: int, render_fn: Callable[[OffscreenSurface], None]) -> OffscreenSurface:
+        """Create or return a cached OffscreenSurface produced by `render_fn`.
+
+        `render_fn` is called once with an `OffscreenSurface` argument and should
+        draw into it. The resulting OffscreenSurface is cached under `key`.
+        """
+        def factory() -> OffscreenSurface:
+            off = self.create_graphics(w, h)
+            try:
+                with off:
+                    render_fn(off)
+            except Exception:
+                # swallow render errors during cache generation
+                pass
+            return off
+
+        return self.cache_once(key, factory)
+
+    # --- Convenience helpers: cached graphics and runtime no-loop control ---
+    def no_loop(self, *args, **kwargs):
+        """Dual-purpose helper:
+
+        - no_loop(key, w, h, render_fn) -> OffscreenSurface
+          Backwards-compatible alias for `cached_graphics` (existing behavior).
+
+        - no_loop() -> None
+          When called with no arguments, toggles runtime "no-loop" mode: the
+          `draw()` method will be called once and then suppressed until `loop()`
+          is called to resume continuous rendering.
+        """
+        # runtime no-loop: called without args
+        if len(args) == 0 and len(kwargs) == 0:
+            self._no_loop_mode = True
+            self._has_drawn_once = False
+            return None
+
+        # otherwise, forward to cached_graphics for backward compatibility
+        return self.cached_graphics(*args, **kwargs)
+
+    def loop(self) -> None:
+        """Resume continuous drawing after a prior `no_loop()` call."""
+        self._no_loop_mode = False
+        self._has_drawn_once = False
+
+    def no_loop_graphics(self, *args, **kwargs) -> OffscreenSurface:
+        """Backward-compatible alias name for cached_graphics/no_loop."""
+        return self.no_loop(*args, **kwargs)

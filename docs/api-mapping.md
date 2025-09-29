@@ -17,6 +17,16 @@ Mapping
 - Processing `line(x1, y1, x2, y2)` -> PyCreative `self.line(x1, y1, x2, y2, stroke=None)`
 - Processing `keyPressed()` / `mousePressed()` -> PyCreative `Sketch.on_event(self, event)` with unified `InputEvent` objects
 - openFrameworks `ofBaseApp::setup/update/draw` -> PyCreative `Sketch.setup/update/draw`
+<!-- Status: core mapping - Verified/Done -->
+ - Processing `setup()` -> PyCreative `Sketch.setup(self)` — Done
+ - Processing `draw()` -> PyCreative `Sketch.draw(self)` — Done
+ - Processing `size(w, h)` -> PyCreative `self.size(w, h, fullscreen=False)` — Done
+ - Processing `frameRate(fps)` -> PyCreative `self.frame_rate(fps)` — Done
+ - Processing `ellipse(x, y, w, h)` -> PyCreative `self.ellipse(x, y, w, h, fill=None, stroke=None)` — Done
+ - Processing `rect(x, y, w, h)` -> PyCreative `self.rect(x, y, w, h, fill=None, stroke=None)` — Done
+ - Processing `line(x1, y1, x2, y2)` -> PyCreative `self.line(x1, y1, x2, y2, stroke=None)` — Done
+ - Processing `keyPressed()` / `mousePressed()` -> PyCreative `Sketch.on_event(self, event)` with unified `InputEvent` objects — Done
+ - openFrameworks `ofBaseApp::setup/update/draw` -> PyCreative `Sketch.setup/update/draw` — Done
 
 Migration notes for implementers
 - Keep method names and behavior ergonomic for Python (snake_case), but maintain semantic parity with Processing/openFrameworks where practical.
@@ -43,10 +53,20 @@ Graphics primitives & drawing
 - triangle(x1,y1, x2,y2, x3,y3) -> self.triangle(...)
 - quad(x1,y1, x2,y2, x3,y3, x4,y4) -> self.quad(...)
 - point(x, y) -> self.point(x, y)
+<!-- Status: primitives -->
+ - ellipse(x, y, w, h) -> self.ellipse(x, y, w, h, fill=None, stroke=None) — Done
+ - rect(x, y, w, h) -> self.rect(x, y, w, h, fill=None, stroke=None) — Done
+ - line(x1, y1, x2, y2) -> self.line(x1, y1, x2, y2, stroke=None) — Done
+ - triangle(x1,y1, x2,y2, x3,y3) -> self.triangle(...) — Done
+ - quad(x1,y1, x2,y2, x3,y3, x4,y4) -> self.quad(...) — Done
+ - point(x, y) -> self.point(x, y) — Done
 
 Shape construction
 - beginShape()/vertex()/endShape(CLOSE) -> self.begin_shape(); self.vertex(...); self.end_shape(close=True/False)
 - bezier(), bezierVertex(), curve(), curveVertex() -> self.bezier(...), self.curve(...)
+<!-- Status: shape construction -->
+ - beginShape()/vertex()/endShape(CLOSE) -> self.begin_shape(); self.vertex(...); self.end_shape(close=True/False) — Todo
+ - bezier(), bezierVertex(), curve(), curveVertex() -> self.bezier(...), self.curve(...) — Todo
 
 Drawing state & styles
 - fill(r,g,b[,a]) -> self.fill(color) / return current fill state
@@ -55,18 +75,35 @@ Drawing state & styles
 - noStroke() -> self.no_stroke()
 - strokeWeight(w) -> self.stroke_weight(w)
 - strokeCap()/strokeJoin() -> self.stroke_cap()/self.stroke_join()
+<!-- Status: drawing state -->
+ - fill(r,g,b[,a]) -> self.fill(color) / return current fill state — Done
+ - noFill() -> self.no_fill() — Done
+ - stroke(r,g,b[,a]) -> self.stroke(color) — Done
+ - noStroke() -> self.no_stroke() — Done
+ - strokeWeight(w) -> self.stroke_weight(w) — Done
+ - strokeCap()/strokeJoin() -> self.stroke_cap()/self.stroke_join() — Partial (caps/joins emulated; full miter math T503)
 
 Transforms & matrix stack
 - translate(x,y) -> self.translate(x, y)
 - rotate(angle) -> self.rotate(angle)  (document angleMode — radians vs degrees)
 - scale(sx[, sy]) -> self.scale(sx, sy=None)
 - pushMatrix()/popMatrix() -> self.push() / self.pop() (or push_matrix/pop_matrix)
+<!-- Status: transforms -->
+ - translate(x,y) -> self.translate(x, y) — Todo
+ - rotate(angle) -> self.rotate(angle)  (document angleMode — radians vs degrees) — Todo
+ - scale(sx[, sy]) -> self.scale(sx, sy=None) — Todo
+ - pushMatrix()/popMatrix() -> self.push() / self.pop() (or push_matrix/pop_matrix) — Todo
 
 Mode helpers
 - rectMode(CORNER|CENTER|CORNERS) -> self.rect_mode('corner'|'center'|'corners')
 - ellipseMode(CENTER|RADIUS|CORNER) -> self.ellipse_mode(...)
 - imageMode(CORNER|CENTER) -> self.image_mode(...)
 - angleMode(RADIANS|DEGREES) -> self.angle_mode('radians'|'degrees')
+<!-- Status: mode helpers -->
+ - rectMode(CORNER|CENTER|CORNERS) -> self.rect_mode('corner'|'center'|'corners') — Done (corner/center)
+ - ellipseMode(CENTER|RADIUS|CORNER) -> self.ellipse_mode(...) — Done (center/corner)
+ - imageMode(CORNER|CENTER) -> self.image_mode(...) — Todo
+ - angleMode(RADIANS|DEGREES) -> self.angle_mode('radians'|'degrees') — Todo
 
 Image & pixel operations
 - loadImage(path) -> self.load_image(path) returning an Image/Surface object
@@ -74,6 +111,12 @@ Image & pixel operations
 - imageMode(...) -> self.image_mode(...)
 - pixels[] / loadPixels() / updatePixels() -> self.load_pixels(), self.update_pixels(), pixel buffer access via Image object
 - get(x,y) / set(x,y,color) -> self.get_pixel(x,y) / self.set_pixel(x,y,color)
+<!-- Status: images & pixels -->
+ - loadImage(path) -> self.load_image(path) returning an Image/Surface object — Done (Assets-backed loader + fallbacks)
+ - image(img, x, y, w=None, h=None) -> self.image(img, x, y, w=None, h=None) — Done
+ - imageMode(...) -> self.image_mode(...) — Todo
+ - pixels[] / loadPixels() / updatePixels() -> self.load_pixels(), self.update_pixels(), pixel buffer access via Image object — Todo
+ - get(x,y) / set(x,y,color) -> self.get_pixel(x,y) / self.set_pixel(x,y,color) — Todo
 
 Offscreen rendering (PGraphics / ofFbo)
 
@@ -86,6 +129,14 @@ Suggested PyCreative API:
 - `self.image(pg, x, y)` or `self.blit(pg, x, y)` -> blit the offscreen buffer onto the main surface.
 - `pg.get_image()` -> return an Image object or PIL-compatible representation for saving or pixel access.
 - `pg.save(path)` -> save contents to disk as PNG/JPEG.
+
+<!-- Status: offscreen rendering -->
+ - `pg = self.create_graphics(width, height)` -> returns an offscreen `OffscreenSurface` object — Done
+ - `pg.begin()` / `pg.end()` or context-manager `with pg:` to set the offscreen surface as the current draw target — Done (context manager supported)
+ - `pg.clear(color)` / `pg.ellipse(...)` / `pg.rect(...)` -> draw into the offscreen buffer using the same primitives — Done
+ - `self.image(pg, x, y)` or `self.blit(pg, x, y)` -> blit the offscreen buffer onto the main surface — Done (`image()` preferred; blit/backcompat present)
+ - `pg.get_image()` -> return an Image object or PIL-compatible representation for saving or pixel access — Todo
+ - `pg.save(path)` -> save contents to disk as PNG/JPEG — Done (best-effort `save()` implemented)
 
 Behavioral notes and acceptance:
 - Offscreen surfaces should use the same coordinate conventions as the main canvas.
@@ -102,6 +153,9 @@ Examples
 Testing ideas
 - Unit test that a `Surface` created via `create_graphics` receives primitive draw calls (mock the underlying pygame surface)
 - Integration test that draws to an offscreen surface, blits to main canvas, and verifies pixel values at expected coordinates
+<!-- Status: testing ideas -->
+ - Unit test that a `Surface` created via `create_graphics` receives primitive draw calls (mock the underlying pygame surface) — Partial
+ - Integration test that draws to an offscreen surface, blits to main canvas, and verifies pixel values at expected coordinates — Partial (tests exist for basic blit/offscreen behavior)
 
 
 Typography
