@@ -5,6 +5,19 @@ from typing import Optional, Tuple
 import pygame
 from typing import Any
 from contextlib import contextmanager
+from math import cos, sin
+
+from .transforms import (
+    identity_matrix,
+    multiply,
+    translate_matrix,
+    rotate_matrix,
+    scale_matrix,
+    transform_point,
+    transform_points,
+    decompose_scale,
+    linear_determinant,
+)
 
 try:
     import numpy as _np  # type: ignore
@@ -74,6 +87,84 @@ class Surface:
         # Curve tightness: 0.0 => standard Catmull-Rom; 1.0 => zero tangents (looser)
         self._curve_tightness: float = 0.0
 
+        # Transformation stack: list of 3x3 matrices; keep identity as base
+        self._matrix_stack: list[list[list[float]]] = [identity_matrix()]
+
+    # --- transform stack helpers ---
+    def _current_matrix(self):
+        return self._matrix_stack[-1]
+
+    def push(self) -> None:
+        """Push a copy of the current transform onto the stack."""
+        top = self._current_matrix()
+        self._matrix_stack.append([row[:] for row in top])
+
+    def pop(self) -> None:
+        """Pop the top transform. The base identity matrix cannot be popped."""
+        if len(self._matrix_stack) == 1:
+            raise IndexError("cannot pop base transform")
+        self._matrix_stack.pop()
+
+    def translate(self, dx: float, dy: float) -> None:
+        """Apply a translation to the current transform."""
+        self._matrix_stack[-1] = multiply(self._matrix_stack[-1], translate_matrix(dx, dy))
+
+    def rotate(self, theta: float) -> None:
+        """Apply a rotation (radians) to the current transform."""
+        self._matrix_stack[-1] = multiply(self._matrix_stack[-1], rotate_matrix(theta))
+
+    def scale(self, sx: float, sy: float | None = None) -> None:
+        """Apply a scale to the current transform."""
+        self._matrix_stack[-1] = multiply(self._matrix_stack[-1], scale_matrix(sx, sy))
+
+    def reset_matrix(self) -> None:
+        """Reset the current (top) matrix to identity."""
+        self._matrix_stack[-1] = identity_matrix()
+
+    def get_matrix(self) -> list[list[float]]:
+        """Return a copy of the current transform matrix."""
+        return [row[:] for row in self._current_matrix()]
+
+    def set_matrix(self, M: list[list[float]]) -> None:
+        """Overwrite the current top matrix with M (copied)."""
+        self._matrix_stack[-1] = [row[:] for row in M]
+
+    @contextmanager
+    def transform(self, translate: tuple[float, float] | None = None, rotate: float | None = None, scale: tuple[float, float] | None = None):
+        """Context manager that pushes a transform, applies optional ops, and pops on exit.
+
+        Example:
+            with surface.transform(translate=(10,20), rotate=0.3):
+                surface.rect(...)
+        """
+        self.push()
+        try:
+            if translate is not None:
+                self.translate(*translate)
+            if rotate is not None:
+                self.rotate(rotate)
+            if scale is not None:
+                sx, sy = scale
+                self.scale(sx, sy)
+            yield self
+        finally:
+            self.pop()
+
+    def _is_identity_transform(self) -> bool:
+        m = self._current_matrix()
+        return (
+            m[0][0] == 1.0
+            and m[0][1] == 0.0
+            and m[0][2] == 0.0
+            and m[1][0] == 0.0
+            and m[1][1] == 1.0
+            and m[1][2] == 0.0
+        )
+
+    def _transform_point(self, x: float, y: float) -> tuple[float, float]:
+        return transform_point(self._current_matrix(), x, y)
+
+
     # --- pixel view helpers ---
     def is_numpy_backed(self) -> bool:
         """Return True if the surface pixel helpers will return a numpy-backed array."""
@@ -126,12 +217,26 @@ class Surface:
         """Draw rectangle. Per-call fill/stroke/stroke_weight override global state when provided."""
         # compute topleft depending on mode
         if self._rect_mode == self.MODE_CENTER:
-            tlx = int(x - w / 2)
-            tly = int(y - h / 2)
+            tlx = x - w / 2
+            tly = y - h / 2
         else:
-            tlx = int(x)
-            tly = int(y)
-        rect = pygame.Rect(tlx, tly, int(w), int(h))
+            tlx = x
+            tly = y
+
+        # If no transform is active use the fast path with integers
+        if self._is_identity_transform():
+            rect = pygame.Rect(int(tlx), int(tly), int(w), int(h))
+            draw_polygon = False
+        else:
+            # transform the four rectangle corners into a polygon
+            pts = [
+                (tlx, tly),
+                (tlx + w, tly),
+                (tlx + w, tly + h),
+                (tlx, tly + h),
+            ]
+            pts = transform_points(self._current_matrix(), pts)
+            draw_polygon = True
 
         prev_cap = self._line_cap
         prev_join = self._line_join
@@ -153,9 +258,15 @@ class Surface:
             stroke_col = stroke if stroke is not None else self._stroke
 
             if fill_col is not None:
-                pygame.draw.rect(self._surf, fill_col, rect)
+                if draw_polygon:
+                    pygame.draw.polygon(self._surf, fill_col, [(int(px), int(py)) for px, py in pts])
+                else:
+                    pygame.draw.rect(self._surf, fill_col, rect)
             if stroke_col is not None and sw > 0:
-                pygame.draw.rect(self._surf, stroke_col, rect, sw)
+                if draw_polygon:
+                    pygame.draw.polygon(self._surf, stroke_col, [(int(px), int(py)) for px, py in pts], sw)
+                else:
+                    pygame.draw.rect(self._surf, stroke_col, rect, sw)
         finally:
             self._line_cap = prev_cap
             self._line_join = prev_join
@@ -178,9 +289,15 @@ class Surface:
         """Draw ellipse with optional per-call fill/stroke/weight overrides."""
         # ellipse mode: center or corner
         if self._ellipse_mode == self.MODE_CENTER:
-            rect = pygame.Rect(int(x - w / 2), int(y - h / 2), int(w), int(h))
+            cx = x
+            cy = y
+            rx = w / 2.0
+            ry = h / 2.0
         else:
-            rect = pygame.Rect(int(x), int(y), int(w), int(h))
+            cx = x + w / 2.0
+            cy = y + h / 2.0
+            rx = w / 2.0
+            ry = h / 2.0
 
         prev_cap = self._line_cap
         prev_join = self._line_join
@@ -202,10 +319,32 @@ class Surface:
             fill_col = fill if fill is not None else self._fill
             stroke_col = stroke if stroke is not None else self._stroke
 
-            if fill_col is not None:
-                pygame.draw.ellipse(self._surf, fill_col, rect)
-            if stroke_col is not None and sw > 0:
-                pygame.draw.ellipse(self._surf, stroke_col, rect, sw)
+            if self._is_identity_transform():
+                if self._ellipse_mode == self.MODE_CENTER:
+                    rect = pygame.Rect(int(cx - rx), int(cy - ry), int(rx * 2), int(ry * 2))
+                else:
+                    rect = pygame.Rect(int(x), int(y), int(w), int(h))
+                if fill_col is not None:
+                    pygame.draw.ellipse(self._surf, fill_col, rect)
+                if stroke_col is not None and sw > 0:
+                    pygame.draw.ellipse(self._surf, stroke_col, rect, sw)
+            else:
+                # approximate transformed ellipse by sampling points on the ellipse
+                import math
+
+                samples = max(24, int(2 * math.pi * max(rx, ry) / 6))
+                pts = []
+                for i in range(samples):
+                    t = (i / samples) * 2 * math.pi
+                    px = cx + rx * math.cos(t)
+                    py = cy + ry * math.sin(t)
+                    pts.append((px, py))
+                pts = transform_points(self._current_matrix(), pts)
+                int_pts = [(int(px), int(py)) for px, py in pts]
+                if fill_col is not None:
+                    pygame.draw.polygon(self._surf, fill_col, int_pts)
+                if stroke_col is not None and sw > 0:
+                    pygame.draw.polygon(self._surf, stroke_col, int_pts, sw)
         finally:
             self._line_cap = prev_cap
             self._line_join = prev_join
@@ -251,7 +390,12 @@ class Surface:
             if join is not None:
                 self.set_line_join(join)
 
-            pygame.draw.line(self._surf, col, (int(x1), int(y1)), (int(x2), int(y2)), int(w))
+            if self._is_identity_transform():
+                pygame.draw.line(self._surf, col, (int(x1), int(y1)), (int(x2), int(y2)), int(w))
+            else:
+                p1 = self._transform_point(x1, y1)
+                p2 = self._transform_point(x2, y2)
+                pygame.draw.line(self._surf, col, (int(p1[0]), int(p1[1])), (int(p2[0]), int(p2[1])), int(w))
 
             # emulate round caps if requested
             if self._line_cap == "round":
@@ -331,7 +475,11 @@ class Surface:
             self._stroke_weight = prev_sw
 
     def point(self, x: float, y: float, color: Tuple[int, int, int]) -> None:
-        self._surf.set_at((int(x), int(y)), color)
+        if self._is_identity_transform():
+            self._surf.set_at((int(x), int(y)), color)
+        else:
+            tx, ty = self._transform_point(x, y)
+            self._surf.set_at((int(tx), int(ty)), color)
 
     def blit(self, other: pygame.Surface, x: int = 0, y: int = 0) -> None:
         self._surf.blit(other, (int(x), int(y)))
@@ -359,11 +507,39 @@ class Surface:
             return
         src = getattr(img, "raw", img)
         try:
-            if w is None or h is None:
-                self._surf.blit(src, (int(x), int(y)))
+            if self._is_identity_transform():
+                if w is None or h is None:
+                    self._surf.blit(src, (int(x), int(y)))
+                else:
+                    scaled = pygame.transform.smoothscale(src, (int(w), int(h)))
+                    self._surf.blit(scaled, (int(x), int(y)))
             else:
-                scaled = pygame.transform.smoothscale(src, (int(w), int(h)))
-                self._surf.blit(scaled, (int(x), int(y)))
+                # Simple image transform support: handle translation + uniform scale + rotation via rotozoom
+                # Attempt to detect uniform scale from current matrix; fall back to blit at transformed origin.
+                sx, sy = decompose_scale(self._current_matrix())
+                avg_scale = (sx + sy) / 2.0 if sx > 0 and sy > 0 else 1.0
+                # compute transformed origin
+                tx, ty = self._transform_point(x, y)
+                try:
+                    if w is None or h is None:
+                        img_surf = src
+                    else:
+                        img_surf = pygame.transform.smoothscale(src, (int(w), int(h)))
+                    # use rotozoom for rotation+scale; angle extraction is approximate
+                    # compute angle from matrix using arctan2 of first column
+                    import math
+
+                    a = self._current_matrix()[0][0]
+                    b = self._current_matrix()[1][0]
+                    angle = math.degrees(math.atan2(b, a))
+                    transformed = pygame.transform.rotozoom(img_surf, -angle, avg_scale)
+                    # rotozoom rotates around center; blit centered at transformed center
+                    rect = transformed.get_rect()
+                    # adjust for rotation/scaling centering
+                    self._surf.blit(transformed, (int(tx - rect.width / 2), int(ty - rect.height / 2)))
+                except Exception:
+                    # fallback: simple blit at transformed origin
+                    self._surf.blit(src, (int(tx), int(ty)))
         except Exception:
             # best-effort: ignore blit errors during examples/tests
             return
@@ -372,7 +548,11 @@ class Surface:
         self.polygon_with_style(points)
 
     def polygon_with_style(self, points: list[tuple[float, float]], fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, cap: Optional[str] = None, join: Optional[str] = None) -> None:
-        pts = [(int(x), int(y)) for (x, y) in points]
+        if self._is_identity_transform():
+            pts = [(int(x), int(y)) for (x, y) in points]
+        else:
+            ptsf = transform_points(self._current_matrix(), points)
+            pts = [(int(px), int(py)) for px, py in ptsf]
         prev_cap = self._line_cap
         prev_join = self._line_join
         try:

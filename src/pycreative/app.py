@@ -541,7 +541,7 @@ class Sketch:
         finally:
             pygame.quit()
 
-    def create_graphics(self, w: int, h: int, inherit_state: bool = False) -> OffscreenSurface:
+    def create_graphics(self, w: int, h: int, inherit_state: bool = False, inherit_transform: bool = False) -> OffscreenSurface:
         """Create an offscreen drawing surface matching the public Surface API.
 
         Returns an `OffscreenSurface` which supports the same primitives as
@@ -562,6 +562,12 @@ class Sketch:
                 off._line_join = getattr(self.surface, "_line_join", off._line_join)
             except Exception:
                 # best-effort; don't fail create_graphics if copying fails
+                pass
+        # Optionally inherit transform matrix from the active surface
+        if inherit_transform and self.surface is not None:
+            try:
+                off.set_matrix(self.surface.get_matrix())
+            except Exception:
                 pass
         return off
 

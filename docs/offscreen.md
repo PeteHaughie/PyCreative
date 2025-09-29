@@ -70,3 +70,25 @@ Notes and compatibility
 
 If you'd like, I can add diagrams, a scaling example, or an integration test demonstrating offscreen rendering and pixel assertions.
           def draw(self):
+
+## Per-frame offscreen rendering (idiomatic pattern)
+
+There are two common patterns when using offscreen surfaces:
+
+- Static pre-render (render once in `setup()` and blit each frame) — good for
+    expensive, unchanging content.
+- Per-frame offscreen (render into the offscreen buffer every frame, then
+    blit) — idiomatic when the offscreen content itself is animated or when you
+    want the offscreen buffer to manage its own local transforms/state.
+
+Per-frame offscreen is often simpler and more explicit: sketches redraw the
+offscreen content each frame (`with off:` inside `draw()`), apply local
+transforms with `off.transform(...)`, then blit the resulting buffer to the
+main surface with `image(off, x, y, w, h)`.
+
+If you want an offscreen buffer to inherit the main surface's transform at
+creation time use `create_graphics(..., inherit_transform=True)`. This copies
+the current transform matrix onto the new offscreen surface. If you need the
+offscreen to stay in sync with ongoing changes to the main matrix you must
+copy the matrix each frame (e.g., `off.set_matrix(self.surface.get_matrix())`) before
+rendering into `off`.
