@@ -17,12 +17,9 @@ from .transforms import (
     decompose_scale,
 )
 
-try:
-    import numpy as _np  # type: ignore
-    _HAS_NUMPY = True
-except Exception:
-    _np = None  # type: ignore
-    _HAS_NUMPY = False
+# NOTE: numpy support removed — pixel helpers use pure-Python nested lists.
+_HAS_NUMPY = False
+_np = None
 
 
 class PixelView:
@@ -43,9 +40,24 @@ class PixelView:
         return (h, w, c)
 
     def __getitem__(self, idx):
+        # Support numpy-style multi-indexing like [y, x, c] when _data is nested lists
+        if isinstance(idx, tuple):
+            # drill down through nested lists
+            cur = self._data
+            for k in idx:
+                cur = cur[k]
+            return cur
         return self._data[idx]
 
     def __setitem__(self, idx, value):
+        # Support multi-index assignment arr[y, x, c] for nested-lists
+        if isinstance(idx, tuple):
+            cur = self._data
+            # traverse to last container
+            for k in idx[:-1]:
+                cur = cur[k]
+            cur[idx[-1]] = value
+            return
         self._data[idx] = value
 
     def raw(self):
@@ -166,7 +178,7 @@ class Surface:
     # --- pixel view helpers ---
     def is_numpy_backed(self) -> bool:
         """Return True if the surface pixel helpers will return a numpy-backed array."""
-        return bool(_HAS_NUMPY)
+        return False
 
     @property
     def raw(self) -> pygame.Surface:
@@ -993,42 +1005,21 @@ class Surface:
         """
         w, h = self._surf.get_size()
         has_alpha = bool(self._surf.get_flags() & pygame.SRCALPHA)
-
-        # Fast path: numpy + surfarray
+        # Pure-Python per-pixel copy into nested lists (H x W x C)
         try:
-            from pygame import surfarray
-
-            if _HAS_NUMPY:
-                rgb = surfarray.array3d(self._surf)  # shape (w,h,3)
-                # transpose to (h,w,3)
-                rgb = _np.transpose(rgb, (1, 0, 2)).copy()
-                if has_alpha:
-                    a = surfarray.array_alpha(self._surf)  # shape (w,h)
-                    a = _np.transpose(a, (1, 0)).copy()
-                    rgba = _np.dstack((rgb, a))
-                    return PixelView(rgba.astype(_np.uint8, copy=True))
-                return PixelView(rgb.astype(_np.uint8, copy=True))
-        except Exception:
-            pass
-
-        # Fallback: per-pixel get_at
-        try:
-            arr = []
+            arr: list[list[tuple[int, ...]]] = []
             for y in range(h):
-                row = []
+                row: list[list[int]] = []
                 for x in range(w):
                     c = self._surf.get_at((x, y))
                     if has_alpha:
-                        row.append((c.r, c.g, c.b, c.a))
+                        # use mutable lists for channel data so callers can assign
+                        row.append([c.r, c.g, c.b, c.a])
                     else:
-                        row.append((c.r, c.g, c.b))
+                        row.append([c.r, c.g, c.b])
                 arr.append(row)
-            # Prefer returning numpy if available
-            if _HAS_NUMPY:
-                return PixelView(_np.array(arr, dtype=_np.uint8))
             return PixelView(arr)
         except Exception:
-            # Last-resort: return empty
             return PixelView([])
 
     def set_pixels(self, arr: Any) -> None:
@@ -1042,53 +1033,18 @@ class Surface:
         if isinstance(arr, PixelView):
             arr = arr.raw()
 
-        # coerce to numpy if available
-        if _HAS_NUMPY:
-            a = _np.asarray(arr)
-            if a.ndim != 3 or a.shape[0] != h or a.shape[1] != w:
-                raise ValueError(f"set_pixels: expected shape (h,w,c) matching surface {(h,w)}, got {a.shape}")
-            if a.dtype != _np.uint8:
-                a = a.astype(_np.uint8, copy=False)
-            channels = a.shape[2]
-            try:
-                from pygame import surfarray
-
-                if channels == 3:
-                    # transpose to (w,h,3) for surfarray
-                    rgb = _np.transpose(a, (1, 0, 2))
-                    surfarray.blit_array(self._surf, rgb)
-                    return
-                elif channels == 4:
-                    rgb = _np.transpose(a[:, :, :3], (1, 0, 2))
-                    alpha = _np.transpose(a[:, :, 3], (1, 0))
-                    surfarray.blit_array(self._surf, rgb)
-                    # write alpha channel if supported
-                    try:
-                        pixels_a = surfarray.pixels_alpha(self._surf)
-                        pixels_a[:, :] = alpha
-                        del pixels_a
-                    except Exception:
-                        # Fallback: set alpha per-pixel (slow)
-                        for yy in range(h):
-                            for xx in range(w):
-                                c = self._surf.get_at((xx, yy))
-                                c.a = int(alpha[xx, yy])
-                                self._surf.set_at((xx, yy), c)
-                    return
-            except Exception:
-                pass
-
-        # Fallback: iterate per-pixel
+        # Expect nested-list shape: arr[h][w] -> tuple
         try:
             for y in range(h):
+                row = arr[y]
                 for x in range(w):
-                    v = arr[y][x]
+                    v = row[x]
                     if len(v) == 4:
                         self._surf.set_at((x, y), (int(v[0]) & 255, int(v[1]) & 255, int(v[2]) & 255, int(v[3]) & 255))
                     else:
                         self._surf.set_at((x, y), (int(v[0]) & 255, int(v[1]) & 255, int(v[2]) & 255))
-        except Exception:
-            raise
+        except Exception as e:
+            raise ValueError(f"set_pixels: expected nested list with shape (h,w,c) matching surface {(h,w)}; error: {e}")
 
     def get_pixel(self, x: int, y: int) -> Tuple[int, ...]:
         """Return a single pixel color tuple (RGB) or (RGBA)."""

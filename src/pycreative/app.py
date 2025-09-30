@@ -58,6 +58,37 @@ class Sketch:
         # Use a plain assignment (no forward annotation) to avoid static
         # analysis issues in older type-checkers.
         self._save_folder = None
+        # Display options: double buffering and vsync
+        # - double buffering reduces tearing and is recommended for smooth updates
+        # - vsync requests buffer swap synchronization with the display; support
+        #   depends on the underlying SDL2/Pygame build and platform.
+        self._double_buffer: bool = True
+        # vsync: 0 = disabled, 1 = enabled. Use None/0 for no vsync.
+        self._vsync: int = 0
+
+    # Ensure lightweight subclass authoring: when a user defines a Sketch subclass
+    # they shouldn't need to re-declare no-op lifecycle helpers like on_event
+    # or teardown just to satisfy tooling/tests. Implement __init_subclass__ to
+    # copy default implementations into the subclass namespace when missing.
+    REQUIRED_METHODS = {
+        "setup",
+        "update",
+        "draw",
+        "on_event",
+        "teardown",
+        "size",
+        "frame_rate",
+    }
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # Copy default methods from Sketch into subclass __dict__ if absent.
+        for name in Sketch.REQUIRED_METHODS:
+            if name not in cls.__dict__:
+                # pull the function object from the base Sketch and set it on the subclass
+                func = getattr(Sketch, name, None)
+                if func is not None:
+                    setattr(cls, name, func)
 
     # --- Lifecycle hooks (override in subclasses) ---
     def setup(self) -> None:
@@ -109,6 +140,23 @@ class Sketch:
         self._title = str(title)
         if pygame.display.get_init():
             pygame.display.set_caption(self._title)
+
+    def set_double_buffer(self, enabled: bool) -> None:
+        """Enable or disable double buffering for the display window.
+
+        This will include the DOUBLEBUF flag when creating the pygame display.
+        """
+        self._double_buffer = bool(enabled)
+
+    def set_vsync(self, vsync: int) -> None:
+        """Request vsync behaviour on the display. Use 1 to enable, 0 to disable.
+
+        Note: actual vsync support depends on the underlying SDL/pygame build.
+        """
+        try:
+            self._vsync = int(vsync)
+        except Exception:
+            self._vsync = 0
 
     def frame_rate(self, fps: int) -> None:
         self._frame_rate = int(fps)
@@ -478,8 +526,21 @@ class Sketch:
         flags = 0
         if self.fullscreen:
             flags = pygame.FULLSCREEN
+        # prefer double buffering when requested
+        if getattr(self, "_double_buffer", False):
+            try:
+                flags |= pygame.DOUBLEBUF
+            except Exception:
+                # older pygame variants may not expose DOUBLEBUF; ignore
+                pass
 
-        self._surface = pygame.display.set_mode((self.width, self.height), flags)
+        # Attempt to pass vsync where supported (pygame 2.0+ may accept a vsync kwarg)
+        try:
+            # some pygame builds accept vsync as keyword argument
+            self._surface = pygame.display.set_mode((self.width, self.height), flags, vsync=self._vsync)
+        except TypeError:
+            # fallback to positional set_mode without vsync
+            self._surface = pygame.display.set_mode((self.width, self.height), flags)
         pygame.display.set_caption(self._title)
         self.surface = GraphicsSurface(self._surface)
         # Apply any drawing state set earlier in setup() before the Surface existed

@@ -34,6 +34,8 @@ pycreative examples/my_sketch.py --headless --max-frames 1
 
 - `size(w, h, fullscreen=False)` — set the sketch size (call in `setup`).
 - `set_title(title)` — set window title.
+- `set_double_buffer(True)` - Use the internal PyGame double buffer. Default is `True`.
+- `set_vsync(1)` - Request vsync.
 - `frame_rate(fps)` — request a target framerate; the run loop uses a `pygame.Clock` to throttle.
 - `no_loop()` / `loop()` — runtime controls: `no_loop()` causes the runtime to draw once and stop; `loop()` resumes.
 
