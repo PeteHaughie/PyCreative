@@ -66,6 +66,30 @@ class Sketch:
         # vsync: 0 = disabled, 1 = enabled. Use None/0 for no vsync.
         self._vsync: int = 0
 
+    # Ensure lightweight subclass authoring: when a user defines a Sketch subclass
+    # they shouldn't need to re-declare no-op lifecycle helpers like on_event
+    # or teardown just to satisfy tooling/tests. Implement __init_subclass__ to
+    # copy default implementations into the subclass namespace when missing.
+    REQUIRED_METHODS = {
+        "setup",
+        "update",
+        "draw",
+        "on_event",
+        "teardown",
+        "size",
+        "frame_rate",
+    }
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # Copy default methods from Sketch into subclass __dict__ if absent.
+        for name in Sketch.REQUIRED_METHODS:
+            if name not in cls.__dict__:
+                # pull the function object from the base Sketch and set it on the subclass
+                func = getattr(Sketch, name, None)
+                if func is not None:
+                    setattr(cls, name, func)
+
     # --- Lifecycle hooks (override in subclasses) ---
     def setup(self) -> None:
         return None

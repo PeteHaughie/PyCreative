@@ -1,7 +1,6 @@
 from pycreative.app import Sketch
-
 import random
-import examples.ball_class as ball_class
+import ball_class
 
 class BouncingBallsClassExample(Sketch):
     def setup(self):

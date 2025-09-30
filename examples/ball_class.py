@@ -5,7 +5,7 @@ class Ball:
         self.radius = radius
         self.color = color
         self.velocity = velocity
-
+    
     def update(self, width, height):
         # Update ball position
         self.x += self.velocity[0]
