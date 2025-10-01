@@ -49,7 +49,7 @@ CLI already handles common cases).
 
 ## Save snapshots and sequences
 
-Use `self.save_snapshot(path)` inside your sketch to write the current frame to
+Use `self.save_frame(path)` inside your sketch to write the current frame to
 disk. Recommended patterns:
 
 - Per-sketch folder (preferred):
@@ -60,7 +60,7 @@ def setup(self):
 
 def draw(self):
     # produce a frame and save it
-    self.save_snapshot('frame_{n}.png')
+  self.save_frame('frame_{n}.png')
 ```
 
 - Property or method are both supported:
@@ -78,8 +78,8 @@ self.set_save_folder('shots')
 Examples:
 
 ```py
-self.save_snapshot('frame_{n}.png')    # frame_1.png, frame_2.png, ...
-self.save_snapshot('frame_####.png')   # frame_0001.png, frame_0002.png
+self.save_frame('frame_{n}.png')    # frame_1.png, frame_2.png, ...
+self.save_frame('frame_####.png')   # frame_0001.png, frame_0002.png
 ```
 
 If no per-sketch folder is set, the `PYCREATIVE_SNAP_DIR` environment variable

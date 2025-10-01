@@ -62,7 +62,7 @@ This folder contains example sketches demonstrating PyCreative features.
 - `pixels_example.py` — demonstrates pixel-level access and copying between images.
 - `pixels_image_copy_example.py` — another pixels/image copy focused example.
 - `polyline_caps_mitres_example.py` — demonstrates polyline drawing and the current cap/join emulation behavior (round caps/joins stamped).
-- `save_snapshot_example.py` — demonstrates `save_snapshot()` and filename sequencing.
+- `save_snapshot_example.py` — demonstrates `save_frame()` and filename sequencing.
 - `shape_example.py` — example showing higher-level shape helpers and polygon drawing.
 - `sketch-lifecycle_example.py` — demonstrates Sketch lifecycle hooks and no-loop behavior.
 - `sketch_example.py` — minimal example sketch showing the smallest runnable sketch.

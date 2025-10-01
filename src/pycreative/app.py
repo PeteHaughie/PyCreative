@@ -458,11 +458,11 @@ class Sketch:
             raise RuntimeError("No surface available")
         return self.surface.set(x, y, value)
 
-    def save_snapshot(self, path: str) -> None:
+    def save_frame(self, path: str) -> None:
         """Save the current main surface to disk.
 
         This helper exists so sketches don't need to `import pygame` themselves
-        just to save a PNG snapshot. It's best-effort and will not raise on
+        just to save a PNG frame. It's best-effort and will not raise on
         failure (keeps examples convenient).
         """
         if self.surface is None:
@@ -546,6 +546,8 @@ class Sketch:
 
             print(f"Failed to save snapshot to {path}: {e}")
             traceback.print_exc()
+
+    # NOTE: no alias for save_snapshot; use `save_frame()`
 
     def radians(self, deg: float) -> float:
         import math

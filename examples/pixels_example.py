@@ -34,7 +34,7 @@ class PixelsExample(Sketch):
                     b = 80
                     self.surface.set_pixel(x, y, (r, g, b))
 
-        self.save_snapshot("pixels_example_out.png")
+        self.save_frame("pixels_example_out.png")
         self.no_loop()
 
 
