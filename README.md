@@ -42,7 +42,7 @@ This repository includes several recent API improvements inspired by Processing-
 - Convenience and compat
 	- `Surface.size` property returns (width, height) for quick access.
 	- `Surface.img()` alias exists for image-like helpers.
-	- `Sketch.save_snapshot()` and `Sketch.save_folder` behaviour: snapshots are written next to the sketch by default and support sequence naming for animation frames. Check the Sketch API docs for the naming convention.
+	- `Sketch.save_frame()` and `Sketch.save_folder` behaviour: frames are written next to the sketch by default and support sequence naming for animation frames. Check the Sketch API docs for the naming convention.
 
 ## Examples
 The `examples/` directory includes runnable sketches that demonstrate the APIs. In particular:

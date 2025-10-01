@@ -109,7 +109,7 @@ High level pixel APIs are summarized here; for full details and examples see `do
 
 ## Saving snapshots and sequences
 
-`Sketch.save_snapshot(path)` writes the current main surface to disk. Behavior:
+`Sketch.save_frame(path)` writes the current main surface to disk. Behavior:
 
 - Relative paths are resolved next to the sketch file (`sketch_path`).
 - Set `self.save_folder` in `setup()` to change where snapshots are written for that sketch.
@@ -118,7 +118,7 @@ High level pixel APIs are summarized here; for full details and examples see `do
 Example:
 
 ```py
-self.save_snapshot('frames/frame_{n}.png')
+self.save_frame('frames/frame_{n}.png')
 ```
 
 ## Debugging and testing tips

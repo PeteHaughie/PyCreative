@@ -1,7 +1,7 @@
 from pycreative.app import Sketch
 
 
-class SaveSnapshotExample(Sketch):
+class SaveFrameExample(Sketch):
     def setup(self):
         self.size(640, 480)
         self.set_title("Save Snapshot Example")
@@ -11,9 +11,9 @@ class SaveSnapshotExample(Sketch):
     def draw(self):
         self.clear((0, 0, 0))
         self.ellipse(self.width // 2, self.height // 2, 200, 200)
-        self.save_snapshot("save_snapshot_example_out.png")
+        self.save_frame("save_frame_example_out.png")
         self.no_loop()
 
 
 if __name__ == '__main__':
-    SaveSnapshotExample().run()
+    SaveFrameExample().run()
