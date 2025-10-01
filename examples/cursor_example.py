@@ -1,4 +1,4 @@
-from pycreative import Sketch
+from pycreative.app import Sketch
 
 
 class CursorExample(Sketch):
@@ -10,7 +10,7 @@ class CursorExample(Sketch):
 
     def draw(self):
         # draw nothing; this example shows cursor control
-        pass
+        print("Cursor position:", self.mouse_x, self.mouse_y)
 
 
 if __name__ == "__main__":

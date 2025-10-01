@@ -50,6 +50,9 @@ class Sketch:
         # Pending cursor visibility state: use sentinel to distinguish
         # "no pending change" from an explicit show/hide request.
         self._pending_cursor = _PENDING_UNSET
+        # By default, pressing Escape closes the sketch; this can be disabled
+        # by calling `self.set_escape_closes(False)` in the sketch.
+        self._escape_closes = True
 
         # Runtime no-loop control (if True, draw() runs once then is suppressed)
         self._no_loop_mode = False
@@ -197,6 +200,17 @@ class Sketch:
 
     def frame_rate(self, fps: int) -> None:
         self._frame_rate = int(fps)
+
+    def set_escape_closes(self, enabled: bool) -> None:
+        """Enable or disable the default Escape-to-close behavior.
+
+        By default the sketch will stop running when the user presses Escape.
+        Call `self.set_escape_closes(False)` inside `setup()` to opt-out.
+        """
+        try:
+            self._escape_closes = bool(enabled)
+        except Exception:
+            self._escape_closes = True
 
     # --- Surface state helpers (delegate to self.surface) ---
     def fill(self, color: Optional[Tuple[int, int, int]]):
@@ -492,6 +506,32 @@ class Sketch:
     def stroke_width(self, w: int) -> None:
         if self.surface is not None:
             self.surface.stroke_weight(w)
+
+    # --- Mouse helpers ---
+    def mouse_pos(self) -> Optional[tuple[int, int]]:
+        """Return the current mouse (x, y) position in window coordinates.
+
+        This is a convenience wrapper around `pygame.mouse.get_pos()` and may
+        return None if the underlying pygame mouse API is unavailable.
+        """
+        try:
+            pos = pygame.mouse.get_pos()
+            # pos may be a sequence-like (x,y)
+            return (int(pos[0]), int(pos[1]))
+        except Exception:
+            return None
+
+    @property
+    def mouse_x(self) -> Optional[int]:
+        """Return the current mouse x position or None if unavailable."""
+        p = self.mouse_pos()
+        return int(p[0]) if p is not None else None
+
+    @property
+    def mouse_y(self) -> Optional[int]:
+        """Return the current mouse y position or None if unavailable."""
+        p = self.mouse_pos()
+        return int(p[1]) if p is not None else None
 
     # --- Basic drawing primitives ---
     def clear(self, color: Tuple[int, int, int]) -> None:
