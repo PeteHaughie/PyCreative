@@ -45,3 +45,18 @@ def dispatch_event(sketch, event: Any):
     e = Event.from_pygame(event)
     # print(f"on_event: {event.type} {getattr(event, 'button', None)} {getattr(event, 'raw', None)}")
     sketch.on_event(e)
+    # Default behavior: allow Escape to close the sketch window.
+    # This behavior is enabled by default but can be disabled by the sketch
+    # via `self.set_escape_closes(False)`.
+    try:
+        raw = getattr(e, "raw", None)
+        if e.type == "key" and getattr(e, "key", None) == pygame.K_ESCAPE and raw is not None and getattr(raw, "type", None) == pygame.KEYDOWN:
+            if getattr(sketch, "_escape_closes", True):
+                # Stop the sketch run loop; teardown will be handled by run().
+                try:
+                    sketch._running = False
+                except Exception:
+                    pass
+    except Exception:
+        # best-effort; don't let input dispatch crash the app
+        pass
