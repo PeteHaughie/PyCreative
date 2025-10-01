@@ -239,7 +239,37 @@ class Surface:
 
     # --- basic operations ---
     def clear(self, color: Tuple[int, int, int]) -> None:
-        self._surf.fill(color)
+        """Fill the entire surface with a color.
+
+        Accepts the same color forms as `fill()`: a `Color` instance, an HSB
+        tuple when color mode is HSB, or an RGB tuple of ints.
+        """
+        # Accept Color instances directly
+        try:
+            if isinstance(color, Color):
+                self._surf.fill(color.to_tuple())
+                return
+        except Exception:
+            pass
+
+        # If HSB color mode is active and a 3-tuple is provided interpret as HSB
+        try:
+            mode, m1, m2, m3 = self._color_mode
+            if mode == "HSB" and hasattr(color, "__iter__"):
+                h, s, v = color
+                col = Color.from_hsb(float(h), float(s), float(v), max_value=m1)
+                self._surf.fill(col.to_tuple())
+                return
+        except Exception:
+            pass
+
+        # fallback: treat as RGB tuple
+        try:
+            rgb = (int(color[0]) & 255, int(color[1]) & 255, int(color[2]) & 255)
+            self._surf.fill(rgb)
+        except Exception:
+            # best-effort: ignore invalid input
+            return
 
     def rect(
         self,
