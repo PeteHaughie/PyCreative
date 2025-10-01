@@ -493,6 +493,32 @@ class Sketch:
         if self.surface is not None:
             self.surface.stroke_weight(w)
 
+    # --- Mouse helpers ---
+    def mouse_pos(self) -> Optional[tuple[int, int]]:
+        """Return the current mouse (x, y) position in window coordinates.
+
+        This is a convenience wrapper around `pygame.mouse.get_pos()` and may
+        return None if the underlying pygame mouse API is unavailable.
+        """
+        try:
+            pos = pygame.mouse.get_pos()
+            # pos may be a sequence-like (x,y)
+            return (int(pos[0]), int(pos[1]))
+        except Exception:
+            return None
+
+    @property
+    def mouse_x(self) -> Optional[int]:
+        """Return the current mouse x position or None if unavailable."""
+        p = self.mouse_pos()
+        return int(p[0]) if p is not None else None
+
+    @property
+    def mouse_y(self) -> Optional[int]:
+        """Return the current mouse y position or None if unavailable."""
+        p = self.mouse_pos()
+        return int(p[1]) if p is not None else None
+
     # --- Basic drawing primitives ---
     def clear(self, color: Tuple[int, int, int]) -> None:
         if self.surface is not None:
