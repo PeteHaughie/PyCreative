@@ -395,6 +395,30 @@ class Sketch:
         # forward per-call styles to Surface.polyline_with_style
         self.surface.polyline_with_style(points, stroke=stroke, stroke_weight=stroke_width)
 
+    # --- Shape construction wrappers (begin_shape/vertex/end_shape) ---
+    def begin_shape(self, mode: str | None = None) -> None:
+        """Begin constructing a custom shape. Delegates to the active Surface."""
+        if self.surface is not None:
+            self.surface.begin_shape(mode)
+
+    def vertex(self, x: float, y: float) -> None:
+        """Add a vertex to the currently constructed shape."""
+        if self.surface is not None:
+            self.surface.vertex(x, y)
+
+    def bezier_vertex(self, cx1: float, cy1: float, cx2: float, cy2: float, x3: float, y3: float) -> None:
+        """Add a cubic bezier vertex segment to the current shape."""
+        if self.surface is not None:
+            self.surface.bezier_vertex(cx1, cy1, cx2, cy2, x3, y3)
+
+    # Processing-style alias
+    bezierVertex = bezier_vertex
+
+    def end_shape(self, close: bool = False) -> None:
+        """Finish the current shape and draw it. Delegates to the active Surface."""
+        if self.surface is not None:
+            self.surface.end_shape(close=close)
+
     def bezier(self, x1: float, y1: float, cx1: float, cy1: float, cx2: float, cy2: float, x2: float, y2: float) -> None:
         """Draw a cubic bezier curve. Delegates to the active surface.
 
@@ -700,21 +724,28 @@ class Sketch:
                     pass
 
             if self._pending_fill is not _PENDING_UNSET:
-                # explicit None means disable fill
-                self.surface.fill(self._pending_fill)
+                # explicit None means disable fill; narrow type for static checkers
+                val = None if self._pending_fill is None else tuple(self._pending_fill)  # type: ignore[arg-type]
+                self.surface.fill(val)  # type: ignore[arg-type]
             if self._pending_stroke is not _PENDING_UNSET:
-                self.surface.stroke(self._pending_stroke)
+                col = None if self._pending_stroke is None else tuple(self._pending_stroke)  # type: ignore[arg-type]
+                self.surface.stroke(col)  # type: ignore[arg-type]
             if self._pending_stroke_weight is not _PENDING_UNSET:
-                self.surface.stroke_weight(self._pending_stroke_weight)
+                if isinstance(self._pending_stroke_weight, int):
+                    self.surface.stroke_weight(self._pending_stroke_weight)
             # apply pending rect/ellipse modes if set in setup()
             if getattr(self, "_pending_rect_mode", _PENDING_UNSET) is not _PENDING_UNSET:
                 try:
-                    self.surface.rect_mode(self._pending_rect_mode)
+                    rm = self._pending_rect_mode
+                    if isinstance(rm, str) or rm is None:
+                        self.surface.rect_mode(rm)
                 except Exception:
                     pass
             if getattr(self, "_pending_ellipse_mode", _PENDING_UNSET) is not _PENDING_UNSET:
                 try:
-                    self.surface.ellipse_mode(self._pending_ellipse_mode)
+                    em = self._pending_ellipse_mode
+                    if isinstance(em, str) or em is None:
+                        self.surface.ellipse_mode(em)
                 except Exception:
                     pass
         except Exception:
@@ -862,6 +893,10 @@ class Sketch:
         self._no_loop_mode = False
         self._has_drawn_once = False
 
-    def no_loop_graphics(self, *args, **kwargs) -> OffscreenSurface:
-        """Backward-compatible alias name for cached_graphics/no_loop."""
+    def no_loop_graphics(self, *args, **kwargs) -> OffscreenSurface | None:
+        """Backward-compatible alias name for cached_graphics/no_loop.
+
+        May return an OffscreenSurface when used as a cached-graphics helper,
+        or None when called as the runtime no_loop() toggle.
+        """
         return self.no_loop(*args, **kwargs)

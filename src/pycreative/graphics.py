@@ -644,9 +644,17 @@ class Surface:
             self._line_join = prev_join
 
     # --- shape construction helpers (beginShape/vertex/endShape) ---
-    def begin_shape(self) -> None:
-        """Start collecting vertices for a custom shape (beginShape in Processing)."""
+    def begin_shape(self, mode: str | None = None) -> None:
+        """Start collecting vertices for a custom shape (beginShape in Processing).
+
+        mode may be one of: None (default polygon/polyline), 'POINTS', 'LINES',
+        'TRIANGLES', 'TRIANGLE_FAN', 'TRIANGLE_STRIP', 'QUADS', 'QUAD_STRIP'.
+        """
         self._shape_points = []
+        try:
+            self._shape_mode = None if mode is None else str(mode).upper()
+        except Exception:
+            self._shape_mode = None
 
     def vertex(self, x: float, y: float) -> None:
         """Add a vertex to the current shape under construction.
@@ -707,10 +715,66 @@ class Surface:
             self._shape_points = []
             return
 
-        if close:
-            self.polygon(pts)
+        mode = getattr(self, "_shape_mode", None)
+
+        def draw_poly(p):
+            # helper: draw polygon/triangle/quad using existing polygon helper
+            if p:
+                self.polygon(p)
+
+        if mode is None:
+            # default: polygon when closed else polyline
+            if close:
+                self.polygon(pts)
+            else:
+                self.polyline(pts)
+        elif mode == "POINTS":
+            # draw single points (use stroke color if available else fill)
+            color = self._stroke if self._stroke is not None else self._fill
+            if color is not None:
+                r = max(1, int(self._stroke_weight))
+                for x, y in pts:
+                    pygame.draw.circle(self._surf, color, (int(x), int(y)), r)
+        elif mode == "LINES":
+            color = self._stroke if self._stroke is not None else self._fill
+            w = int(self._stroke_weight)
+            for i in range(0, len(pts) - 1, 2):
+                a = pts[i]
+                b = pts[i + 1]
+                if color is not None and w > 0:
+                    pygame.draw.line(self._surf, color, (int(a[0]), int(a[1])), (int(b[0]), int(b[1])), w)
+        elif mode == "TRIANGLES":
+            for i in range(0, len(pts) - 2, 3):
+                tri = [pts[i], pts[i + 1], pts[i + 2]]
+                draw_poly(tri)
+        elif mode == "TRIANGLE_FAN":
+            if len(pts) >= 3:
+                c = pts[0]
+                for i in range(1, len(pts) - 1):
+                    tri = [c, pts[i], pts[i + 1]]
+                    draw_poly(tri)
+        elif mode == "TRIANGLE_STRIP":
+            for i in range(0, len(pts) - 2):
+                if i % 2 == 0:
+                    tri = [pts[i], pts[i + 1], pts[i + 2]]
+                else:
+                    tri = [pts[i + 1], pts[i], pts[i + 2]]
+                draw_poly(tri)
+        elif mode == "QUADS":
+            for i in range(0, len(pts) - 3, 4):
+                quad = [pts[i], pts[i + 1], pts[i + 2], pts[i + 3]]
+                draw_poly(quad)
+        elif mode == "QUAD_STRIP":
+            # quad strip uses pairs: (v0,v1,v2,v3) -> quad(v0,v1,v3,v2)
+            for i in range(0, len(pts) - 3, 2):
+                quad = [pts[i], pts[i + 1], pts[i + 3], pts[i + 2]]
+                draw_poly(quad)
         else:
-            self.polyline(pts)
+            # unknown mode: fallback to polygon/polyline
+            if close:
+                self.polygon(pts)
+            else:
+                self.polyline(pts)
 
         # clear buffer
         self._shape_points = []
@@ -1365,275 +1429,3 @@ class OffscreenSurface(Surface):
             pygame.draw.polygon(self._surf, self._fill, pts)
         if self._stroke is not None and self._stroke_weight > 0:
             pygame.draw.polygon(self._surf, self._stroke, pts, int(self._stroke_weight))
-
-    # --- shape construction helpers (beginShape/vertex/endShape) ---
-    def begin_shape(self) -> None:
-        """Start collecting vertices for a custom shape (beginShape in Processing)."""
-        self._shape_points = []
-
-    def vertex(self, x: float, y: float) -> None:
-        """Add a vertex to the current shape under construction.
-
-        This stores a typed entry so shape builders can include curve segments
-        (bezier) along with straight vertices.
-        """
-        self._shape_points.append(("v", (x, y)))
-
-    def bezier_vertex(self, cx1: float, cy1: float, cx2: float, cy2: float, x3: float, y3: float) -> None:
-        """Add a cubic bezier segment to the current shape.
-
-        The bezier segment uses the previous vertex in the buffer as the
-        starting point (p0), the two control points (cx1,cy1) and (cx2,cy2),
-        and (x3,y3) as the endpoint (p3). During `end_shape()` these segments
-        are flattened to many small line segments to allow filling/stroking.
-        """
-        self._shape_points.append(("bz", (cx1, cy1, cx2, cy2, x3, y3)))
-
-    # compatibility alias (Processing-style)
-    bezierVertex = bezier_vertex
-
-
-    def end_shape(self, close: bool = False) -> None:
-        """Finish the current shape and draw it.
-
-        If `close` is True the shape is closed (polygon), otherwise it's drawn
-        as an open polyline.
-        """
-        if not self._shape_points:
-            return
-
-        # Expand the typed shape buffer into a flat list of points. If bezier
-        # segments are present we sample them at a fixed resolution to produce
-        # a list of straight segments suitable for pygame polygon/lines.
-        pts: list[tuple[float, float]] = []
-        prev_pt: tuple[float, float] | None = None
-        for entry in self._shape_points:
-            tag, data = entry
-            if tag == "v":
-                x, y = data
-                pts.append((x, y))
-                prev_pt = (x, y)
-            elif tag == "bz":
-                # data: (cx1, cy1, cx2, cy2, x3, y3)
-                if prev_pt is None:
-                    # no starting point to attach to; skip
-                    continue
-                cx1, cy1, cx2, cy2, x3, y3 = data
-                p0x, p0y = prev_pt
-                samples = self._flatten_cubic_bezier((p0x, p0y), (cx1, cy1), (cx2, cy2), (x3, y3), steps=20)
-                # samples includes start point; omit first to avoid duplicate
-                for s in samples[1:]:
-                    pts.append(s)
-                prev_pt = (x3, y3)
-
-        if not pts:
-            self._shape_points = []
-            return
-
-        if close:
-            self.polygon(pts)
-        else:
-            self.polyline(pts)
-
-        # clear buffer
-        self._shape_points = []
-
-    def _flatten_cubic_bezier(self, p0: tuple[float, float], p1: tuple[float, float], p2: tuple[float, float], p3: tuple[float, float], steps: int = 16) -> list[tuple[float, float]]:
-        """Sample a cubic Bezier curve and return a list of points including endpoints.
-
-        Uses uniform parameter sampling. For higher-quality tessellation an
-        adaptive subdivision could be used but uniform sampling is sufficient
-        for many UI and artistic purposes.
-        """
-        pts: list[tuple[float, float]] = []
-
-        steps = max(2, int(steps))
-        for i in range(steps + 1):
-            t = i / steps
-            # cubic bezier formula
-            mt = 1 - t
-            x = (mt ** 3) * p0[0] + 3 * (mt ** 2) * t * p1[0] + 3 * mt * (t ** 2) * p2[0] + (t ** 3) * p3[0]
-            y = (mt ** 3) * p0[1] + 3 * (mt ** 2) * t * p1[1] + 3 * mt * (t ** 2) * p2[1] + (t ** 3) * p3[1]
-            pts.append((x, y))
-        return pts
-
-    # --- bezier helpers (Processing-like) ---
-    def bezier_detail(self, steps: int) -> None:
-        """Set the default sampling resolution used by `bezier()` and
-        when flattening bezier segments in `end_shape()`.
-        """
-        self._bezier_detail = max(2, int(steps))
-
-    def bezier(self, x1: float, y1: float, cx1: float, cy1: float, cx2: float, cy2: float, x2: float, y2: float) -> None:
-        """Draw a cubic bezier curve from (x1,y1) to (x2,y2) with control
-        points (cx1,cy1) and (cx2,cy2). This renders using `polyline()` and
-        respects stroke settings only (matching Processing's bezier behavior).
-        """
-        samples = self._flatten_cubic_bezier((x1, y1), (cx1, cy1), (cx2, cy2), (x2, y2), steps=self._bezier_detail)
-        # Draw as an open polyline; polyline handles stroke/stroke_weight
-        self.polyline(samples)
-
-    def bezier_point(self, p0, p1, p2, p3, t: float):
-        """Evaluate a cubic bezier at parameter t in [0,1].
-
-        The function accepts scalar coordinates or 2D tuples. If scalars are
-        passed it returns a scalar; if tuples are passed it returns a tuple.
-        """
-        t = float(t)
-        mt = 1.0 - t
-        # scalar path
-        if not hasattr(p0, "__iter__"):
-            return (mt ** 3) * p0 + 3 * (mt ** 2) * t * p1 + 3 * mt * (t ** 2) * p2 + (t ** 3) * p3
-        # tuple path (assume 2D)
-        x = (mt ** 3) * p0[0] + 3 * (mt ** 2) * t * p1[0] + 3 * mt * (t ** 2) * p2[0] + (t ** 3) * p3[0]
-        y = (mt ** 3) * p0[1] + 3 * (mt ** 2) * t * p1[1] + 3 * mt * (t ** 2) * p2[1] + (t ** 3) * p3[1]
-        return (x, y)
-
-    def bezier_tangent(self, p0, p1, p2, p3, t: float):
-        """Compute the derivative (tangent) of the cubic bezier at parameter t.
-
-        Returns a scalar for scalar inputs or a tuple (dx, dy) for 2D inputs.
-        """
-        t = float(t)
-        mt = 1.0 - t
-        # derivative of cubic bezier: 3*( (p1-p0)*mt^2 + 2*(p2-p1)*mt*t + (p3-p2)*t^2 )
-        if not hasattr(p0, "__iter__"):
-            return 3 * ((p1 - p0) * (mt ** 2) + 2 * (p2 - p1) * mt * t + (p3 - p2) * (t ** 2))
-        dx = 3 * ((p1[0] - p0[0]) * (mt ** 2) + 2 * (p2[0] - p1[0]) * mt * t + (p3[0] - p2[0]) * (t ** 2))
-        dy = 3 * ((p1[1] - p0[1]) * (mt ** 2) + 2 * (p2[1] - p1[1]) * mt * t + (p3[1] - p2[1]) * (t ** 2))
-        return (dx, dy)
-
-    def polyline(self, points: list[tuple[float, float]]) -> None:
-        """Draw an open polyline connecting the sequence of points.
-
-        Stroke and stroke_weight are respected. Fill is ignored for polylines.
-        """
-        if not points:
-            return
-        pts = [(int(x), int(y)) for (x, y) in points]
-        # pygame.draw.lines draws connected segments; closed=False keeps it open
-        if self._stroke is not None and self._stroke_weight > 0:
-            pygame.draw.lines(self._surf, self._stroke, False, pts, int(self._stroke_weight))
-
-            # emulate round caps by drawing circles at endpoints
-            if self._line_cap == "round":
-                radius = max(1, int(self._stroke_weight / 2))
-                start = pts[0]
-                end = pts[-1]
-                pygame.draw.circle(self._surf, self._stroke, start, radius)
-                pygame.draw.circle(self._surf, self._stroke, end, radius)
-
-            # emulate round joins by drawing circles at internal vertices
-            if self._line_join == "round":
-                radius = max(1, int(self._stroke_weight / 2))
-                for v in pts[1:-1]:
-                    pygame.draw.circle(self._surf, self._stroke, v, radius)
-
-        # NOTE:
-        # The cap and join handling here is intentionally lightweight and approximate.
-        # - We emulate 'round' caps/joins by stamping circles at endpoints/vertices.
-        # - 'butt' and 'square' rely on pygame's default rendering behavior and are not
-        #   specially constructed here.
-        # Full, pixel-accurate miter/bevel handling requires explicit geometry (miter
-        # joins, miter-limit calculation, and potentially polygon-based stroking)
-        # or a renderer that exposes native cap/join controls. Implementing full
-        # miter math is deferred to a follow-up task (see T503 in specs/dev-refactor/tasks.md).
-
-    def set_line_cap(self, cap: str) -> None:
-        """Set line cap style: 'butt', 'round', or 'square'."""
-        if cap in ("butt", "round", "square"):
-            self._line_cap = cap
-
-    def set_line_join(self, join: str) -> None:
-        """Set line join style: 'miter', 'round', or 'bevel'."""
-        if join in ("miter", "round", "bevel"):
-            self._line_join = join
-
-    def stroke_path(self, points: list[tuple[float, float]], closed: bool = False, cap: Optional[str] = None, join: Optional[str] = None, miter_limit: float = 10.0) -> None:
-        """Unified stroking method that honors cap/join/miter options.
-
-        This is the central API we expect to implement fully later. For now it
-        temporarily applies cap/join settings and delegates to `polyline` or
-        `polygon` as appropriate.
-
-        TODO: implement geometry-based stroking for accurate miters/bevels
-        and a configurable miter limit for performance/quality trade-offs.
-        """
-        if not points:
-            return
-
-        prev_cap = self._line_cap
-        prev_join = self._line_join
-        try:
-            if cap is not None:
-                self.set_line_cap(cap)
-            if join is not None:
-                self.set_line_join(join)
-
-            if closed:
-                # draw as polygon (filled/stroked)
-                self.polygon(points)
-            else:
-                self.polyline(points)
-        finally:
-            # restore previous styles
-            self._line_cap = prev_cap
-            self._line_join = prev_join
-
-    def arc(self, x: float, y: float, w: float, h: float, start_rad: float, end_rad: float, mode: str = "open", fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
-        """Draw an arc. Accepts optional per-call fill/stroke/stroke_weight (or stroke_width).
-
-        This is a best-effort implementation using pygame drawing primitives.
-        """
-        # Save previous style state
-        prev_fill = self._fill
-        prev_stroke = self._stroke
-        prev_sw = self._stroke_weight
-        try:
-            if fill is not None:
-                self.fill(fill)
-            if stroke is not None:
-                self.stroke(stroke)
-            if stroke_width is not None:
-                self.stroke_weight(int(stroke_width))
-            elif stroke_weight is not None:
-                self.stroke_weight(int(stroke_weight))
-
-            rect = pygame.Rect(int(x - w / 2), int(y - h / 2), int(w), int(h))
-            if mode == "open":
-                # Draw arc outline only
-                if self._stroke is not None:
-                    pygame.draw.arc(self._surf, self._stroke, rect, float(start_rad), float(end_rad), int(self._stroke_weight))
-            else:
-                # For pie/chord, construct polygon points along the ellipse arc
-                import math
-
-                steps = max(6, int((end_rad - start_rad) * 10))
-                pts = []
-                cx = x
-                cy = y
-                rx = w / 2.0
-                ry = h / 2.0
-                for i in range(steps + 1):
-                    t = start_rad + (end_rad - start_rad) * (i / max(1, steps))
-                    px = cx + rx * math.cos(t)
-                    py = cy + ry * math.sin(t)
-                    pts.append((px, py))
-                if mode == "pie":
-                    # close to center
-                    poly = [(int(cx), int(cy))] + [(int(px), int(py)) for px, py in pts]
-                    if self._fill is not None:
-                        pygame.draw.polygon(self._surf, self._fill, poly)
-                    if self._stroke is not None and self._stroke_weight > 0:
-                        pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
-                elif mode == "chord":
-                    poly = [(int(px), int(py)) for px, py in pts]
-                    if self._fill is not None:
-                        pygame.draw.polygon(self._surf, self._fill, poly)
-                    if self._stroke is not None and self._stroke_weight > 0:
-                        pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
-        finally:
-            # Restore previous style state
-            self._fill = prev_fill
-            self._stroke = prev_stroke
-            self._stroke_weight = prev_sw
