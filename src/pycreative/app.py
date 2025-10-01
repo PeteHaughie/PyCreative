@@ -56,6 +56,8 @@ class Sketch:
         # Pending shape mode state for rect/ellipse - allow setting in setup()
         self._pending_rect_mode = _PENDING_UNSET
         self._pending_ellipse_mode = _PENDING_UNSET
+        # Pending color mode (e.g., set in setup before surface exists)
+        self._pending_color_mode = _PENDING_UNSET
 
         # Runtime no-loop control (if True, draw() runs once then is suppressed)
         self._no_loop_mode = False
@@ -277,6 +279,25 @@ class Sketch:
             return cast(str, v)
         if mode in (GraphicsSurface.MODE_CORNER, GraphicsSurface.MODE_CENTER):
             self._pending_ellipse_mode = mode
+        return None
+
+    def color_mode(self, mode: Optional[str] = None, max1: int = 255, max2: int = 255, max3: int = 255):
+        """Get or set color mode. When called before a Surface exists this
+        records a pending color_mode tuple which will be applied in run().
+        """
+        if self.surface is not None:
+            return self.surface.color_mode(mode, max1, max2, max3)
+        if mode is None:
+            v = self._pending_color_mode
+            if v is _PENDING_UNSET:
+                return None
+            return cast(tuple, v)
+        try:
+            m = str(mode).upper()
+            if m in ("RGB", "HSB"):
+                self._pending_color_mode = (m, int(max1), int(max2), int(max3))
+        except Exception:
+            pass
         return None
 
     def text(self, txt: str, x: int, y: int, font_name: Optional[str] = None, size: int = 24, color: Tuple[int, int, int] = (0, 0, 0)) -> None:
@@ -650,6 +671,16 @@ class Sketch:
         self.surface = GraphicsSurface(self._surface)
         # Apply any drawing state set earlier in setup() before the Surface existed
         try:
+            # apply pending color mode first so pending fill/stroke are interpreted correctly
+            if getattr(self, "_pending_color_mode", _PENDING_UNSET) is not _PENDING_UNSET:
+                try:
+                    cm = self._pending_color_mode
+                    # cm is a tuple (mode, max1, max2, max3)
+                    if isinstance(cm, tuple) and len(cm) == 4:
+                        self.surface.color_mode(cm[0], cm[1], cm[2], cm[3])
+                except Exception:
+                    pass
+
             if self._pending_fill is not _PENDING_UNSET:
                 # explicit None means disable fill
                 self.surface.fill(self._pending_fill)
