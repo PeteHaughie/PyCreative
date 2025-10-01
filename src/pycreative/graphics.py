@@ -926,27 +926,29 @@ class Surface:
             self._fill = None
             return
         # Accept Color instances directly
-        try:
-            if isinstance(color, Color):
-                self._fill = color.to_tuple()
-                return
-        except Exception:
-            pass
+        if isinstance(color, Color):
+            self._fill = color.to_tuple()
+            return
 
-        # If HSB color mode is active and a 3-tuple is provided interpret as HSB
+        # Interpret tuples according to current color mode, using Color helpers
         try:
-            mode, m1, m2, m3 = self._color_mode
+            mode, m1, _m2, _m3 = self._color_mode
+        except Exception:
+            mode, m1, _m2, _m3 = ("RGB", 255, 255, 255)
+
+        try:
             if mode == "HSB" and hasattr(color, "__iter__"):
+                # allow the Color helper to sanitize/clamp values
                 h, s, v = color
-                col = Color.from_hsb(float(h), float(s), float(v), max_value=m1)
+                col = Color.from_hsb(h, s, v, max_value=m1)
                 self._fill = col.to_tuple()
                 return
-        except Exception:
-            pass
-
-        # fallback: treat as RGB tuple
-        try:
-            self._fill = (int(color[0]) & 255, int(color[1]) & 255, int(color[2]) & 255)
+            # otherwise treat as RGB (values may be in a custom max range)
+            if hasattr(color, "__iter__"):
+                r, g, b = color
+                col = Color.from_rgb(r, g, b, max_value=m1)
+                self._fill = col.to_tuple()
+                return
         except Exception:
             # best-effort: ignore invalid input
             self._fill = None
@@ -976,25 +978,26 @@ class Surface:
         if color is None:
             self._stroke = None
             return
-        try:
-            if isinstance(color, Color):
-                self._stroke = color.to_tuple()
-                return
-        except Exception:
-            pass
+        if isinstance(color, Color):
+            self._stroke = color.to_tuple()
+            return
 
         try:
-            mode, m1, m2, m3 = self._color_mode
+            mode, m1, _m2, _m3 = self._color_mode
+        except Exception:
+            mode, m1, _m2, _m3 = ("RGB", 255, 255, 255)
+
+        try:
             if mode == "HSB" and hasattr(color, "__iter__"):
                 h, s, v = color
-                col = Color.from_hsb(float(h), float(s), float(v), max_value=m1)
+                col = Color.from_hsb(h, s, v, max_value=m1)
                 self._stroke = col.to_tuple()
                 return
-        except Exception:
-            pass
-
-        try:
-            self._stroke = (int(color[0]) & 255, int(color[1]) & 255, int(color[2]) & 255)
+            if hasattr(color, "__iter__"):
+                r, g, b = color
+                col = Color.from_rgb(r, g, b, max_value=m1)
+                self._stroke = col.to_tuple()
+                return
         except Exception:
             self._stroke = None
 

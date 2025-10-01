@@ -33,11 +33,21 @@ class Color:
     @classmethod
     def from_rgb(cls, r: float, g: float, b: float, max_value: int = 255) -> "Color":
         try:
-            rf = float(r) / float(max_value) if max_value != 1 else float(r)
-            gf = float(g) / float(max_value) if max_value != 1 else float(g)
-            bf = float(b) / float(max_value) if max_value != 1 else float(b)
+            # protect against invalid max_value
+            mv = int(max_value)
+            if mv <= 0:
+                mv = 255
+            # convert to normalized floats in [0,1]
+            rf = float(r) / float(mv) if mv != 1 else float(r)
+            gf = float(g) / float(mv) if mv != 1 else float(g)
+            bf = float(b) / float(mv) if mv != 1 else float(b)
         except Exception:
             rf, gf, bf = 0.0, 0.0, 0.0
+
+        # clamp normalized values to [0,1]
+        rf = max(0.0, min(1.0, rf))
+        gf = max(0.0, min(1.0, gf))
+        bf = max(0.0, min(1.0, bf))
         return cls(cls._clamp_int(round(rf * 255)), cls._clamp_int(round(gf * 255)), cls._clamp_int(round(bf * 255)))
 
     @classmethod
@@ -47,14 +57,21 @@ class Color:
         s and v are scaled by max_value (like Processing).
         """
         try:
-            hf = float(h) / float(max_value) if max_value != 1 else float(h)
-            sf = float(s) / float(max_value) if max_value != 1 else float(s)
-            vf = float(v) / float(max_value) if max_value != 1 else float(v)
+            mv = int(max_value)
+            if mv <= 0:
+                mv = 255
+            hf = float(h) / float(mv) if mv != 1 else float(h)
+            sf = float(s) / float(mv) if mv != 1 else float(s)
+            vf = float(v) / float(mv) if mv != 1 else float(v)
         except Exception:
             hf, sf, vf = 0.0, 0.0, 0.0
 
         # normalize h into [0,1)
-        hf = hf % 1.0
+        hf = (hf or 0.0) % 1.0
+        # clamp saturation/value into [0,1]
+        sf = max(0.0, min(1.0, sf or 0.0))
+        vf = max(0.0, min(1.0, vf or 0.0))
+
         if sf <= 0.0:
             val = cls._clamp_int(round(vf * 255))
             return cls(val, val, val)
