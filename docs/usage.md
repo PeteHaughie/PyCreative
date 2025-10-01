@@ -138,6 +138,33 @@ self.surface.blit_image(g.raw, 10, 10)
 `self.surface`. Use `inherit_state=True` to copy fill/stroke state from the
 main surface if you need matching styles.
 
+## Shape construction modes (begin_shape)
+
+`Surface` and `Sketch` expose a Processing-like shape construction API using:
+
+- `begin_shape(mode=None)` — start collecting vertices. `mode` may be one of:
+  `POINTS`, `LINES`, `TRIANGLES`, `TRIANGLE_FAN`, `TRIANGLE_STRIP`, `QUADS`,
+  or `QUAD_STRIP`. Omit `mode` to build an arbitrary polygon/polyline.
+- `vertex(x,y)` — add a vertex.
+- `bezier_vertex(cx1,cy1,cx2,cy2,x3,y3)` — add a cubic bezier segment attached
+  to the previous vertex; flattened at draw time.
+- `end_shape(close=False)` — finish and draw. `close=True` will close the
+  polygon when applicable.
+
+Example (in a `Sketch`):
+
+```py
+def draw(self):
+    self.clear((10, 10, 10))
+    self.fill((255, 200, 100))
+    self.begin_shape('QUADS')
+    self.vertex(10, 10)
+    self.vertex(90, 10)
+    self.vertex(90, 70)
+    self.vertex(10, 70)
+    self.end_shape()
+```
+
 ## CI and tests: quick recipe
 
 1. Add a tiny headless run in CI that renders a few frames and asserts that
@@ -162,13 +189,3 @@ pycreative examples/save_snapshot_example.py --headless --max-frames 2
 - For headless runs, prefer the CLI which sets `SDL_VIDEODRIVER` for you. If
   you run the script directly, set `SDL_VIDEODRIVER=dummy` before importing
   pygame.
-
-## Further recipes I can add
-
-- A recipe for recording a GIF/MP4 from frames.
-- Example tests that assert `save_snapshot()` numbering behavior in a
-  temporary directory.
-- A recipe showing `Surface.pixels()` context-manager if/when we add it.
-
-Tell me which recipe you'd like next and I will add it as a short example in
-`docs/` and a test under `tests/` if appropriate.
