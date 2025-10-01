@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, Tuple, Callable, Any
+from typing import Optional, Tuple, Callable, Any, cast
 
 import time
 import os
@@ -53,6 +53,9 @@ class Sketch:
         # By default, pressing Escape closes the sketch; this can be disabled
         # by calling `self.set_escape_closes(False)` in the sketch.
         self._escape_closes = True
+        # Pending shape mode state for rect/ellipse - allow setting in setup()
+        self._pending_rect_mode = _PENDING_UNSET
+        self._pending_ellipse_mode = _PENDING_UNSET
 
         # Runtime no-loop control (if True, draw() runs once then is suppressed)
         self._no_loop_mode = False
@@ -243,13 +246,38 @@ class Sketch:
         else:
             self._pending_stroke_weight = int(w)
 
-    def rect_mode(self, mode: str) -> None:
+    def rect_mode(self, mode: Optional[str] = None) -> str | None:
+        """Get or set rectangle mode. When called before a Surface exists this
+        records a pending value which will be applied when the display is
+        created (in `run()`).
+        """
         if self.surface is not None:
-            self.surface.rect_mode(mode)
+            return self.surface.rect_mode(mode)
+        # when called with no args, return the pending or default
+        if mode is None:
+            v = self._pending_rect_mode
+            if v is _PENDING_UNSET:
+                return None
+            return cast(str, v)
+        if mode in (GraphicsSurface.MODE_CORNER, GraphicsSurface.MODE_CENTER):
+            self._pending_rect_mode = mode
+        return None
 
-    def ellipse_mode(self, mode: str) -> None:
+    def ellipse_mode(self, mode: Optional[str] = None) -> str | None:
+        """Get or set ellipse mode. When called before a Surface exists this
+        records a pending value which will be applied when the display is
+        created (in `run()`).
+        """
         if self.surface is not None:
-            self.surface.ellipse_mode(mode)
+            return self.surface.ellipse_mode(mode)
+        if mode is None:
+            v = self._pending_ellipse_mode
+            if v is _PENDING_UNSET:
+                return None
+            return cast(str, v)
+        if mode in (GraphicsSurface.MODE_CORNER, GraphicsSurface.MODE_CENTER):
+            self._pending_ellipse_mode = mode
+        return None
 
     def text(self, txt: str, x: int, y: int, font_name: Optional[str] = None, size: int = 24, color: Tuple[int, int, int] = (0, 0, 0)) -> None:
         if self.surface is not None:
@@ -629,6 +657,17 @@ class Sketch:
                 self.surface.stroke(self._pending_stroke)
             if self._pending_stroke_weight is not _PENDING_UNSET:
                 self.surface.stroke_weight(self._pending_stroke_weight)
+            # apply pending rect/ellipse modes if set in setup()
+            if getattr(self, "_pending_rect_mode", _PENDING_UNSET) is not _PENDING_UNSET:
+                try:
+                    self.surface.rect_mode(self._pending_rect_mode)
+                except Exception:
+                    pass
+            if getattr(self, "_pending_ellipse_mode", _PENDING_UNSET) is not _PENDING_UNSET:
+                try:
+                    self.surface.ellipse_mode(self._pending_ellipse_mode)
+                except Exception:
+                    pass
         except Exception:
             # best-effort; don't fail startup for state application
             pass
