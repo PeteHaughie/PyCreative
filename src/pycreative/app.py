@@ -47,6 +47,9 @@ class Sketch:
         self._pending_fill = _PENDING_UNSET
         self._pending_stroke = _PENDING_UNSET
         self._pending_stroke_weight = _PENDING_UNSET
+        # Pending cursor visibility state: use sentinel to distinguish
+        # "no pending change" from an explicit show/hide request.
+        self._pending_cursor = _PENDING_UNSET
 
         # Runtime no-loop control (if True, draw() runs once then is suppressed)
         self._no_loop_mode = False
@@ -140,6 +143,40 @@ class Sketch:
         self._title = str(title)
         if pygame.display.get_init():
             pygame.display.set_caption(self._title)
+
+    def no_cursor(self) -> None:
+        """Hide the system mouse cursor for the sketch window.
+
+        If called before the display exists, the request is recorded and
+        applied when the window is created (similar to other pending state).
+        """
+        # Apply immediately if possible
+        try:
+            if pygame.display.get_init():
+                pygame.mouse.set_visible(False)
+                # Clear any pending sentinel
+                self._pending_cursor = _PENDING_UNSET
+                return
+        except Exception:
+            # ignore failures; fall back to pending behavior
+            pass
+
+        # Record pending request to hide cursor
+        self._pending_cursor = False
+
+    def cursor(self, visible: bool = True) -> None:
+        """Show or hide the mouse cursor. Use `cursor(False)` to hide, or
+        `cursor(True)` to show. Prefer `no_cursor()` for the hide case.
+        """
+        try:
+            if pygame.display.get_init():
+                pygame.mouse.set_visible(bool(visible))
+                self._pending_cursor = _PENDING_UNSET
+                return
+        except Exception:
+            pass
+
+        self._pending_cursor = bool(visible)
 
     def set_double_buffer(self, enabled: bool) -> None:
         """Enable or disable double buffering for the display window.
