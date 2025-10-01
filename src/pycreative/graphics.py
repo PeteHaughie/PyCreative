@@ -16,6 +16,8 @@ from .transforms import (
     transform_points,
     decompose_scale,
 )
+from .color import Color
+
 
 # NOTE: numpy support removed — pixel helpers use pure-Python nested lists.
 _HAS_NUMPY = False
@@ -99,6 +101,10 @@ class Surface:
 
         # Transformation stack: list of 3x3 matrices; keep identity as base
         self._matrix_stack: list[list[list[float]]] = [identity_matrix()]
+        # Color mode: ('RGB'|'HSB', max1, max2, max3)
+        # Defaults mirror common 0-255 ranges. When in HSB mode, fill()/stroke()
+        # will interpret tuple inputs as (h,s,b) in the configured ranges.
+        self._color_mode: tuple[str, int, int, int] = ("RGB", 255, 255, 255)
 
     # --- transform stack helpers ---
     def _current_matrix(self):
@@ -889,11 +895,47 @@ class Surface:
         if color is None:
             self._fill = None
             return
+        # Accept Color instances directly
+        try:
+            if isinstance(color, Color):
+                self._fill = color.to_tuple()
+                return
+        except Exception:
+            pass
+
+        # If HSB color mode is active and a 3-tuple is provided interpret as HSB
+        try:
+            mode, m1, m2, m3 = self._color_mode
+            if mode == "HSB" and hasattr(color, "__iter__"):
+                h, s, v = color
+                col = Color.from_hsb(float(h), float(s), float(v), max_value=m1)
+                self._fill = col.to_tuple()
+                return
+        except Exception:
+            pass
+
+        # fallback: treat as RGB tuple
         try:
             self._fill = (int(color[0]) & 255, int(color[1]) & 255, int(color[2]) & 255)
         except Exception:
             # best-effort: ignore invalid input
             self._fill = None
+
+    def color_mode(self, mode: Optional[str] = None, max1: int = 255, max2: int = 255, max3: int = 255):
+        """Get or set the current color mode.
+
+        - color_mode() -> returns a tuple (mode, max1, max2, max3)
+        - color_mode('HSB', 255,255,255) -> sets HSB interpretation for future fill()/stroke() calls
+        """
+        if mode is None:
+            return self._color_mode
+        try:
+            m = str(mode).upper()
+            if m in ("RGB", "HSB"):
+                self._color_mode = (m, int(max1), int(max2), int(max3))
+        except Exception:
+            pass
+        return None
 
     def no_fill(self) -> None:
         """Disable filling for subsequent shape draws."""
@@ -904,6 +946,23 @@ class Surface:
         if color is None:
             self._stroke = None
             return
+        try:
+            if isinstance(color, Color):
+                self._stroke = color.to_tuple()
+                return
+        except Exception:
+            pass
+
+        try:
+            mode, m1, m2, m3 = self._color_mode
+            if mode == "HSB" and hasattr(color, "__iter__"):
+                h, s, v = color
+                col = Color.from_hsb(float(h), float(s), float(v), max_value=m1)
+                self._stroke = col.to_tuple()
+                return
+        except Exception:
+            pass
+
         try:
             self._stroke = (int(color[0]) & 255, int(color[1]) & 255, int(color[2]) & 255)
         except Exception:
