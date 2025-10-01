@@ -76,6 +76,22 @@ class Sketch:
         self._double_buffer: bool = True
         # vsync: 0 = disabled, 1 = enabled. Use None/0 for no vsync.
         self._vsync: int = 0
+        # Key/input convenience state (matches Processing-style helpers)
+        # - `key` is the readable key name (e.g., 'a', 'space') when available
+        # - `key_code` is the numeric pygame key constant (e.g., pygame.K_SPACE)
+        # - `key_is_pressed` is True while a key is down
+        self.key = None
+        self.key_code = None
+        self.key_is_pressed = False
+
+    # --- Key hooks (override in sketches) ---
+    def key_pressed(self) -> None:
+        """Called when a key is pressed (KEYDOWN). Override in sketches."""
+        return None
+
+    def key_released(self) -> None:
+        """Called when a key is released (KEYUP). Override in sketches."""
+        return None
 
     # Ensure lightweight subclass authoring: when a user defines a Sketch subclass
     # they shouldn't need to re-declare no-op lifecycle helpers like on_event

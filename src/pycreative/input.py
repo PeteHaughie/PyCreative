@@ -50,9 +50,41 @@ def dispatch_event(sketch, event: Any):
     # via `self.set_escape_closes(False)`.
     try:
         raw = getattr(e, "raw", None)
+        # Update sketch key convenience state for key events
+        if e.type == "key":
+            try:
+                sketch.key_code = getattr(e, "key", None)
+                # readable name if possible
+                if sketch.key_code is not None:
+                    try:
+                        sketch.key = pygame.key.name(sketch.key_code)
+                    except Exception:
+                        sketch.key = None
+                else:
+                    sketch.key = None
+            except Exception:
+                sketch.key = None
+                sketch.key_code = None
+
+            # KEYDOWN
+            if raw is not None and getattr(raw, "type", None) == pygame.KEYDOWN:
+                sketch.key_is_pressed = True
+                # call hook if present
+                try:
+                    sketch.key_pressed()
+                except Exception:
+                    pass
+            # KEYUP
+            if raw is not None and getattr(raw, "type", None) == pygame.KEYUP:
+                sketch.key_is_pressed = False
+                try:
+                    sketch.key_released()
+                except Exception:
+                    pass
+
+        # Allow Escape to close the sketch window on keydown by default
         if e.type == "key" and getattr(e, "key", None) == pygame.K_ESCAPE and raw is not None and getattr(raw, "type", None) == pygame.KEYDOWN:
             if getattr(sketch, "_escape_closes", True):
-                # Stop the sketch run loop; teardown will be handled by run().
                 try:
                     sketch._running = False
                 except Exception:
