@@ -1,5 +1,3 @@
-
-
 # Copilot Agent Instructions for PyCreative
 
 ## Project Overview
@@ -13,7 +11,6 @@ PyCreative is a batteries-included creative coding framework for Python, inspire
 - **pycreative.input**: Unified event abstraction, dispatch to sketch via `on_event`.
 - **pycreative.audio/video**: Optional modules for media playback (extras_require).
 - **pycreative.assets**: Asset discovery, hot-reload.
-- **pycreative.ui**: Basic widgets (Slider, Button).
 - **pycreative.timing**: Tween, Timeline utilities.
 - **examples/**: Runnable sketches demonstrating features.
 - **tests/**: Unit and integration tests (pytest).
@@ -81,32 +78,12 @@ class Flow(Sketch):
 
 ## CI & Packaging
 
-- GitHub Actions workflows: `ci.yml` (lint, test, docs), `publish.yml` (PyPI).
-- Packaging: `setup.cfg` or `pyproject.toml` (minimal required dependencies, extras for video/audio).
-
-## Security & Safety
-
-- No remote code execution during install/runtime.
-- Native extensions/features are opt-in only.
-
----
 
 **Feedback requested:**
 Are any architectural details, workflows, or conventions unclear or missing? Let me know if you need more specifics on any module, pattern, or integration point.
-
-### Rules & Constraints
-- Use idiomatic, modern Python 3.11+ (type hints, dataclasses where useful).
-- Keep dependencies minimal: PyGame is required; optional extras must be behind `extras_require` in `setup.cfg`/`pyproject.toml` (e.g., `video`, `audio`, `opengl`).
-- All public APIs must be documented with docstrings and a short usage example.
 - Follow PEP8 and Black formatting. Only use ruff.
 - Write unit tests using `pytest`. Focus on pure logic first; use integration tests for PyGame-dependent features but mark them separately.
 - Follow the simplistic API designs of Processing and openFrameworks where applicable.
-- Every class must have a corresponding test in the test suite.
--Documentation for each class and public API must be updated regularly, especially when new features are added or APIs change.
-
-### Development workflow for the AI
-For each top-level module, the copilot should:
-1. Create the package folder and `__init__.py` exposing the public API.
 2. Add typed skeletons for classes and functions with docstrings.
 3. Implement the core logic and minimal tests.
 4. Provide at least one runnable example that uses the implemented API.
@@ -124,7 +101,6 @@ For each top-level module, the copilot should:
 - Simple `pycreative.timing` with `Tween` and `Timeline`.
 - If no framerate is set, default to 60 FPS.
 - All animations should use an in-built delta time mechanism.
-- Basic UI widgets (Slider, Button) under `pycreative.ui`.
 
 ### Nice-to-have (iteration 2)
 - Shader support using PyGame+OpenGL or `moderngl` when available.
@@ -147,21 +123,13 @@ For every implemented module or feature, the copilot must provide the following 
 
 ### Coding & style
 - Use type hints everywhere for public functions and classes.
-- Use dataclasses for small value types (e.g., `Color`, `Point`).
-- Add `pyproject.toml` configured for `black`, `ruff`, `isort`, and `pytest`.
-
 ### Documentation & examples
 - Build a `docs/` folder with a getting-started guide and API reference (markdown is fine).
 - Create 12 example sketches grouped by category: Basics, Input, Graphics, Audio, Video, Shaders, UI, Asset hot-reload, Tweening, Packaging, Live-reload, Advanced.
-- Each example must have instructions on how to run and a screenshot (placeholder) in the examples folder.
-
 ### CI & Packaging
 - Add GitHub Actions workflows: `ci.yml` (lint, test, build docs), `publish.yml` (publish to PyPI on tag)
 - Provide `setup.cfg` or `pyproject.toml` and a simple `setup.py` wrapper for backwards compatibility.
-
-### Issue & PR templates
 - Provide templates that describe what to include in issues and PRs (summary, steps to reproduce, expected vs actual, tests added).
-
 ### Security & Safety
 - Do not include any code that executes remote code during install or runtime.
 - Avoid default inclusion of native extensions; optional features must be opt-in.
