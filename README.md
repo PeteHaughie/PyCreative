@@ -58,6 +58,8 @@ For more in-depth docs, see `docs/README.md` and the module-level docs under `sr
 
 ## Why?
 
+The reasoning behind building PyCreative was threefold: First, I had a problem to solve ie the need to have a lightweight fast portable framework for building interactive media devices, secondly as a method of learning GitHub's Spec Kit to see how AI assisted development works, and thirdly to see how large-scale python applications were made (although it's probably not a good example of that).
+
 Processing and openFrameworks are both fantastic tools for creative coding—so why make another framework with a similar API? The short answer: portability and extensibility.
 
 Processing is lightweight and fast to launch, but it isn’t well-suited for building hardware-driven projects like video synths. openFrameworks, on the other hand, is powerful and close to the metal, but it relies on complex toolchains (CMake, Make) or heavy IDEs (Xcode, Visual Studio) along with C++ addons, which can be a barrier for rapid experimentation.

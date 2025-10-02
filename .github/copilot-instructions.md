@@ -11,125 +11,53 @@ PyCreative is a batteries-included creative coding framework for Python, inspire
 - **pycreative.input**: Unified event abstraction, dispatch to sketch via `on_event`.
 - **pycreative.audio/video**: Optional modules for media playback (extras_require).
 - **pycreative.assets**: Asset discovery, hot-reload.
-- **pycreative.timing**: Tween, Timeline utilities.
-- **examples/**: Runnable sketches demonstrating features.
-- **tests/**: Unit and integration tests (pytest).
+```markdown
+# Copilot Agent Instructions — PyCreative (condensed)
 
-## Developer Workflows
+This file contains the minimal, repo-specific guidance an AI coding agent needs to be productive editing and testing PyCreative.
 
-- **Run a sketch:** `python examples/hello_sketch.py`
-- **Run tests:** `pytest tests/`
-- **Debug:** Use `pdb` or IDE debugger.
-- **Extend primitives:** Add to `pycreative.graphics.Surface`.
-- **Add input features:** Extend `pycreative.input` and event dataclasses.
+Key pointers
+- Project root: `pyproject.toml` defines the package `pycreative` and the CLI script `pycreative` (entry: `pycreative.cli:main`).
+- Primary source: `src/pycreative/` (notable files: `app.py`, `graphics.py`, `input.py`, `cli.py`, `assets.py`).
+- Examples: `examples/` contain runnable sketches that double as usage tests (run via the `pycreative` CLI).
+- Tests: `tests/` use `pytest`; integration tests are marked with `@pytest.mark.integration` (see `pytest.ini`).
 
+Architecture and important patterns
+- `Sketch` (`src/pycreative/app.py`) is the lifecycle entrypoint: override `setup()`, `update(dt)`, `draw()`, `on_event()`, `teardown()`.
+- `Surface` (`src/pycreative/graphics.py`) wraps a `pygame.Surface` and centralizes drawing state (fill/stroke/stroke_weight), transform stack, and primitives. Prefer adding primitives here for drawing behavior consistency.
+- Input normalization: `src/pycreative/input.py` converts pygame events to `Event` dataclass and calls `sketch.on_event(e)`; default Escape handling is enabled and can be disabled via `self.set_escape_closes(False)`.
+- CLI loader: `src/pycreative/cli.py` lazily imports user sketches, detects `main()`/`run()` functions or `Sketch` subclasses and runs them. Use `--headless` to run with `SDL_VIDEODRIVER=dummy`.
 
-## Conventions & Patterns
+Developer workflows (concrete commands)
+- Run an example/sketch with the project source on PYTHONPATH (recommended):
+  - `pycreative examples/offscreen_example.py`  # uses package entrypoint
+  - Or: `python examples/offscreen_example.py`
+- Run tests: `pytest tests/` (CI uses the same command). To skip integration tests: `pytest -m "not integration"`.
+- Run a single test file: `pytest tests/test_graphics_surface.py`.
 
-- **API design:** APIs should be small, discoverable, and chainable where it makes sense. See examples below.
-- **Imports:** All modules importable individually (e.g., `from pycreative.graphics import Surface`).
-- **Naming:** snake_case for functions/variables, CamelCase for classes.
-- **Style:** PEP8, Black, Ruff, Isort. Type hints everywhere. Dataclasses for value types.
-- **Docstrings:** All public APIs require docstrings and usage examples.
-- **Tests:** Pure logic: unit tests. PyGame-dependent: integration tests, mark separately.
+Conventions specific to this repo
+- Type hints are used across public APIs; prefer typed signatures for new functions.
+- Drawing state/behavior: prefer per-call style kwargs on primitives (e.g., `surface.rect(..., fill=(r,g,b), stroke=(r,g,b), stroke_weight=2)`) and implement new features on `Surface` so both on-screen and offscreen surfaces share behavior.
+- Pending state: `Sketch` records some state set before the display exists (color_mode, rect/ellipse modes, fill/stroke). When changing sketch behavior, account for pending vs runtime behavior in `Sketch.run()`.
+- Tests: avoid requiring an actual display — use the CLI `--headless` behavior (set `SDL_VIDEODRIVER=dummy`) or mock `pygame` APIs. Look at the test helpers in `tests/` for patterns.
 
-## Example API Usage
+Integration points and dependencies
+- Required at runtime for local development: `pygame`, `pillow`, `skia-python` (declared in `pyproject.toml`). Optional extras: `sounddevice` (audio), `ffmpeg-python`/`opencv-python` (video).
+- OpenGL/Shader support is optional and gated behind availability — add feature flags or optional imports as other modules do.
 
-### Minimal sketch (one-file)
-```python
-from pycreative import Sketch
+Small examples to copy when implementing features
+- Add a drawing primitive: mirror parameter behavior from existing `rect()`/`ellipse()` in `Surface` (see `graphics.py:rect()`/`ellipse()` ), use `_is_identity_transform()` fast path and transform_points for transformed paths.
+- Normalize input events: use `Event.from_pygame()` in `input.py` and call `sketch.on_event(e)`; update `sketch.key`, `sketch.key_code`, `sketch.key_is_pressed` consistently.
+- CLI runner: follow `cli.run_sketch()` behavior when loading user modules and prefer graceful error messages (see existing prints and sys.exit codes).
 
-class MySketch(Sketch):
-	def setup(self):
-		self.size(800, 600)
-		self.bg = 0
+Quality gates (what to run after edits)
+- Run: `ruff src/ tests/` (ruff config in `pyproject.toml`).
+- Run tests: `pytest -q` and ensure no new integration tests are accidentally unmarked.
+- Smoke-run an example: `pycreative examples/offscreen_example.py --headless --max-frames 5` to verify no display dependency and basic runtime behavior.
 
-	def update(self, dt):
-		pass
+What to avoid / repo-specific gotchas
+- Avoid importing `pygame` at module import time for CLI modules that are used for metadata (see `cli.py` which deliberately delays heavy imports).
+- Don't assume numpy-backed pixel arrays; `graphics.PixelView` currently supports nested lists and numpy may be absent (`_HAS_NUMPY = False`). Implement pixel helpers to work without numpy.
 
-	def draw(self):
-		self.clear(self.bg)
-		self.ellipse(self.width/2, self.height/2, 200, 200)
-
-if __name__ == '__main__':
-	MySketch().run()
-```
-
-### App with state and a shader
-```python
-from pycreative import Sketch, Shader
-
-class Flow(Sketch):
-	def setup(self):
-		self.size(1280, 720, fullscreen=False)
-		self.shader = Shader(fragment='shaders/flow.frag')
-
-	def draw(self):
-		self.shader.bind({'time': self.t})
-		self.rect(0,0,self.width,self.height)
-		self.shader.unbind()
-```
-
-## Integration Points
-
-- **PyGame**: Required for graphics and input.
-- **OpenGL**: Optional, for advanced rendering and shaders.
-- **Audio/Video**: Optional, extras_require in packaging.
-
-## CI & Packaging
-
-
-**Feedback requested:**
-Are any architectural details, workflows, or conventions unclear or missing? Let me know if you need more specifics on any module, pattern, or integration point.
-- Follow PEP8 and Black formatting. Only use ruff.
-- Write unit tests using `pytest`. Focus on pure logic first; use integration tests for PyGame-dependent features but mark them separately.
-- Follow the simplistic API designs of Processing and openFrameworks where applicable.
-2. Add typed skeletons for classes and functions with docstrings.
-3. Implement the core logic and minimal tests.
-4. Provide at least one runnable example that uses the implemented API.
-5. Add a `README.md` for the module with a short tutorial.
-
-### High-priority tasks (iteration 0 — MVP)
-1. `pycreative.app` — implement `Sketch` with PyGame loop and lifecycle hooks. Support `size()`, `run()`, `clear()`, `frame_rate`.
-2. `pycreative.graphics` — implement `Surface` wrapper over PyGame `Surface`, and primitives: `line`, `rect`, `ellipse`, `image`.
-3. `pycreative.input` — unify keyboard & mouse events and a simple `on_event` dispatch.
-4. CLI: `pycreative PATH/TO/sketch.py` to run a sketch.
-5. Tests & examples for each.
-
-### Medium-priority tasks (iteration 1)
-- Asset loader with `pycreative.assets` and hot-reload.
-- Simple `pycreative.timing` with `Tween` and `Timeline`.
-- If no framerate is set, default to 60 FPS.
-- All animations should use an in-built delta time mechanism.
-
-### Nice-to-have (iteration 2)
-- Shader support using PyGame+OpenGL or `moderngl` when available.
-- Video decoding via ffmpeg subprocess to frames.
-- Audio wrappers with optional `sounddevice` integration.
-- Packaging CLI to create a single-folder distribution.
-
-### Implementation details & acceptance criteria
-For every implemented module or feature, the copilot must provide the following deliverables:
-- Source files in the proper package layout.
-- A unit test file that covers key behavior (pass rate >= 90% for unit-tested logic).
-- A short example script (under `examples/`) that demonstrates usage and can be run with `python examples/name.py`.
-- Module-level README with rationale and API highlights.
-- A CHANGELOG entry and a single-line release note.
-
-### Testing strategy
-- Use `pytest` for unit tests.
-- Use mocking for PyGame where appropriate (e.g., mock `pygame.init()` calls) so tests can run in CI without display.
-- Provide one integration test that runs the app loop for a few frames in headless mode.
-
-### Coding & style
-- Use type hints everywhere for public functions and classes.
-### Documentation & examples
-- Build a `docs/` folder with a getting-started guide and API reference (markdown is fine).
-- Create 12 example sketches grouped by category: Basics, Input, Graphics, Audio, Video, Shaders, UI, Asset hot-reload, Tweening, Packaging, Live-reload, Advanced.
-### CI & Packaging
-- Add GitHub Actions workflows: `ci.yml` (lint, test, build docs), `publish.yml` (publish to PyPI on tag)
-- Provide `setup.cfg` or `pyproject.toml` and a simple `setup.py` wrapper for backwards compatibility.
-- Provide templates that describe what to include in issues and PRs (summary, steps to reproduce, expected vs actual, tests added).
-### Security & Safety
-- Do not include any code that executes remote code during install or runtime.
-- Avoid default inclusion of native extensions; optional features must be opt-in.
+If you change public behaviour
+- Add/update a unit test in `tests/` (pure logic) and an integration sketch in `examples/` when the change touches rendering or runtime loop behavior.
