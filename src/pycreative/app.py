@@ -992,9 +992,12 @@ class Sketch:
             if getattr(self, "_pending_color_mode", _PENDING_UNSET) is not _PENDING_UNSET:
                 try:
                     cm = self._pending_color_mode
-                    # cm is a tuple (mode, max1, max2, max3)
-                    if isinstance(cm, tuple) and len(cm) == 4:
-                        self.surface.color_mode(cm[0], cm[1], cm[2], cm[3])
+                    # cm may be (mode, max1, max2, max3) or include a 5th alpha max
+                    if isinstance(cm, tuple) and len(cm) >= 4:
+                        if len(cm) >= 5:
+                            self.surface.color_mode(cm[0], cm[1], cm[2], cm[3], cm[4])
+                        else:
+                            self.surface.color_mode(cm[0], cm[1], cm[2], cm[3])
                 except Exception:
                     pass
 
@@ -1074,12 +1077,22 @@ class Sketch:
                     if not getattr(self, "_has_drawn_once", False):
                         if debug:
                             print("[pycreative.run] debug: calling draw() once due to no_loop")
-                        self.draw()
+                        # mark that we're entering draw so no_loop() can detect it
+                        self._in_draw = True
+                        try:
+                            self.draw()
+                        finally:
+                            self._in_draw = False
                         self._has_drawn_once = True
                 else:
                     if debug:
                         print("[pycreative.run] debug: calling draw()")
-                    self.draw()
+                    # mark draw in-flight so runtime calls to no_loop() know context
+                    self._in_draw = True
+                    try:
+                        self.draw()
+                    finally:
+                        self._in_draw = False
             except Exception:
                 # On error, attempt teardown and stop
                 try:
@@ -1217,7 +1230,14 @@ class Sketch:
         # runtime no-loop: called without args
         if len(args) == 0 and len(kwargs) == 0:
             self._no_loop_mode = True
-            self._has_drawn_once = False
+            # If called from inside draw(), consider the current draw as the
+            # single draw and mark it done to avoid a second draw in the same
+            # frame. Otherwise reset _has_drawn_once so the next loop will
+            # perform one draw when the mode is active.
+            if getattr(self, "_in_draw", False):
+                self._has_drawn_once = True
+            else:
+                self._has_drawn_once = False
             return None
 
         # otherwise, forward to cached_graphics for backward compatibility
