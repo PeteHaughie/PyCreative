@@ -10,40 +10,6 @@ A batteries-included creative coding framework for Python, inspired by Processin
 - Asset management, hot-reload, and live-coding support
 - Simple, discoverable, and chainable APIs
 
-## What's new (API highlights)
-This repository includes several recent API improvements inspired by Processing-style workflows and convenience wrappers around Pygame. Key additions:
-
-- Pixel access (PImage-style)
-	- Use the `pixels()` context manager on any `Surface` to get/set pixel data without directly exposing numpy. The returned object behaves like a simple 2D pixel view and will write back on exit.
-	- Example:
-		```python
-		with surface.pixels() as px:
-				px[10,10] = (255,0,0,255)  # RGBA tuple
-		```
-
-- Offscreen drawing / PGraphics
-	- `OffscreenSurface` provides a lightweight, context-manageable offscreen buffer. Use `Sketch.create_graphics(width, height, inherit_state=True)` to create an offscreen surface that can inherit drawing state (fill, stroke, stroke_weight) from the main sketch.
-	- Offscreen surfaces can be drawn onto the main surface with `blit_image` / `blit` helpers or via `Surface.blit()`.
-
-- Per-call style overrides for primitives
-	- All shape primitives support per-call style keyword arguments: `fill=`, `stroke=`, `stroke_weight=` (alias `stroke_width=` supported). These override the surface's current style for that single call.
-	- Example:
-		```python
-		surface.rect(10,10,100,100, fill=(255,0,0), stroke=(0,255,0), stroke_weight=4)
-		```
-
-- Sketch image and load helpers
-	- `Sketch.load_image(path)` returns an `OffscreenSurface` (or a Surface-like wrapper) so images are easy to manipulate with the same API (pixels, copy, blit).
-	- `Sketch.image(img, x, y, w=None, h=None)` accepts either a Pygame Surface or an OffscreenSurface and will extract the raw surface when needed.
-
-- Style context manager
-	- Use `with sketch.style(fill=(...), stroke=(...), stroke_weight=...)` to temporarily override drawing state inside a scoped block. This mirrors Processing's `pushStyle()` / `popStyle()` in an idiomatic Python context manager.
-
-- Convenience and compat
-	- `Surface.size` property returns (width, height) for quick access.
-	- `Surface.img()` alias exists for image-like helpers.
-	- `Sketch.save_frame()` and `Sketch.save_folder` behaviour: frames are written next to the sketch by default and support sequence naming for animation frames. Check the Sketch API docs for the naming convention.
-
 ## Examples
 The `examples/` directory includes runnable sketches that demonstrate the APIs. In particular:
 
