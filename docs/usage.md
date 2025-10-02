@@ -142,13 +142,9 @@ main surface if you need matching styles.
 
 `Surface` and `Sketch` expose a Processing-like shape construction API using:
 
-- `begin_shape(mode=None)` — start collecting vertices. `mode` may be one of:
   `POINTS`, `LINES`, `TRIANGLES`, `TRIANGLE_FAN`, `TRIANGLE_STRIP`, `QUADS`,
   or `QUAD_STRIP`. Omit `mode` to build an arbitrary polygon/polyline.
-- `vertex(x,y)` — add a vertex.
-- `bezier_vertex(cx1,cy1,cx2,cy2,x3,y3)` — add a cubic bezier segment attached
   to the previous vertex; flattened at draw time.
-- `end_shape(close=False)` — finish and draw. `close=True` will close the
   polygon when applicable.
 
 Example (in a `Sketch`):
@@ -163,6 +159,29 @@ def draw(self):
     self.vertex(90, 70)
     self.vertex(10, 70)
     self.end_shape()
+```
+
+### Example: HSB color mode with shapes
+
+If you prefer HSB color semantics, set the color mode first and then call
+`fill()` or `stroke()` with HSB tuples. The values are converted when you call
+`fill()`/`stroke()` and stored as RGB for subsequent draws:
+
+```py
+def setup(self):
+  self.size(320, 200)
+  self.color_mode('HSB', 360, 100, 100)
+  self.no_loop()
+
+def draw(self):
+  self.clear((0, 0, 0))
+  self.fill((200, 80, 90))  # HSB -> converted to RGB internally
+  self.begin_shape('QUADS')
+  self.vertex(30, 30)
+  self.vertex(290, 30)
+  self.vertex(290, 170)
+  self.vertex(30, 170)
+  self.end_shape()
 ```
 
 ## CI and tests: quick recipe

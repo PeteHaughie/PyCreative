@@ -51,17 +51,42 @@ class Color:
         return cls(cls._clamp_int(round(rf * 255)), cls._clamp_int(round(gf * 255)), cls._clamp_int(round(bf * 255)))
 
     @classmethod
-    def from_hsb(cls, h: float, s: float, v: float, max_value: int = 255) -> "Color":
-        """Convert HSB/HSV to RGB. h is interpreted modulo max_value.
+    def from_hsb(
+        cls,
+        h: float,
+        s: float,
+        v: float,
+        max_h: int = 255,
+        max_s: int | None = None,
+        max_v: int | None = None,
+        max_value: int | None = None,
+    ) -> "Color":
+        """Convert HSB/HSV to RGB.
 
-        s and v are scaled by max_value (like Processing).
+        Arguments `max_h`, `max_s`, `max_v` specify the ranges used for the
+        input components (Processing-style). If `max_s` or `max_v` are omitted
+        they default to `max_h` for backward compatibility.
         """
         try:
-            mv = int(max_value)
+            # Backwards-compatibility: if `max_value` is provided use it for all channels
+            if max_value is not None:
+                mh = int(max_value)
+                ms = int(max_value)
+                mv = int(max_value)
+            else:
+                mh = int(max_h)
+                ms = int(max_s) if max_s is not None else mh
+                mv = int(max_v) if max_v is not None else mh
+
+            if mh <= 0:
+                mh = 255
+            if ms <= 0:
+                ms = mh
             if mv <= 0:
-                mv = 255
-            hf = float(h) / float(mv) if mv != 1 else float(h)
-            sf = float(s) / float(mv) if mv != 1 else float(s)
+                mv = mh
+
+            hf = float(h) / float(mh) if mh != 1 else float(h)
+            sf = float(s) / float(ms) if ms != 1 else float(s)
             vf = float(v) / float(mv) if mv != 1 else float(v)
         except Exception:
             hf, sf, vf = 0.0, 0.0, 0.0
