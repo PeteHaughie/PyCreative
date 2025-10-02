@@ -105,6 +105,25 @@ class Surface:
         # Defaults mirror common 0-255 ranges. When in HSB mode, fill()/stroke()
         # will interpret tuple inputs as (h,s,b,a) in the configured ranges.
         self._color_mode: tuple[str, int, int, int, int] = ("RGB", 255, 255, 255, 255)
+        # Cache for temporary SRCALPHA surfaces keyed by (w,h) to avoid
+        # allocating many small surfaces each frame. This is a small, short-
+        # lived cache and not intended for long-term memory growth.
+        self._temp_surface_cache: dict[tuple[int, int], pygame.Surface] = {}
+
+    def _get_temp_surface(self, w: int, h: int) -> pygame.Surface:
+        """Return a cached SRCALPHA temporary surface for the given size.
+
+        This avoids repeated allocations when many small primitives are
+        rendered with alpha in a single frame.
+        """
+        key = (int(w), int(h))
+        surf = self._temp_surface_cache.get(key)
+        if surf is None or surf.get_size() != (key[0], key[1]):
+            surf = pygame.Surface((key[0], key[1]), flags=pygame.SRCALPHA)
+            self._temp_surface_cache[key] = surf
+        # clear previous contents
+        surf.fill((0, 0, 0, 0))
+        return surf
 
     # --- transform stack helpers ---
     def _current_matrix(self):
@@ -207,7 +226,9 @@ class Surface:
                 vals = list(color_val)
                 h, s, v = vals[0], vals[1], vals[2]
                 a = vals[3] if len(vals) >= 4 else 255
-                col = Color.from_hsb(float(h), float(s), float(v), a=a, max_h=m1, max_s=self._color_mode[2], max_v=self._color_mode[3])
+                # Use configured alpha max when present (fifth entry in _color_mode)
+                ma = int(self._color_mode[4]) if len(self._color_mode) >= 5 else m1
+                col = Color.from_hsb(float(h), float(s), float(v), a=a, max_h=m1, max_s=self._color_mode[2], max_v=self._color_mode[3], max_a=ma)
                 return col.to_rgba_tuple() if col.a != 255 else col.to_tuple()
         except Exception:
             pass
@@ -313,7 +334,8 @@ class Surface:
                 # allow 3- or 4-length tuples: (h,s,v) or (h,s,v,a)
                 vals = list(color)
                 h, s, v = vals[0], vals[1], vals[2]
-                col = Color.from_hsb(float(h), float(s), float(v), max_h=m1, max_s=m2, max_v=m3)
+                ma = int(self._color_mode[4]) if len(self._color_mode) >= 5 else m1
+                col = Color.from_hsb(float(h), float(s), float(v), max_h=m1, max_s=m2, max_v=m3, max_a=ma)
                 # if alpha was provided propagate it
                 if len(vals) >= 4:
                     a = int(vals[3]) & 255
@@ -423,15 +445,61 @@ class Surface:
                 pass
 
             if fill_col is not None:
-                if draw_polygon:
-                    pygame.draw.polygon(self._surf, fill_col, [(int(px), int(py)) for px, py in pts])
+                # If fill color includes alpha and destination surface does
+                # not support per-pixel alpha, draw into a temporary
+                # SRCALPHA surface and blit it to preserve translucency.
+                def _has_alpha(c):
+                    return isinstance(c, tuple) and len(c) == 4 and c[3] != 255
+
+                # If the fill color includes alpha, render it to a temporary
+                # SRCALPHA surface and blit it. This ensures correct
+                # compositing between multiple translucent shapes even when
+                # pygame.draw.* may not perform the expected source-over blend.
+                if _has_alpha(fill_col):
+                    if draw_polygon:
+                        # compute bounding box for polygon
+                        xs = [int(px) for px, _ in pts]
+                        ys = [int(py) for _, py in pts]
+                        minx, maxx = min(xs), max(xs)
+                        miny, maxy = min(ys), max(ys)
+                        w = max(1, maxx - minx)
+                        h = max(1, maxy - miny)
+                        temp = self._get_temp_surface(w, h)
+                        rel_pts = [(px - minx, py - miny) for px, py in pts]
+                        pygame.draw.polygon(temp, fill_col, [(int(px), int(py)) for px, py in rel_pts])
+                        self._surf.blit(temp, (minx, miny))
+                    else:
+                        temp = self._get_temp_surface(rect.width, rect.height)
+                        pygame.draw.rect(temp, fill_col, pygame.Rect(0, 0, rect.width, rect.height))
+                        self._surf.blit(temp, (rect.left, rect.top))
                 else:
-                    pygame.draw.rect(self._surf, fill_col, rect)
+                    if draw_polygon:
+                        pygame.draw.polygon(self._surf, fill_col, [(int(px), int(py)) for px, py in pts])
+                    else:
+                        pygame.draw.rect(self._surf, fill_col, rect)
             if stroke_col is not None and sw > 0:
-                if draw_polygon:
-                    pygame.draw.polygon(self._surf, stroke_col, [(int(px), int(py)) for px, py in pts], sw)
+                if _has_alpha(stroke_col):
+                    # render stroke to temp surface similarly
+                    if draw_polygon:
+                        xs = [int(px) for px, _ in pts]
+                        ys = [int(py) for _, py in pts]
+                        minx, maxx = min(xs), max(xs)
+                        miny, maxy = min(ys), max(ys)
+                        w = max(1, maxx - minx)
+                        h = max(1, maxy - miny)
+                        temp = self._get_temp_surface(w, h)
+                        rel_pts = [(px - minx, py - miny) for px, py in pts]
+                        pygame.draw.polygon(temp, stroke_col, [(int(px), int(py)) for px, py in rel_pts], sw)
+                        self._surf.blit(temp, (minx, miny))
+                    else:
+                        temp = self._get_temp_surface(rect.width, rect.height)
+                        pygame.draw.rect(temp, stroke_col, pygame.Rect(0, 0, rect.width, rect.height), sw)
+                        self._surf.blit(temp, (rect.left, rect.top))
                 else:
-                    pygame.draw.rect(self._surf, stroke_col, rect, sw)
+                    if draw_polygon:
+                        pygame.draw.polygon(self._surf, stroke_col, [(int(px), int(py)) for px, py in pts], sw)
+                    else:
+                        pygame.draw.rect(self._surf, stroke_col, rect, sw)
         finally:
             self._line_cap = prev_cap
             self._line_join = prev_join
@@ -489,10 +557,28 @@ class Surface:
                     rect = pygame.Rect(int(cx - rx), int(cy - ry), int(rx * 2), int(ry * 2))
                 else:
                     rect = pygame.Rect(int(x), int(y), int(w), int(h))
-                if fill_col is not None:
-                    pygame.draw.ellipse(self._surf, fill_col, rect)
-                if stroke_col is not None and sw > 0:
-                    pygame.draw.ellipse(self._surf, stroke_col, rect, sw)
+
+                def _has_alpha(c):
+                    return isinstance(c, tuple) and len(c) == 4 and c[3] != 255
+
+                # Fill handling: render to temp SRCALPHA and blit if color has alpha,
+                # otherwise draw directly.
+                if _has_alpha(fill_col):
+                    temp = self._get_temp_surface(rect.width, rect.height)
+                    pygame.draw.ellipse(temp, fill_col, pygame.Rect(0, 0, rect.width, rect.height))
+                    self._surf.blit(temp, (rect.left, rect.top))
+                else:
+                    if fill_col is not None:
+                        pygame.draw.ellipse(self._surf, fill_col, rect)
+
+                # Stroke handling: similar logic for strokes with alpha
+                if _has_alpha(stroke_col) and sw > 0:
+                    temp = self._get_temp_surface(rect.width, rect.height)
+                    pygame.draw.ellipse(temp, stroke_col, pygame.Rect(0, 0, rect.width, rect.height), sw)
+                    self._surf.blit(temp, (rect.left, rect.top))
+                else:
+                    if stroke_col is not None and sw > 0:
+                        pygame.draw.ellipse(self._surf, stroke_col, rect, sw)
             else:
                 # approximate transformed ellipse by sampling points on the ellipse
                 import math
@@ -555,11 +641,40 @@ class Surface:
             if join is not None:
                 self.set_line_join(join)
 
+            # Coerce color if provided as Color or HSB tuple
+            try:
+                if isinstance(col, Color):
+                    col = self._coerce_input_color(col)
+                elif hasattr(col, '__iter__') and len(col) in (3,4):
+                    # leave as-is; assume already an RGB(A) tuple
+                    pass
+            except Exception:
+                pass
+
+            def _has_alpha(c):
+                return isinstance(c, tuple) and len(c) == 4 and c[3] != 255
+
             if self._is_identity_transform():
-                pygame.draw.line(self._surf, col, (int(x1), int(y1)), (int(x2), int(y2)), int(w))
+                if _has_alpha(col):
+                    # render onto temp SRCALPHA surface covering the bbox of the line
+                    minx = min(int(x1), int(x2))
+                    miny = min(int(y1), int(y2))
+                    maxx = max(int(x1), int(x2))
+                    maxy = max(int(y1), int(y2))
+                    w_box = max(1, maxx - minx + int(w) * 2)
+                    h_box = max(1, maxy - miny + int(w) * 2)
+                    temp = self._get_temp_surface(w_box, h_box)
+                    rel_p1 = (int(x1) - minx + int(w), int(y1) - miny + int(w))
+                    rel_p2 = (int(x2) - minx + int(w), int(y2) - miny + int(w))
+                    pygame.draw.line(temp, col, rel_p1, rel_p2, int(w))
+                    self._surf.blit(temp, (minx - int(w), miny - int(w)))
+                else:
+                    pygame.draw.line(self._surf, col, (int(x1), int(y1)), (int(x2), int(y2)), int(w))
             else:
                 p1 = self._transform_point(x1, y1)
                 p2 = self._transform_point(x2, y2)
+                # transformed line: draw directly; alpha handling for transformed
+                # primitives is expensive and uncommon; fallback to direct draw.
                 pygame.draw.line(self._surf, col, (int(p1[0]), int(p1[1])), (int(p2[0]), int(p2[1])), int(w))
 
             # emulate round caps if requested
@@ -613,7 +728,8 @@ class Surface:
                         if mode == "HSB" and hasattr(fill, "__iter__"):
                             vals = list(fill)
                             h, s, v = vals[0], vals[1], vals[2]
-                            col = Color.from_hsb(h, s, v, max_h=m1, max_s=_m2, max_v=_m3)
+                            ma = int(self._color_mode[4]) if len(self._color_mode) >= 5 else m1
+                            col = Color.from_hsb(h, s, v, max_h=m1, max_s=_m2, max_v=_m3, max_a=ma)
                             if len(vals) >= 4:
                                 a = int(vals[3]) & 255
                                 self._fill = (col.r, col.g, col.b, a)
@@ -661,16 +777,11 @@ class Surface:
                     pts.append((px, py))
                 if mode == "pie":
                     poly = [(int(cx), int(cy))] + [(int(px), int(py)) for px, py in pts]
-                    if self._fill is not None:
-                        pygame.draw.polygon(self._surf, self._fill, poly)
-                    if self._stroke is not None and self._stroke_weight > 0:
-                        pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
+                    # Use polygon_with_style to ensure alpha-aware compositing
+                    self.polygon_with_style(poly, fill=self._fill, stroke=self._stroke, stroke_weight=self._stroke_weight)
                 elif mode == "chord":
                     poly = [(int(px), int(py)) for px, py in pts]
-                    if self._fill is not None:
-                        pygame.draw.polygon(self._surf, self._fill, poly)
-                    if self._stroke is not None and self._stroke_weight > 0:
-                        pygame.draw.polygon(self._surf, self._stroke, poly, int(self._stroke_weight))
+                    self.polygon_with_style(poly, fill=self._fill, stroke=self._stroke, stroke_weight=self._stroke_weight)
         finally:
             self._fill = prev_fill
             self._stroke = prev_stroke
@@ -778,10 +889,43 @@ class Surface:
                 pass
             sw = int(stroke_weight) if stroke_weight is not None else int(self._stroke_weight)
 
-            if fill_col is not None:
-                pygame.draw.polygon(self._surf, fill_col, pts)
-            if stroke_col is not None and sw > 0:
-                pygame.draw.polygon(self._surf, stroke_col, pts, sw)
+            def _has_alpha(c):
+                return isinstance(c, tuple) and len(c) == 4 and c[3] != 255
+
+            # If the fill color includes alpha, render it to a temporary
+            # SRCALPHA surface and blit it. Doing this unconditionally when
+            # alpha is present produces consistent source-over compositing
+            # behavior (matching rect/ellipse implementations) even when the
+            # destination surface may or may not have per-pixel alpha.
+            if _has_alpha(fill_col):
+                xs = [p[0] for p in pts]
+                ys = [p[1] for p in pts]
+                minx, maxx = min(xs), max(xs)
+                miny, maxy = min(ys), max(ys)
+                w = max(1, maxx - minx)
+                h = max(1, maxy - miny)
+                temp = self._get_temp_surface(w, h)
+                rel_pts = [(px - minx, py - miny) for px, py in pts]
+                pygame.draw.polygon(temp, fill_col, [(int(px), int(py)) for px, py in rel_pts])
+                self._surf.blit(temp, (minx, miny))
+            else:
+                if fill_col is not None:
+                    pygame.draw.polygon(self._surf, fill_col, pts)
+
+            if _has_alpha(stroke_col) and sw > 0:
+                xs = [p[0] for p in pts]
+                ys = [p[1] for p in pts]
+                minx, maxx = min(xs), max(xs)
+                miny, maxy = min(ys), max(ys)
+                w = max(1, maxx - minx)
+                h = max(1, maxy - miny)
+                temp = self._get_temp_surface(w, h)
+                rel_pts = [(px - minx, py - miny) for px, py in pts]
+                pygame.draw.polygon(temp, stroke_col, [(int(px), int(py)) for px, py in rel_pts], sw)
+                self._surf.blit(temp, (minx, miny))
+            else:
+                if stroke_col is not None and sw > 0:
+                    pygame.draw.polygon(self._surf, stroke_col, pts, sw)
         finally:
             self._line_cap = prev_cap
             self._line_join = prev_join
@@ -1150,7 +1294,8 @@ class Surface:
             if mode == "HSB" and hasattr(color, "__iter__"):
                 vals = list(color)
                 h, s, v = vals[0], vals[1], vals[2]
-                col = Color.from_hsb(h, s, v, max_h=m1, max_s=_m2, max_v=_m3)
+                ma = int(self._color_mode[4]) if len(self._color_mode) >= 5 else m1
+                col = Color.from_hsb(h, s, v, max_h=m1, max_s=_m2, max_v=_m3, max_a=ma)
                 if len(vals) >= 4:
                     a = int(vals[3]) & 255
                     self._fill = (col.r, col.g, col.b, a)
@@ -1298,7 +1443,8 @@ class Surface:
                             if mode == "HSB" and hasattr(fill, "__iter__"):
                                 vals = list(fill)
                                 h, s, v = vals[0], vals[1], vals[2]
-                                col = Color.from_hsb(h, s, v, max_h=m1, max_s=_m2, max_v=_m3)
+                                ma = int(self._color_mode[4]) if len(self._color_mode) >= 5 else m1
+                                col = Color.from_hsb(h, s, v, max_h=m1, max_s=_m2, max_v=_m3, max_a=ma)
                                 if len(vals) >= 4:
                                     a = int(vals[3]) & 255
                                     self._fill = (col.r, col.g, col.b, a)
@@ -1642,8 +1788,7 @@ class OffscreenSurface(Surface):
         self.image(img, int(x), int(y))
 
     def polygon(self, points: list[tuple[float, float]]) -> None:
-        pts = [(int(x), int(y)) for (x, y) in points]
-        if self._fill is not None:
-            pygame.draw.polygon(self._surf, self._fill, pts)
-        if self._stroke is not None and self._stroke_weight > 0:
-            pygame.draw.polygon(self._surf, self._stroke, pts, int(self._stroke_weight))
+        # Delegate to the alpha-aware polygon_with_style implementation so
+        # OffscreenSurface shares the same compositing behavior as Surface
+        # (handles HSB/color coercion and temp-SRCALPHA blitting when alpha is present).
+        self.polygon_with_style(points, fill=self._fill, stroke=self._stroke, stroke_weight=self._stroke_weight)

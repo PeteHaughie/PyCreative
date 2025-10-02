@@ -28,7 +28,7 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 
-def run_sketch(path, max_frames=None, debug: bool = False):
+def run_sketch(path, max_frames=None, debug: bool = False, seed: int | None = None):
     path = pathlib.Path(path)
     if not path.exists():
         print(f"Error: Sketch file '{path}' does not exist.")
@@ -71,7 +71,14 @@ def run_sketch(path, max_frames=None, debug: bool = False):
                 print(f"[pycreative.cli] Found Sketch subclass: {name}")
                 found_subclass = True
                 try:
-                    obj(sketch_path=str(path)).run(max_frames=max_frames, debug=debug)
+                    inst = obj(sketch_path=str(path))
+                    # apply seed if provided and supported by the sketch
+                    try:
+                        if seed is not None and hasattr(inst, "random_seed"):
+                            inst.random_seed(seed)
+                    except Exception:
+                        pass
+                    inst.run(max_frames=max_frames, debug=debug)
                     return
                 except Exception as e:
                     print(f"Error running {name}: {e}")
@@ -80,7 +87,13 @@ def run_sketch(path, max_frames=None, debug: bool = False):
     if hasattr(module, "Sketch"):
         print("[pycreative.cli] Found 'Sketch' class entry point (fallback).")
         try:
-            module.Sketch(sketch_path=str(path)).run(max_frames=max_frames, debug=debug)
+            inst = module.Sketch(sketch_path=str(path))
+            try:
+                if seed is not None and hasattr(inst, "random_seed"):
+                    inst.random_seed(seed)
+            except Exception:
+                pass
+            inst.run(max_frames=max_frames, debug=debug)
         except Exception as e:
             print(f"Error running Sketch: {e}")
             sys.exit(2)
@@ -107,6 +120,12 @@ def main():
         "--debug",
         action="store_true",
         help="Enable verbose debug output during sketch startup",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Optional random seed to make sketches deterministic",
     )
     parser.add_argument(
         "--version",
@@ -158,7 +177,7 @@ def main():
     if args.headless:
         # Set dummy driver early so pygame picks it up
         os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
-    run_sketch(args.sketch_path, max_frames=args.max_frames, debug=args.debug)
+    run_sketch(args.sketch_path, max_frames=args.max_frames, debug=args.debug, seed=args.seed)
 
 
 if __name__ == "__main__":

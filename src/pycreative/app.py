@@ -23,7 +23,7 @@ class Sketch:
     so examples and tests can run during bootstrapping.
     """
 
-    def __init__(self, sketch_path: Optional[str] = None) -> None:
+    def __init__(self, sketch_path: Optional[str] = None, seed: int | None = None) -> None:
         # Optional path to the user sketch file that instantiated this Sketch
         self.sketch_path: Optional[str] = sketch_path
         self.width: int = 640
@@ -83,6 +83,15 @@ class Sketch:
         self.key = None
         self.key_code = None
         self.key_is_pressed = False
+
+        # Apply optional seed for deterministic behavior if provided.
+        # Use the random_seed helper which seeds Python's random module.
+        if seed is not None:
+            try:
+                self.random_seed(seed)
+            except Exception:
+                # best-effort: ignore seed errors
+                pass
 
     # --- Key hooks (override in sketches) ---
     def key_pressed(self) -> None:
@@ -1154,20 +1163,45 @@ class Sketch:
         """
         surf = pygame.Surface((int(w), int(h)), flags=pygame.SRCALPHA)
         off = OffscreenSurface(surf)
-        if inherit_state and self.surface is not None:
-            # copy drawing state from main surface to the offscreen surface
-            try:
-                off._fill = getattr(self.surface, "_fill", off._fill)
-                off._stroke = getattr(self.surface, "_stroke", off._stroke)
-                off._stroke_weight = getattr(self.surface, "_stroke_weight", off._stroke_weight)
-                off._rect_mode = getattr(self.surface, "_rect_mode", off._rect_mode)
-                off._ellipse_mode = getattr(self.surface, "_ellipse_mode", off._ellipse_mode)
-                # line styling
-                off._line_cap = getattr(self.surface, "_line_cap", off._line_cap)
-                off._line_join = getattr(self.surface, "_line_join", off._line_join)
-            except Exception:
-                # best-effort; don't fail create_graphics if copying fails
-                pass
+        if inherit_state:
+            if self.surface is not None:
+                # copy drawing state from main surface to the offscreen surface
+                try:
+                    off._fill = getattr(self.surface, "_fill", off._fill)
+                    off._stroke = getattr(self.surface, "_stroke", off._stroke)
+                    off._stroke_weight = getattr(self.surface, "_stroke_weight", off._stroke_weight)
+                    off._rect_mode = getattr(self.surface, "_rect_mode", off._rect_mode)
+                    off._ellipse_mode = getattr(self.surface, "_ellipse_mode", off._ellipse_mode)
+                    # line styling
+                    off._line_cap = getattr(self.surface, "_line_cap", off._line_cap)
+                    off._line_join = getattr(self.surface, "_line_join", off._line_join)
+                except Exception:
+                    # best-effort; don't fail create_graphics if copying fails
+                    pass
+            else:
+                # No live surface to copy from; copy any pending Sketch state
+                try:
+                    if getattr(self, "_pending_color_mode", _PENDING_UNSET) is not _PENDING_UNSET:
+                        off._color_mode = tuple(self._pending_color_mode)
+                    if getattr(self, "_pending_fill", _PENDING_UNSET) is not _PENDING_UNSET:
+                        # attempt to coerce pending fill using off surface
+                        try:
+                            off._fill = off._coerce_input_color(self._pending_fill)
+                        except Exception:
+                            off._fill = getattr(self, "_pending_fill", off._fill)
+                    if getattr(self, "_pending_stroke", _PENDING_UNSET) is not _PENDING_UNSET:
+                        try:
+                            off._stroke = off._coerce_input_color(self._pending_stroke)
+                        except Exception:
+                            off._stroke = getattr(self, "_pending_stroke", off._stroke)
+                    if getattr(self, "_pending_stroke_weight", _PENDING_UNSET) is not _PENDING_UNSET:
+                        off._stroke_weight = int(self._pending_stroke_weight)
+                    if getattr(self, "_pending_rect_mode", _PENDING_UNSET) is not _PENDING_UNSET:
+                        off._rect_mode = self._pending_rect_mode
+                    if getattr(self, "_pending_ellipse_mode", _PENDING_UNSET) is not _PENDING_UNSET:
+                        off._ellipse_mode = self._pending_ellipse_mode
+                except Exception:
+                    pass
         # Optionally inherit transform matrix from the active surface
         if inherit_transform and self.surface is not None:
             try:
