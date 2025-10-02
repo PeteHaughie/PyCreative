@@ -995,22 +995,22 @@ class Sketch:
                     input_mod.dispatch_event(self, ev)
 
             if debug:
-                print(f"[pycreative.run] debug: events processed, now calling update/draw")
+                print("[pycreative.run] debug: events processed, now calling update/draw")
 
             try:
                 if debug:
-                    print(f"[pycreative.run] debug: calling update()")
+                    print("[pycreative.run] debug: calling update()")
                 self.update(dt)
                 # Respect runtime no-loop mode: if enabled, call draw() only once
                 if getattr(self, "_no_loop_mode", False):
                     if not getattr(self, "_has_drawn_once", False):
                         if debug:
-                            print(f"[pycreative.run] debug: calling draw() once due to no_loop")
+                            print("[pycreative.run] debug: calling draw() once due to no_loop")
                         self.draw()
                         self._has_drawn_once = True
                 else:
                     if debug:
-                        print(f"[pycreative.run] debug: calling draw()")
+                        print("[pycreative.run] debug: calling draw()")
                     self.draw()
             except Exception:
                 # On error, attempt teardown and stop
@@ -1063,74 +1063,7 @@ class Sketch:
             return s2 + (v - s1) * (e2 - s2) / (e1 - s1)
         except Exception:
             return 0.0
-        self._clock = pygame.time.Clock()
-        self._running = True
 
-        last_time = time.perf_counter()
-        while self._running:
-            now = time.perf_counter()
-            dt = now - last_time
-            last_time = now
-
-            if debug:
-                print(f"[pycreative.run] debug: frame loop start frame={self.frame_count} dt={dt:.6f}")
-
-            for ev in pygame.event.get():
-                if ev.type == pygame.QUIT:
-                    self._running = False
-                else:
-                    input_mod.dispatch_event(self, ev)
-
-            if debug:
-                print(f"[pycreative.run] debug: events processed, now calling update/draw")
-
-            try:
-                if debug:
-                    print(f"[pycreative.run] debug: calling update()")
-                self.update(dt)
-                # Respect runtime no-loop mode: if enabled, call draw() only once
-                if getattr(self, "_no_loop_mode", False):
-                    if not getattr(self, "_has_drawn_once", False):
-                        if debug:
-                            print(f"[pycreative.run] debug: calling draw() once due to no_loop")
-                        self.draw()
-                        self._has_drawn_once = True
-                else:
-                    if debug:
-                        print(f"[pycreative.run] debug: calling draw()")
-                    self.draw()
-            except Exception:
-                # On error, attempt teardown and stop
-                try:
-                    self.teardown()
-                finally:
-                    self._running = False
-                    raise
-
-            if debug:
-                print(f"[pycreative.run] debug: calling pygame.display.flip() for frame={self.frame_count}")
-            pygame.display.flip()
-            if debug:
-                try:
-                    surf = pygame.display.get_surface()
-                    print(f"[pycreative.run] debug: pygame.display.get_surface() exists={surf is not None}")
-                except Exception:
-                    pass
-            self.frame_count += 1
-            # If max_frames is provided, stop after reaching it
-            if max_frames is not None and self.frame_count >= int(max_frames):
-                self._running = False
-            # enforce framerate
-            if self._clock is not None:
-                self._clock.tick(self._frame_rate)
-
-        # Clean up
-        try:
-            self.teardown()
-        finally:
-            if debug:
-                print("[pycreative.run] debug: quitting pygame and exiting run loop")
-            pygame.quit()
 
     def create_graphics(self, w: int, h: int, inherit_state: bool = False, inherit_transform: bool = False) -> OffscreenSurface:
         """Create an offscreen drawing surface matching the public Surface API.
