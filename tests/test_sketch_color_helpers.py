@@ -1,25 +1,26 @@
 import pygame
-from importlib import util
+import pytest
 
-
-def load_example():
-    spec = util.spec_from_file_location('sketch_mod', 'examples/Generative Gestaltung/01_P/P_1_2_2_01/P_1_2_2_01.py')
-    mod = util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    cls = getattr(mod, 'P_1_2_2_01')
-    return cls()
+from pycreative.app import Sketch
 
 
 def test_sketch_color_helpers_and_hsb_draw(monkeypatch):
+    # Run headless
     monkeypatch.setenv('SDL_VIDEODRIVER', 'dummy')
-    inst = load_example()
     pygame.init()
+
     from pycreative.graphics import OffscreenSurface
 
+    class MinimalSketch(Sketch):
+        def setup(self):
+            # use size to set any pending state if needed
+            self.size(100, 100)
+
+    inst = MinimalSketch()
+    # construct offscreen surface and attach
     base = pygame.Surface((100, 100))
     off = OffscreenSurface(base)
     inst.surface = off
-    # minimal setup
     inst.setup()
 
     # test RGB helpers
@@ -28,14 +29,15 @@ def test_sketch_color_helpers_and_hsb_draw(monkeypatch):
     assert inst.green(c) == 10
     assert inst.blue(c) == 5
 
-    # test hue/sat/brightness on simple color
+    # test hue on simple color (red)
     h = inst.hue((255, 0, 0))
     assert abs(h - 0) <= 2
 
     # test passing an HSB tuple into ellipse stroke doesn't crash
     inst.color_mode('HSB', 360, 100, 100)
     inst.no_stroke()
+    # should not raise
     inst.ellipse(10, 10, 20, 20, fill=None, stroke=(180, 50, 50))
-    # ensure some pixel changed near the ellipse center
+    # ensure get_pixel returns a tuple (we don't assert a color value here)
     px = inst.surface.get_pixel(10, 10)
     assert isinstance(px, tuple)
