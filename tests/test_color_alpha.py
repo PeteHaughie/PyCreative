@@ -1,3 +1,6 @@
+from pycreative.color import Color
+
+
 def test_fill_accepts_rgba_and_hsba(monkeypatch):
     """Ensure Surface.fill/clear accept 4-element tuples (alpha preserved) in both RGB and HSB modes."""
     monkeypatch.setenv("SDL_VIDEODRIVER", "dummy")
@@ -25,3 +28,14 @@ def test_fill_accepts_rgba_and_hsba(monkeypatch):
         assert px2[0] == expected.r and px2[1] == expected.g and px2[2] == expected.b
     finally:
         pygame.quit()
+
+
+def test_from_hsb_preserves_alpha():
+    # HSB with explicit alpha should scale according to max values
+    c = Color.from_hsb(0, 0, 0, a=128, max_h=255, max_s=255, max_v=255, max_a=255)
+    assert c.to_rgba_tuple() == (0, 0, 0, 128)
+
+
+def test_from_rgb_preserves_alpha():
+    c = Color.from_rgb(10, 20, 30, a=64, max_value=255)
+    assert c.to_rgba_tuple() == (10, 20, 30, 64)

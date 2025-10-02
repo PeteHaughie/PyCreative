@@ -307,12 +307,13 @@ class Sketch:
             self._pending_ellipse_mode = mode
         return None
 
-    def color_mode(self, mode: Optional[str] = None, max1: int = 255, max2: int = 255, max3: int = 255):
+    def color_mode(self, mode: Optional[str] = None, max1: int = 255, max2: int = 255, max3: int = 255, max4: int | None = None):
         """Get or set color mode. When called before a Surface exists this
         records a pending color_mode tuple which will be applied in run().
         """
         if self.surface is not None:
-            return self.surface.color_mode(mode, max1, max2, max3)
+            # forward optional alpha max when surface exists
+            return self.surface.color_mode(mode, max1, max2, max3, max4)  # type: ignore[arg-type]
         if mode is None:
             v = self._pending_color_mode
             if v is _PENDING_UNSET:
@@ -321,7 +322,9 @@ class Sketch:
         try:
             m = str(mode).upper()
             if m in ("RGB", "HSB"):
-                self._pending_color_mode = (m, int(max1), int(max2), int(max3))
+                # store optional fourth max (alpha) as well for parity with Processing
+                a_max = int(max4) if max4 is not None else int(max1)
+                self._pending_color_mode = (m, int(max1), int(max2), int(max3), a_max)
         except Exception:
             pass
         return None
@@ -625,11 +628,18 @@ class Sketch:
         if cm is None:
             # default to RGB 0-255
             mode, m1, m2, m3 = ("RGB", 255, 255, 255)
+            m4 = 255
         else:
             try:
-                mode, m1, m2, m3 = cm
+                # pending color mode may include a 4th alpha max value
+                if isinstance(cm, tuple) and len(cm) == 5:
+                    mode, m1, m2, m3, m4 = cm
+                else:
+                    mode, m1, m2, m3 = cm
+                    m4 = m1
             except Exception:
                 mode, m1, m2, m3 = ("RGB", 255, 255, 255)
+                m4 = 255
 
         # support HSB or RGB
         if str(mode).upper() == "HSB":
@@ -637,24 +647,31 @@ class Sketch:
             h = args[0] if len(args) > 0 else 0
             s = args[1] if len(args) > 1 else 0
             v = args[2] if len(args) > 2 else 0
-            c = Color.from_hsb(float(h), float(s), float(v), max_h=int(m1), max_s=int(m2), max_v=int(m3))
+            # If an alpha was provided as the 4th positional arg, pass it through.
             if len(args) >= 4:
-                try:
-                    c.a = int(args[3]) & 255
-                except Exception:
-                    pass
+                a = args[3]
+                c = Color.from_hsb(float(h), float(s), float(v), a=a, max_h=int(m1), max_s=int(m2), max_v=int(m3), max_a=int(m4))
+            else:
+                c = Color.from_hsb(float(h), float(s), float(v), max_h=int(m1), max_s=int(m2), max_v=int(m3), max_a=int(m4))
             return c
 
         # default: RGB
         r = args[0] if len(args) > 0 else 0
         g = args[1] if len(args) > 1 else 0
         b = args[2] if len(args) > 2 else 0
-        c = Color.from_rgb(r, g, b, max_value=int(m1))
         if len(args) >= 4:
+            a = args[3]
             try:
-                c.a = int(args[3]) & 255
-            except Exception:
-                pass
+                c = Color.from_rgb(r, g, b, a=a, max_value=int(m1))
+            except TypeError:
+                # fallback for older signatures: construct and set alpha
+                c = Color.from_rgb(r, g, b, max_value=int(m1))
+                try:
+                    c.a = int(a) & 255
+                except Exception:
+                    pass
+        else:
+            c = Color.from_rgb(r, g, b, max_value=int(m1))
         return c
 
     def lerp_color(self, c1, c2, amt: float):

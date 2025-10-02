@@ -520,7 +520,44 @@ class Surface:
         prev_sw = self._stroke_weight
         try:
             if fill is not None:
-                self.fill(fill)
+                # Set temporary fill color without invoking public fill()
+                # which may perform a full-surface clear. Parse the color and
+                # assign to internal _fill so drawing uses the temporary value.
+                if fill is None:
+                    self._fill = None
+                elif isinstance(fill, Color):
+                    try:
+                        self._fill = fill.to_rgba_tuple()
+                    except Exception:
+                        self._fill = fill.to_tuple()
+                else:
+                    try:
+                        mode, m1, _m2, _m3 = self._color_mode
+                    except Exception:
+                        mode, m1, _m2, _m3 = ("RGB", 255, 255, 255)
+                    try:
+                        if mode == "HSB" and hasattr(fill, "__iter__"):
+                            vals = list(fill)
+                            h, s, v = vals[0], vals[1], vals[2]
+                            col = Color.from_hsb(h, s, v, max_h=m1, max_s=_m2, max_v=_m3)
+                            if len(vals) >= 4:
+                                a = int(vals[3]) & 255
+                                self._fill = (col.r, col.g, col.b, a)
+                            else:
+                                self._fill = col.to_tuple()
+                        elif hasattr(fill, "__iter__"):
+                            vals = list(fill)
+                            r, g, b = vals[0], vals[1], vals[2]
+                            col = Color.from_rgb(r, g, b, max_value=m1)
+                            if len(vals) >= 4:
+                                a = int(vals[3]) & 255
+                                self._fill = (col.r, col.g, col.b, a)
+                            else:
+                                self._fill = col.to_tuple()
+                        else:
+                            self._fill = None
+                    except Exception:
+                        self._fill = None
             if stroke is not None:
                 self.stroke(stroke)
             # prefer stroke_width alias
@@ -1034,7 +1071,9 @@ class Surface:
                     self._fill = (col.r, col.g, col.b, a)
                 else:
                     self._fill = col.to_tuple()
-                # apply immediately to the underlying surface
+                # apply immediately to underlying surface as a convenience so
+                # calling `surface.fill(...)` paints the surface (tests/examples
+                # expect this behavior). Wrap in try/except to be best-effort.
                 try:
                     self._surf.fill(self._fill)
                 except Exception:
@@ -1050,7 +1089,6 @@ class Surface:
                     self._fill = (col.r, col.g, col.b, a)
                 else:
                     self._fill = col.to_tuple()
-                # apply immediately to the underlying surface
                 try:
                     self._surf.fill(self._fill)
                 except Exception:
@@ -1107,6 +1145,10 @@ class Surface:
                     self._stroke = (col.r, col.g, col.b, a)
                 else:
                     self._stroke = col.to_tuple()
+                try:
+                    self._surf.fill(self._fill)
+                except Exception:
+                    pass
                 return
             if hasattr(color, "__iter__"):
                 vals = list(color)
@@ -1154,7 +1196,41 @@ class Surface:
                 if fill is None:
                     self.no_fill()
                 else:
-                    self.fill(fill)
+                    # Set _fill directly to avoid clearing the surface when
+                    # using the style context manager.
+                    if isinstance(fill, Color):
+                        try:
+                            self._fill = fill.to_rgba_tuple()
+                        except Exception:
+                            self._fill = fill.to_tuple()
+                    else:
+                        try:
+                            mode, m1, _m2, _m3 = self._color_mode
+                        except Exception:
+                            mode, m1, _m2, _m3 = ("RGB", 255, 255, 255)
+                        try:
+                            if mode == "HSB" and hasattr(fill, "__iter__"):
+                                vals = list(fill)
+                                h, s, v = vals[0], vals[1], vals[2]
+                                col = Color.from_hsb(h, s, v, max_h=m1, max_s=_m2, max_v=_m3)
+                                if len(vals) >= 4:
+                                    a = int(vals[3]) & 255
+                                    self._fill = (col.r, col.g, col.b, a)
+                                else:
+                                    self._fill = col.to_tuple()
+                            elif hasattr(fill, "__iter__"):
+                                vals = list(fill)
+                                r, g, b = vals[0], vals[1], vals[2]
+                                col = Color.from_rgb(r, g, b, max_value=m1)
+                                if len(vals) >= 4:
+                                    a = int(vals[3]) & 255
+                                    self._fill = (col.r, col.g, col.b, a)
+                                else:
+                                    self._fill = col.to_tuple()
+                            else:
+                                self._fill = None
+                        except Exception:
+                            self._fill = None
             if stroke is not ...:
                 if stroke is None:
                     self.no_stroke()

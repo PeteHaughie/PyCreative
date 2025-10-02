@@ -38,7 +38,7 @@ class Color:
         return max(0, min(255, int(v)))
 
     @classmethod
-    def from_rgb(cls, r: float, g: float, b: float, max_value: int = 255) -> "Color":
+    def from_rgb(cls, r: float, g: float, b: float, a: float | int = 255, max_value: int = 255) -> "Color":
         try:
             # protect against invalid max_value
             mv = int(max_value)
@@ -48,14 +48,16 @@ class Color:
             rf = float(r) / float(mv) if mv != 1 else float(r)
             gf = float(g) / float(mv) if mv != 1 else float(g)
             bf = float(b) / float(mv) if mv != 1 else float(b)
+            af = float(a) / float(mv) if mv != 1 else float(a)
         except Exception:
-            rf, gf, bf = 0.0, 0.0, 0.0
+            rf, gf, bf, af = 0.0, 0.0, 0.0, 1.0
 
         # clamp normalized values to [0,1]
         rf = max(0.0, min(1.0, rf))
         gf = max(0.0, min(1.0, gf))
         bf = max(0.0, min(1.0, bf))
-        return cls(cls._clamp_int(round(rf * 255)), cls._clamp_int(round(gf * 255)), cls._clamp_int(round(bf * 255)))
+        af = max(0.0, min(1.0, af))
+        return cls(cls._clamp_int(round(rf * 255)), cls._clamp_int(round(gf * 255)), cls._clamp_int(round(bf * 255)), cls._clamp_int(round(af * 255)))
 
     @classmethod
     def from_hsb(
@@ -63,9 +65,11 @@ class Color:
         h: float,
         s: float,
         v: float,
+        a: float | int = 255,
         max_h: int = 255,
         max_s: int | None = None,
         max_v: int | None = None,
+        max_a: int | None = None,
         max_value: int | None = None,
     ) -> "Color":
         """Convert HSB/HSV to RGB.
@@ -80,10 +84,13 @@ class Color:
                 mh = int(max_value)
                 ms = int(max_value)
                 mv = int(max_value)
+                ma = int(max_value)
             else:
                 mh = int(max_h)
                 ms = int(max_s) if max_s is not None else mh
                 mv = int(max_v) if max_v is not None else mh
+                # alpha max: fall back to mh if not provided
+                ma = int(max_a) if max_a is not None else mh
 
             if mh <= 0:
                 mh = 255
@@ -91,22 +98,28 @@ class Color:
                 ms = mh
             if mv <= 0:
                 mv = mh
+            if ma <= 0:
+                ma = mh
 
             hf = float(h) / float(mh) if mh != 1 else float(h)
             sf = float(s) / float(ms) if ms != 1 else float(s)
             vf = float(v) / float(mv) if mv != 1 else float(v)
+            af = float(a) / float(ma) if ma != 1 else float(a)
         except Exception:
-            hf, sf, vf = 0.0, 0.0, 0.0
+            hf, sf, vf, af = 0.0, 0.0, 0.0, 1.0
 
         # normalize h into [0,1)
         hf = (hf or 0.0) % 1.0
         # clamp saturation/value into [0,1]
         sf = max(0.0, min(1.0, sf or 0.0))
         vf = max(0.0, min(1.0, vf or 0.0))
+        # clamp alpha into [0,1]
+        af = max(0.0, min(1.0, af or 0.0))
 
         if sf <= 0.0:
             val = cls._clamp_int(round(vf * 255))
-            return cls(val, val, val)
+            alpha_val = cls._clamp_int(round(af * 255))
+            return cls(val, val, val, alpha_val)
 
         i = int(hf * 6.0)  # sector 0..5
         f = (hf * 6.0) - i
@@ -127,7 +140,7 @@ class Color:
         else:
             r, g, b = vf, p, q
 
-        return cls(cls._clamp_int(round(r * 255)), cls._clamp_int(round(g * 255)), cls._clamp_int(round(b * 255)))
+        return cls(cls._clamp_int(round(r * 255)), cls._clamp_int(round(g * 255)), cls._clamp_int(round(b * 255)), cls._clamp_int(round(af * 255)))
 
     def __repr__(self) -> str:
         return f"Color(r={self.r},g={self.g},b={self.b},a={self.a})"
