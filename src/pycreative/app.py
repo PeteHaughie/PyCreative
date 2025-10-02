@@ -246,7 +246,16 @@ class Sketch:
     # --- Surface state helpers (delegate to self.surface) ---
     def fill(self, color: Optional[Tuple[int, int, int]]):
         if self.surface is not None:
-            self.surface.fill(color)
+            # Set drawing style on the surface without clearing the canvas.
+            try:
+                coerced = self.surface._coerce_input_color(color)
+                self.surface._fill = coerced
+            except Exception:
+                # fallback: call surface.fill as a best-effort
+                try:
+                    self.surface.fill(color)
+                except Exception:
+                    self._pending_fill = color
         else:
             self._pending_fill = color
 
@@ -258,7 +267,14 @@ class Sketch:
 
     def stroke(self, color: Optional[Tuple[int, int, int]]):
         if self.surface is not None:
-            self.surface.stroke(color)
+            try:
+                coerced = self.surface._coerce_input_color(color)
+                self.surface._stroke = coerced
+            except Exception:
+                try:
+                    self.surface.stroke(color)
+                except Exception:
+                    self._pending_stroke = color
         else:
             self._pending_stroke = color
 
@@ -332,6 +348,67 @@ class Sketch:
     def text(self, txt: str, x: int, y: int, font_name: Optional[str] = None, size: int = 24, color: Tuple[int, int, int] = (0, 0, 0)) -> None:
         if self.surface is not None:
             self.surface.text(txt, x, y, font_name=font_name, size=size, color=color)
+
+    # --- color/channel helpers (convenience for sketches) ---
+    def _coerce_color(self, c):
+        """Coerce various color forms to a Color instance.
+
+        Accepts a Color instance, a tuple/list (r,g,b) or (r,g,b,a), or an
+        OffscreenSurface.get() return value. Returns a Color instance.
+        """
+        from .color import Color as _Color
+
+        if isinstance(c, _Color):
+            return c
+        try:
+            # tuple or list
+            if hasattr(c, "__iter__"):
+                vals = list(c)
+                if len(vals) == 4:
+                    return _Color.from_rgb(vals[0], vals[1], vals[2], vals[3])
+                elif len(vals) == 3:
+                    return _Color.from_rgb(vals[0], vals[1], vals[2])
+        except Exception:
+            pass
+        # fallback black
+        return _Color.from_rgb(0, 0, 0)
+
+    def red(self, c) -> int:
+        return int(self._coerce_color(c).r)
+
+    def green(self, c) -> int:
+        return int(self._coerce_color(c).g)
+
+    def blue(self, c) -> int:
+        return int(self._coerce_color(c).b)
+
+    def alpha(self, c) -> int:
+        return int(self._coerce_color(c).a)
+
+    def hue(self, c) -> int:
+        col = self._coerce_color(c)
+        # use current color_mode to determine scaling; default to 255
+        cm = self.color_mode() or ("RGB", 255, 255, 255)
+        if isinstance(cm, tuple) and len(cm) >= 1 and cm[0] == "HSB":
+            max_h = cm[1]
+        else:
+            max_h = 255
+        h, s, v, a = col.to_hsb(max_h=max_h)
+        return int(h)
+
+    def saturation(self, c) -> int:
+        col = self._coerce_color(c)
+        cm = self.color_mode() or ("RGB", 255, 255, 255)
+        max_s = cm[2] if isinstance(cm, tuple) and len(cm) >= 3 else 255
+        h, s, v, a = col.to_hsb(max_h=cm[1] if isinstance(cm, tuple) else 255, max_s=max_s)
+        return int(s)
+
+    def brightness(self, c) -> int:
+        col = self._coerce_color(c)
+        cm = self.color_mode() or ("RGB", 255, 255, 255)
+        max_v = cm[3] if isinstance(cm, tuple) and len(cm) >= 4 else 255
+        h, s, v, a = col.to_hsb(max_h=cm[1] if isinstance(cm, tuple) else 255, max_v=max_v)
+        return int(v)
 
     def load_image(self, path: str) -> object:
         """Load an image using the Assets manager if available.
@@ -450,21 +527,11 @@ class Sketch:
     def arc(self, x, y, w, h, start_rad, end_rad, mode="open", fill=None, stroke=None, stroke_width=None):
         if self.surface is None:
             return
-        prev_fill = self.surface._fill
-        prev_stroke = self.surface._stroke
-        prev_sw = self.surface._stroke_weight
-        try:
-            if fill is not None:
-                self.surface.fill(fill)
-            if stroke is not None:
-                self.surface.stroke(stroke)
-            if stroke_width is not None:
-                self.surface.stroke_weight(stroke_width)
-            self.surface.arc(x, y, w, h, start_rad, end_rad, mode=mode)
-        finally:
-            self.surface._fill = prev_fill
-            self.surface._stroke = prev_stroke
-            self.surface._stroke_weight = prev_sw
+        # prefer stroke_width alias
+        if stroke_width is not None:
+            self.surface.stroke_weight(int(stroke_width))
+        # forward to Surface.arc; Surface.arc will accept per-call styles
+        self.surface.arc(x, y, w, h, start_rad, end_rad, mode=mode, fill=fill, stroke=stroke)
 
     def image(self, img, x, y, w=None, h=None):
         if self.surface is None or img is None:
@@ -839,33 +906,17 @@ class Sketch:
         if self.surface is None:
             return
 
-        # Save previous state
-        prev_fill = self.surface._fill
-        prev_stroke = self.surface._stroke
-        prev_stroke_weight = self.surface._stroke_weight
+        # accept both stroke_weight and stroke_width for compatibility;
+        # prefer stroke_width if provided by caller.
+        chosen_sw = None
+        if stroke_width is not None:
+            chosen_sw = int(stroke_width)
+        elif stroke_weight is not None:
+            chosen_sw = int(stroke_weight)
 
-        try:
-            if fill is not None:
-                self.surface.fill(fill)
-            if stroke is not None:
-                self.surface.stroke(stroke)
-            # accept both stroke_weight and stroke_width for compatibility;
-            # prefer stroke_width if provided by caller.
-            chosen_sw = None
-            if stroke_width is not None:
-                chosen_sw = int(stroke_width)
-            elif stroke_weight is not None:
-                chosen_sw = int(stroke_weight)
-            if chosen_sw is not None:
-                self.surface.stroke_weight(chosen_sw)
-
-            # forward per-call styles to Surface.ellipse
-            self.surface.ellipse(x, y, w, h, fill=fill, stroke=stroke, stroke_weight=chosen_sw)
-        finally:
-            # Restore previous state
-            self.surface._fill = prev_fill
-            self.surface._stroke = prev_stroke
-            self.surface._stroke_weight = prev_stroke_weight
+        # forward per-call styles to Surface.ellipse which will coerce
+        # HSB/RGB tuples as needed and won't clear the surface
+        self.surface.ellipse(x, y, w, h, fill=fill, stroke=stroke, stroke_weight=chosen_sw)
 
     # --- Run loop ---
     def run(self, max_frames: Optional[int] = None, debug: bool = False) -> None:

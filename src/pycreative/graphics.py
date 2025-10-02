@@ -101,10 +101,10 @@ class Surface:
 
         # Transformation stack: list of 3x3 matrices; keep identity as base
         self._matrix_stack: list[list[list[float]]] = [identity_matrix()]
-        # Color mode: ('RGB'|'HSB', max1, max2, max3)
+        # Color mode: ('RGB'|'HSB', max1, max2, max3, max4)
         # Defaults mirror common 0-255 ranges. When in HSB mode, fill()/stroke()
-        # will interpret tuple inputs as (h,s,b) in the configured ranges.
-        self._color_mode: tuple[str, int, int, int] = ("RGB", 255, 255, 255)
+        # will interpret tuple inputs as (h,s,b,a) in the configured ranges.
+        self._color_mode: tuple[str, int, int, int, int] = ("RGB", 255, 255, 255, 255)
 
     # --- transform stack helpers ---
     def _current_matrix(self):
@@ -176,6 +176,55 @@ class Surface:
             and m[1][1] == 1.0
             and m[1][2] == 0.0
         )
+
+    def _coerce_input_color(self, color_val):
+        """Coerce various color inputs into a pygame-friendly tuple.
+
+        Accepts a Color instance, an HSB tuple when color mode is HSB, or an
+        RGB(A) tuple. Returns a 3- or 4-tuple suitable for pygame drawing or
+        None if input is None.
+        """
+        if color_val is None:
+            return None
+        # Accept Color instances directly
+        if isinstance(color_val, Color):
+            try:
+                return color_val.to_rgba_tuple() if color_val.a != 255 else color_val.to_tuple()
+            except Exception:
+                return color_val.to_tuple()
+
+        # Determine current color mode
+        try:
+            mode = self._color_mode[0]
+            m1 = int(self._color_mode[1])
+        except Exception:
+            mode = "RGB"
+            m1 = 255
+
+        # If HSB mode and iterable input interpret as HSB
+        try:
+            if mode == "HSB" and hasattr(color_val, "__iter__"):
+                vals = list(color_val)
+                h, s, v = vals[0], vals[1], vals[2]
+                a = vals[3] if len(vals) >= 4 else 255
+                col = Color.from_hsb(float(h), float(s), float(v), a=a, max_h=m1, max_s=self._color_mode[2], max_v=self._color_mode[3])
+                return col.to_rgba_tuple() if col.a != 255 else col.to_tuple()
+        except Exception:
+            pass
+
+        # Fallback: treat as RGB(A)
+        try:
+            if hasattr(color_val, "__iter__"):
+                vals = list(color_val)
+                r = int(vals[0]) & 255
+                g = int(vals[1]) & 255
+                b = int(vals[2]) & 255
+                if len(vals) >= 4:
+                    a = int(vals[3]) & 255
+                    return (r, g, b, a)
+                return (r, g, b)
+        except Exception:
+            return None
 
     def _transform_point(self, x: float, y: float) -> tuple[float, float]:
         return transform_point(self._current_matrix(), x, y)
@@ -258,7 +307,8 @@ class Surface:
 
         # If HSB color mode is active and a 3-tuple is provided interpret as HSB
         try:
-            mode, m1, m2, m3 = self._color_mode
+            # support (mode, max1, max2, max3, max4)
+            mode, m1, m2, m3, *_rest = self._color_mode
             if mode == "HSB" and hasattr(color, "__iter__"):
                 # allow 3- or 4-length tuples: (h,s,v) or (h,s,v,a)
                 vals = list(color)
@@ -347,6 +397,11 @@ class Surface:
 
             fill_col = fill if fill is not None else self._fill
             stroke_col = stroke if stroke is not None else self._stroke
+            fill_col = self._coerce_input_color(fill_col)
+            stroke_col = self._coerce_input_color(stroke_col)
+            # coerce HSB/RGB tuples or Color instances into pygame-friendly tuples
+            fill_col = self._coerce_input_color(fill_col)
+            stroke_col = self._coerce_input_color(stroke_col)
 
             if fill_col is not None:
                 if draw_polygon:
@@ -1057,7 +1112,7 @@ class Surface:
 
         # Interpret tuples according to current color mode, using Color helpers
         try:
-            mode, m1, _m2, _m3 = self._color_mode
+            mode, m1, _m2, _m3, *_rest = self._color_mode
         except Exception:
             mode, m1, _m2, _m3 = ("RGB", 255, 255, 255)
 
@@ -1098,7 +1153,7 @@ class Surface:
             # best-effort: ignore invalid input
             self._fill = None
 
-    def color_mode(self, mode: Optional[str] = None, max1: int = 255, max2: int = 255, max3: int = 255):
+    def color_mode(self, mode: Optional[str] = None, max1: int = 255, max2: int = 255, max3: int = 255, max4: int | None = None):
         """Get or set the current color mode.
 
         - color_mode() -> returns a tuple (mode, max1, max2, max3)
@@ -1109,7 +1164,8 @@ class Surface:
         try:
             m = str(mode).upper()
             if m in ("RGB", "HSB"):
-                self._color_mode = (m, int(max1), int(max2), int(max3))
+                a_max = int(max4) if max4 is not None else int(max1)
+                self._color_mode = (m, int(max1), int(max2), int(max3), a_max)
         except Exception:
             pass
         return None
@@ -1131,7 +1187,7 @@ class Surface:
             return
 
         try:
-            mode, m1, _m2, _m3 = self._color_mode
+            mode, m1, _m2, _m3, *_rest = self._color_mode
         except Exception:
             mode, m1, _m2, _m3 = ("RGB", 255, 255, 255)
 
@@ -1205,7 +1261,7 @@ class Surface:
                             self._fill = fill.to_tuple()
                     else:
                         try:
-                            mode, m1, _m2, _m3 = self._color_mode
+                            mode, m1, _m2, _m3, *_rest = self._color_mode
                         except Exception:
                             mode, m1, _m2, _m3 = ("RGB", 255, 255, 255)
                         try:

@@ -144,3 +144,64 @@ class Color:
 
     def __repr__(self) -> str:
         return f"Color(r={self.r},g={self.g},b={self.b},a={self.a})"
+
+    def to_hsb(self, max_h: int = 255, max_s: int | None = None, max_v: int | None = None, max_a: int | None = None, max_value: int | None = None) -> tuple[int, int, int, int]:
+        """Convert stored RGB(A) to HSB/HSV scaled to the provided maxima.
+
+        Returns (h, s, v, a) as integers scaled to (max_h, max_s, max_v, max_a).
+        Uses similar defaulting rules as from_hsb/from_rgb: if max_value is
+        provided, it is used for all channels; otherwise unspecified maxes
+        defer to max_h.
+        """
+        try:
+            if max_value is not None:
+                mh = int(max_value)
+                ms = int(max_value)
+                mv = int(max_value)
+                ma = int(max_value)
+            else:
+                mh = int(max_h)
+                ms = int(max_s) if max_s is not None else mh
+                mv = int(max_v) if max_v is not None else mh
+                ma = int(max_a) if max_a is not None else mh
+        except Exception:
+            mh, ms, mv, ma = 255, 255, 255, 255
+
+        mh = mh if mh > 0 else 255
+        ms = ms if ms > 0 else mh
+        mv = mv if mv > 0 else mh
+        ma = ma if ma > 0 else mh
+
+        # normalize RGB to [0,1]
+        rf = self.r / 255.0
+        gf = self.g / 255.0
+        bf = self.b / 255.0
+
+        maxc = max(rf, gf, bf)
+        minc = min(rf, gf, bf)
+        delta = maxc - minc
+
+        # Hue calculation
+        if delta == 0:
+            h = 0.0
+        else:
+            if maxc == rf:
+                h = ((gf - bf) / delta) % 6.0
+            elif maxc == gf:
+                h = ((bf - rf) / delta) + 2.0
+            else:
+                h = ((rf - gf) / delta) + 4.0
+            h = h / 6.0  # scale to [0,1)
+
+        # Saturation
+        s = 0.0 if maxc == 0 else (delta / maxc)
+        # Brightness/value
+        v = maxc
+
+        # scale to requested integer ranges
+        H = self._clamp_int(round(h * mh))
+        S = self._clamp_int(round(s * ms))
+        V = self._clamp_int(round(v * mv))
+        A = self._clamp_int(round((self.a / 255.0) * ma))
+
+        return (H, S, V, A)
