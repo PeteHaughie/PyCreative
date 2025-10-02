@@ -366,7 +366,18 @@ class Surface:
 
         # If no transform is active use the fast path with integers
         if self._is_identity_transform():
-            rect = pygame.Rect(int(tlx), int(tly), int(w), int(h))
+            # normalize negative widths/heights so pygame.Rect receives positive sizes
+            left = float(tlx)
+            top = float(tly)
+            width = float(w)
+            height = float(h)
+            if width < 0:
+                left = left + width
+                width = -width
+            if height < 0:
+                top = top + height
+                height = -height
+            rect = pygame.Rect(int(left), int(top), int(width), int(height))
             draw_polygon = False
         else:
             # transform the four rectangle corners into a polygon
@@ -397,11 +408,19 @@ class Surface:
 
             fill_col = fill if fill is not None else self._fill
             stroke_col = stroke if stroke is not None else self._stroke
-            fill_col = self._coerce_input_color(fill_col)
-            stroke_col = self._coerce_input_color(stroke_col)
-            # coerce HSB/RGB tuples or Color instances into pygame-friendly tuples
-            fill_col = self._coerce_input_color(fill_col)
-            stroke_col = self._coerce_input_color(stroke_col)
+
+            # Only coerce per-call overrides or Color instances; do not
+            # re-interpret an already-coerced tuple stored in self._fill/_stroke
+            try:
+                if fill is not None or isinstance(fill_col, Color):
+                    fill_col = self._coerce_input_color(fill_col)
+            except Exception:
+                pass
+            try:
+                if stroke is not None or isinstance(stroke_col, Color):
+                    stroke_col = self._coerce_input_color(stroke_col)
+            except Exception:
+                pass
 
             if fill_col is not None:
                 if draw_polygon:
@@ -746,6 +765,17 @@ class Surface:
 
             fill_col = fill if fill is not None else self._fill
             stroke_col = stroke if stroke is not None else self._stroke
+            # Only coerce per-call overrides or Color instances
+            try:
+                if fill is not None or isinstance(fill_col, Color):
+                    fill_col = self._coerce_input_color(fill_col)
+            except Exception:
+                pass
+            try:
+                if stroke is not None or isinstance(stroke_col, Color):
+                    stroke_col = self._coerce_input_color(stroke_col)
+            except Exception:
+                pass
             sw = int(stroke_weight) if stroke_weight is not None else int(self._stroke_weight)
 
             if fill_col is not None:
