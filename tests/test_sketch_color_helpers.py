@@ -1,5 +1,4 @@
 import pygame
-import pytest
 
 from pycreative.app import Sketch
 
