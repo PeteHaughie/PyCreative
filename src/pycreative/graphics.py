@@ -257,7 +257,7 @@ class Surface:
             mode, m1, m2, m3 = self._color_mode
             if mode == "HSB" and hasattr(color, "__iter__"):
                 h, s, v = color
-                col = Color.from_hsb(float(h), float(s), float(v), max_value=m1)
+                col = Color.from_hsb(float(h), float(s), float(v), max_h=m1, max_s=m2, max_v=m3)
                 self._surf.fill(col.to_tuple())
                 return
         except Exception:
@@ -1004,7 +1004,7 @@ class Surface:
             if mode == "HSB" and hasattr(color, "__iter__"):
                 # allow the Color helper to sanitize/clamp values
                 h, s, v = color
-                col = Color.from_hsb(h, s, v, max_value=m1)
+                col = Color.from_hsb(h, s, v, max_h=m1, max_s=_m2, max_v=_m3)
                 self._fill = col.to_tuple()
                 return
             # otherwise treat as RGB (values may be in a custom max range)
@@ -1054,7 +1054,7 @@ class Surface:
         try:
             if mode == "HSB" and hasattr(color, "__iter__"):
                 h, s, v = color
-                col = Color.from_hsb(h, s, v, max_value=m1)
+                col = Color.from_hsb(h, s, v, max_h=m1, max_s=_m2, max_v=_m3)
                 self._stroke = col.to_tuple()
                 return
             if hasattr(color, "__iter__"):

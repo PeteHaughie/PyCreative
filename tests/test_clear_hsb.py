@@ -19,7 +19,8 @@ def test_clear_respects_hsb_mode(monkeypatch):
         g.clear((h, s, v))
 
         # Convert HSB to expected RGB using the library helper for robust comparison
-        expected = Color.from_hsb(float(h), float(s), float(v), max_value=360).to_tuple()
+        # Under Processing-style HSB mode, H is in 0..360, S and V in 0..100
+        expected = Color.from_hsb(float(h), float(s), float(v), max_h=360, max_s=100, max_v=100).to_tuple()
 
         # Check the top-left pixel matches expected RGB
         px = surf.get_at((0, 0))[:3]
