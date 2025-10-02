@@ -123,6 +123,8 @@ Time, frame control & utilities
 
 Math & mapping
 - random(low, high) -> self.random(low, high) or utilities.random(low, high)
+ - randomSeed(seed) -> self.random_seed(seed)  # seeds Python's RNG for reproducible output
+ - randomGaussian(mean=0, sd=1) -> TODO: implement `self.random_gaussian()` (deferred)
 - map(value, start1, stop1, start2, stop2) -> utilities.map(value, ...)
 - lerp(start, stop, amt) -> utilities.lerp(...)
 

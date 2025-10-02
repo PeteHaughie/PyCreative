@@ -244,10 +244,14 @@ class Surface:
         Accepts the same color forms as `fill()`: a `Color` instance, an HSB
         tuple when color mode is HSB, or an RGB tuple of ints.
         """
-        # Accept Color instances directly
+        # Accept Color instances directly (preserve alpha if present)
         try:
             if isinstance(color, Color):
-                self._surf.fill(color.to_tuple())
+                try:
+                    rgba = color.to_rgba_tuple()
+                except Exception:
+                    rgba = color.to_tuple()
+                self._surf.fill(rgba)
                 return
         except Exception:
             pass
@@ -256,17 +260,34 @@ class Surface:
         try:
             mode, m1, m2, m3 = self._color_mode
             if mode == "HSB" and hasattr(color, "__iter__"):
-                h, s, v = color
+                # allow 3- or 4-length tuples: (h,s,v) or (h,s,v,a)
+                vals = list(color)
+                h, s, v = vals[0], vals[1], vals[2]
                 col = Color.from_hsb(float(h), float(s), float(v), max_h=m1, max_s=m2, max_v=m3)
-                self._surf.fill(col.to_tuple())
+                # if alpha was provided propagate it
+                if len(vals) >= 4:
+                    a = int(vals[3]) & 255
+                    rgba = (col.r, col.g, col.b, a)
+                    self._surf.fill(rgba)
+                else:
+                    self._surf.fill(col.to_tuple())
                 return
         except Exception:
             pass
 
-        # fallback: treat as RGB tuple
+        # fallback: treat as RGB tuple (allow alpha)
         try:
-            rgb = (int(color[0]) & 255, int(color[1]) & 255, int(color[2]) & 255)
-            self._surf.fill(rgb)
+            if hasattr(color, "__iter__"):
+                vals = list(color)
+                r = int(vals[0]) & 255
+                g = int(vals[1]) & 255
+                b = int(vals[2]) & 255
+                if len(vals) >= 4:
+                    a = int(vals[3]) & 255
+                    self._surf.fill((r, g, b, a))
+                else:
+                    self._surf.fill((r, g, b))
+                return
         except Exception:
             # best-effort: ignore invalid input
             return
@@ -991,7 +1012,10 @@ class Surface:
             return
         # Accept Color instances directly
         if isinstance(color, Color):
-            self._fill = color.to_tuple()
+            try:
+                self._fill = color.to_rgba_tuple()
+            except Exception:
+                self._fill = color.to_tuple()
             return
 
         # Interpret tuples according to current color mode, using Color helpers
@@ -1002,16 +1026,35 @@ class Surface:
 
         try:
             if mode == "HSB" and hasattr(color, "__iter__"):
-                # allow the Color helper to sanitize/clamp values
-                h, s, v = color
+                vals = list(color)
+                h, s, v = vals[0], vals[1], vals[2]
                 col = Color.from_hsb(h, s, v, max_h=m1, max_s=_m2, max_v=_m3)
-                self._fill = col.to_tuple()
+                if len(vals) >= 4:
+                    a = int(vals[3]) & 255
+                    self._fill = (col.r, col.g, col.b, a)
+                else:
+                    self._fill = col.to_tuple()
+                # apply immediately to the underlying surface
+                try:
+                    self._surf.fill(self._fill)
+                except Exception:
+                    pass
                 return
             # otherwise treat as RGB (values may be in a custom max range)
             if hasattr(color, "__iter__"):
-                r, g, b = color
+                vals = list(color)
+                r, g, b = vals[0], vals[1], vals[2]
                 col = Color.from_rgb(r, g, b, max_value=m1)
-                self._fill = col.to_tuple()
+                if len(vals) >= 4:
+                    a = int(vals[3]) & 255
+                    self._fill = (col.r, col.g, col.b, a)
+                else:
+                    self._fill = col.to_tuple()
+                # apply immediately to the underlying surface
+                try:
+                    self._surf.fill(self._fill)
+                except Exception:
+                    pass
                 return
         except Exception:
             # best-effort: ignore invalid input
@@ -1043,7 +1086,10 @@ class Surface:
             self._stroke = None
             return
         if isinstance(color, Color):
-            self._stroke = color.to_tuple()
+            try:
+                self._stroke = color.to_rgba_tuple()
+            except Exception:
+                self._stroke = color.to_tuple()
             return
 
         try:
@@ -1053,14 +1099,24 @@ class Surface:
 
         try:
             if mode == "HSB" and hasattr(color, "__iter__"):
-                h, s, v = color
+                vals = list(color)
+                h, s, v = vals[0], vals[1], vals[2]
                 col = Color.from_hsb(h, s, v, max_h=m1, max_s=_m2, max_v=_m3)
-                self._stroke = col.to_tuple()
+                if len(vals) >= 4:
+                    a = int(vals[3]) & 255
+                    self._stroke = (col.r, col.g, col.b, a)
+                else:
+                    self._stroke = col.to_tuple()
                 return
             if hasattr(color, "__iter__"):
-                r, g, b = color
+                vals = list(color)
+                r, g, b = vals[0], vals[1], vals[2]
                 col = Color.from_rgb(r, g, b, max_value=m1)
-                self._stroke = col.to_tuple()
+                if len(vals) >= 4:
+                    a = int(vals[3]) & 255
+                    self._stroke = (col.r, col.g, col.b, a)
+                else:
+                    self._stroke = col.to_tuple()
                 return
         except Exception:
             self._stroke = None

@@ -112,32 +112,30 @@ class Sketch:
         # Copy default methods from Sketch into subclass __dict__ if absent.
         for name in Sketch.REQUIRED_METHODS:
             if name not in cls.__dict__:
-                # pull the function object from the base Sketch and set it on the subclass
                 func = getattr(Sketch, name, None)
                 if func is not None:
                     setattr(cls, name, func)
 
     # --- Lifecycle hooks (override in subclasses) ---
     def setup(self) -> None:
+        """Called once before the run loop. Override in sketches."""
         return None
 
     def update(self, dt: float) -> None:
+        """Called each frame before draw(); dt is time in seconds since last frame."""
         return None
 
     def draw(self) -> None:
+        """Called each frame to perform drawing. Override in sketches."""
         return None
 
     def on_event(self, event: input_mod.Event) -> None:
+        """Called for each pygame event after normalization. Override in sketches."""
         return None
 
     def teardown(self) -> None:
+        """Called once when the run loop exits. Override to clean up resources."""
         return None
-
-    # --- Helpers ---
-    def size(self, w: int, h: int, fullscreen: bool = False) -> None:
-        self.width = int(w)
-        self.height = int(h)
-        self.fullscreen = bool(fullscreen)
 
     def set_save_folder(self, folder: Optional[str]) -> None:
         """Set a per-sketch snapshots folder.
@@ -150,6 +148,18 @@ class Sketch:
         environment variable (if present) or the sketch directory.
         """
         self._save_folder = None if folder is None else str(folder)
+
+    def size(self, w: int, h: int, fullscreen: bool = False) -> None:
+        """Set the sketch window size. Call this in `setup()`.
+
+        Args:
+            w: width in pixels
+            h: height in pixels
+            fullscreen: whether to use fullscreen mode
+        """
+        self.width = int(w)
+        self.height = int(h)
+        self.fullscreen = bool(fullscreen)
 
     @property
     def save_folder(self) -> Optional[str]:
@@ -594,6 +604,172 @@ class Sketch:
 
         return math.radians(deg)
 
+    def color(self, *args):
+        """Create a Color object like Processing's color().
+
+        Behavior:
+        - If current color_mode is HSB, interprets args as (h,s,v) or (h,s,v,a)
+        - If current color_mode is RGB, interprets args as (r,g,b) or (r,g,b,a)
+        Returns a `pycreative.color.Color` instance.
+        """
+        # lazy import to avoid heavy deps at module import time
+        from .color import Color
+
+        # determine active color mode and ranges (use pending if surface not yet created)
+        cm = None
+        if self.surface is not None:
+            cm = self.surface.color_mode()
+        else:
+            cm = self._pending_color_mode if self._pending_color_mode is not _PENDING_UNSET else None
+
+        if cm is None:
+            # default to RGB 0-255
+            mode, m1, m2, m3 = ("RGB", 255, 255, 255)
+        else:
+            try:
+                mode, m1, m2, m3 = cm
+            except Exception:
+                mode, m1, m2, m3 = ("RGB", 255, 255, 255)
+
+        # support HSB or RGB
+        if str(mode).upper() == "HSB":
+            # expect (h,s,v) or (h,s,v,a)
+            h = args[0] if len(args) > 0 else 0
+            s = args[1] if len(args) > 1 else 0
+            v = args[2] if len(args) > 2 else 0
+            c = Color.from_hsb(float(h), float(s), float(v), max_h=int(m1), max_s=int(m2), max_v=int(m3))
+            if len(args) >= 4:
+                try:
+                    c.a = int(args[3]) & 255
+                except Exception:
+                    pass
+            return c
+
+        # default: RGB
+        r = args[0] if len(args) > 0 else 0
+        g = args[1] if len(args) > 1 else 0
+        b = args[2] if len(args) > 2 else 0
+        c = Color.from_rgb(r, g, b, max_value=int(m1))
+        if len(args) >= 4:
+            try:
+                c.a = int(args[3]) & 255
+            except Exception:
+                pass
+        return c
+
+    def lerp_color(self, c1, c2, amt: float):
+        """Interpolate between two colors and return a `pycreative.color.Color`.
+
+        `amt` in [0,1]. Interpolation happens in the current color_mode (HSB or RGB).
+        Inputs may be `Color` instances or tuples (3- or 4-length). The returned
+        value is a `Color` instance.
+        """
+        from .color import Color
+        import colorsys
+
+        def to_color(x):
+            if isinstance(x, Color):
+                return x
+            if hasattr(x, "__iter__"):
+                vals = list(x)
+                # fallback: interpret using current color() helper semantics
+                return self.color(*vals)
+            # last resort: treat as grayscale
+            return Color.from_rgb(x, x, x)
+
+        a = max(0.0, min(1.0, float(amt)))
+        col1 = to_color(c1)
+        col2 = to_color(c2)
+
+        # determine mode and ranges
+        cm = None
+        if self.surface is not None:
+            cm = self.surface.color_mode()
+        else:
+            cm = self._pending_color_mode if self._pending_color_mode is not _PENDING_UNSET else None
+
+        if cm is None:
+            mode, m1, m2, m3 = ("RGB", 255, 255, 255)
+        else:
+            try:
+                mode, m1, m2, m3 = cm
+            except Exception:
+                mode, m1, m2, m3 = ("RGB", 255, 255, 255)
+
+        if str(mode).upper() == "HSB":
+            # convert RGB to normalized HSV via colorsys (expects 0..1)
+            r1, g1, b1 = col1.r / 255.0, col1.g / 255.0, col1.b / 255.0
+            r2, g2, b2 = col2.r / 255.0, col2.g / 255.0, col2.b / 255.0
+            h1, s1, v1 = colorsys.rgb_to_hsv(r1, g1, b1)
+            h2, s2, v2 = colorsys.rgb_to_hsv(r2, g2, b2)
+            # h is 0..1; linear interpolate (no shortest-hue wrap handling)
+            h = (h1 + (h2 - h1) * a) % 1.0
+            s = s1 + (s2 - s1) * a
+            v = v1 + (v2 - v1) * a
+            # scale to Processing-style ranges when calling from_hsb
+            H = h * float(int(m1))
+            S = s * float(int(m2))
+            V = v * float(int(m3))
+            out = Color.from_hsb(H, S, V, max_h=int(m1), max_s=int(m2), max_v=int(m3))
+        else:
+            # RGB linear interpolation
+            r = int(round(col1.r + (col2.r - col1.r) * a))
+            g = int(round(col1.g + (col2.g - col1.g) * a))
+            b = int(round(col1.b + (col2.b - col1.b) * a))
+            out = Color(r, g, b)
+
+        # interpolate alpha
+        try:
+            a1 = getattr(col1, "a", 255)
+            a2 = getattr(col2, "a", 255)
+            out.a = int(round(a1 + (a2 - a1) * a)) & 255
+        except Exception:
+            out.a = 255
+
+        return out
+
+    def random(self, *args):
+        """Return a random float similar to Processing.random().
+
+        Usage:
+          self.random() -> float in [0,1)
+          self.random(high) -> float in [0, high)
+          self.random(low, high) -> float in [low, high)
+        """
+        import random as _random
+
+        try:
+            if len(args) == 0:
+                return _random.random()
+            if len(args) == 1:
+                high = float(args[0])
+                return _random.random() * high
+            if len(args) >= 2:
+                low = float(args[0])
+                high = float(args[1])
+                return low + _random.random() * (high - low)
+        except Exception:
+            return 0.0
+
+    def random_seed(self, seed: int | None):
+        """Seed the random number generator (Processing.randomSeed equivalent).
+
+        Provide `None` to re-seed from the OS default.
+        """
+        import random as _random
+
+        try:
+            if seed is None:
+                _random.seed()
+            else:
+                _random.seed(int(seed))
+        except Exception:
+            # best-effort, ignore invalid seeds
+            try:
+                _random.seed()
+            except Exception:
+                pass
+
     def stroke_width(self, w: int) -> None:
         if self.surface is not None:
             self.surface.stroke_weight(w)
@@ -675,8 +851,12 @@ class Sketch:
             self.surface._stroke_weight = prev_stroke_weight
 
     # --- Run loop ---
-    def run(self, max_frames: Optional[int] = None) -> None:
+    def run(self, max_frames: Optional[int] = None, debug: bool = False) -> None:
+        if debug:
+            print("[pycreative.run] debug: initializing pygame")
         pygame.init()
+        if debug:
+            print(f"[pycreative.run] debug: sketch_path={self.sketch_path}, width={self.width}, height={self.height}, fullscreen={self.fullscreen}")
         # Initialize assets manager early so setup() can use it
         sketch_dir = os.path.dirname(self.sketch_path) if self.sketch_path else os.getcwd()
         try:
@@ -705,14 +885,41 @@ class Sketch:
         # Attempt to pass vsync where supported (pygame 2.0+ may accept a vsync kwarg)
         try:
             # some pygame builds accept vsync as keyword argument
+            if debug:
+                print(f"[pycreative.run] debug: creating display mode w={self.width} h={self.height} flags={flags} vsync={self._vsync}")
             self._surface = pygame.display.set_mode((self.width, self.height), flags, vsync=self._vsync)
         except TypeError:
             # fallback to positional set_mode without vsync
+            if debug:
+                print("[pycreative.run] debug: set_mode with vsync kwarg failed, falling back to positional call")
             self._surface = pygame.display.set_mode((self.width, self.height), flags)
+        if debug:
+            try:
+                ds = pygame.display.get_surface()
+                print(f"[pycreative.run] debug: pygame.display.get_surface() -> {None if ds is None else 'surface'}")
+            except Exception as _:
+                print("[pycreative.run] debug: pygame.display.get_surface() raised an exception")
+            try:
+                if self._surface is None:
+                    print("[pycreative.run] debug: set_mode returned None (no surface)")
+                else:
+                    try:
+                        sz = self._surface.get_size()
+                    except Exception:
+                        sz = (None, None)
+                    try:
+                        flags_now = self._surface.get_flags()
+                    except Exception:
+                        flags_now = None
+                    print(f"[pycreative.run] debug: created surface size={sz} flags={flags_now}")
+            except Exception:
+                pass
         pygame.display.set_caption(self._title)
         self.surface = GraphicsSurface(self._surface)
         # Apply any drawing state set earlier in setup() before the Surface existed
         try:
+            if debug:
+                print("[pycreative.run] debug: applying pending state to Surface")
             # apply pending color mode first so pending fill/stroke are interpreted correctly
             if getattr(self, "_pending_color_mode", _PENDING_UNSET) is not _PENDING_UNSET:
                 try:
@@ -726,9 +933,13 @@ class Sketch:
             if self._pending_fill is not _PENDING_UNSET:
                 # explicit None means disable fill; narrow type for static checkers
                 val = None if self._pending_fill is None else tuple(self._pending_fill)  # type: ignore[arg-type]
+                if debug:
+                    print(f"[pycreative.run] debug: applying pending fill={val}")
                 self.surface.fill(val)  # type: ignore[arg-type]
             if self._pending_stroke is not _PENDING_UNSET:
                 col = None if self._pending_stroke is None else tuple(self._pending_stroke)  # type: ignore[arg-type]
+                if debug:
+                    print(f"[pycreative.run] debug: applying pending stroke={col}")
                 self.surface.stroke(col)  # type: ignore[arg-type]
             if self._pending_stroke_weight is not _PENDING_UNSET:
                 if isinstance(self._pending_stroke_weight, int):
@@ -751,6 +962,20 @@ class Sketch:
         except Exception:
             # best-effort; don't fail startup for state application
             pass
+        if debug:
+            print("[pycreative.run] debug: entering main loop")
+        if debug:
+            try:
+                print(f"[pycreative.run] debug: SDL_VIDEODRIVER={os.environ.get('SDL_VIDEODRIVER')}")
+                print(f"[pycreative.run] debug: pygame.display.get_driver()={pygame.display.get_driver()}")
+                try:
+                    info = pygame.display.Info()
+                    print(f"[pycreative.run] debug: display.Info() current_w={info.current_w} current_h={info.current_h} bitsize={info.bitsize}")
+                except Exception:
+                    print("[pycreative.run] debug: pygame.display.Info() not available")
+            except Exception:
+                pass
+        # Start the main loop: initialize clock and enter run loop
         self._clock = pygame.time.Clock()
         self._running = True
 
@@ -760,20 +985,32 @@ class Sketch:
             dt = now - last_time
             last_time = now
 
+            if debug:
+                print(f"[pycreative.run] debug: frame loop start frame={self.frame_count} dt={dt:.6f}")
+
             for ev in pygame.event.get():
                 if ev.type == pygame.QUIT:
                     self._running = False
                 else:
                     input_mod.dispatch_event(self, ev)
 
+            if debug:
+                print(f"[pycreative.run] debug: events processed, now calling update/draw")
+
             try:
+                if debug:
+                    print(f"[pycreative.run] debug: calling update()")
                 self.update(dt)
                 # Respect runtime no-loop mode: if enabled, call draw() only once
                 if getattr(self, "_no_loop_mode", False):
                     if not getattr(self, "_has_drawn_once", False):
+                        if debug:
+                            print(f"[pycreative.run] debug: calling draw() once due to no_loop")
                         self.draw()
                         self._has_drawn_once = True
                 else:
+                    if debug:
+                        print(f"[pycreative.run] debug: calling draw()")
                     self.draw()
             except Exception:
                 # On error, attempt teardown and stop
@@ -783,7 +1020,15 @@ class Sketch:
                     self._running = False
                     raise
 
+            if debug:
+                print(f"[pycreative.run] debug: calling pygame.display.flip() for frame={self.frame_count}")
             pygame.display.flip()
+            if debug:
+                try:
+                    surf = pygame.display.get_surface()
+                    print(f"[pycreative.run] debug: pygame.display.get_surface() exists={surf is not None}")
+                except Exception:
+                    pass
             self.frame_count += 1
             # If max_frames is provided, stop after reaching it
             if max_frames is not None and self.frame_count >= int(max_frames):
@@ -796,6 +1041,95 @@ class Sketch:
         try:
             self.teardown()
         finally:
+            if debug:
+                print("[pycreative.run] debug: quitting pygame and exiting run loop")
+            pygame.quit()
+
+    def map(self, value: float, start1: float, stop1: float, start2: float, stop2: float) -> float:
+        """Re-map a number from one range to another (Processing.map equivalent).
+
+        Formula: start2 + (value - start1) * (stop2 - start2) / (stop1 - start1)
+        Does not clamp the output.
+        """
+        try:
+            v = float(value)
+            s1 = float(start1)
+            e1 = float(stop1)
+            s2 = float(start2)
+            e2 = float(stop2)
+            if e1 == s1:
+                # avoid division by zero: return start2 as best-effort
+                return float(s2)
+            return s2 + (v - s1) * (e2 - s2) / (e1 - s1)
+        except Exception:
+            return 0.0
+        self._clock = pygame.time.Clock()
+        self._running = True
+
+        last_time = time.perf_counter()
+        while self._running:
+            now = time.perf_counter()
+            dt = now - last_time
+            last_time = now
+
+            if debug:
+                print(f"[pycreative.run] debug: frame loop start frame={self.frame_count} dt={dt:.6f}")
+
+            for ev in pygame.event.get():
+                if ev.type == pygame.QUIT:
+                    self._running = False
+                else:
+                    input_mod.dispatch_event(self, ev)
+
+            if debug:
+                print(f"[pycreative.run] debug: events processed, now calling update/draw")
+
+            try:
+                if debug:
+                    print(f"[pycreative.run] debug: calling update()")
+                self.update(dt)
+                # Respect runtime no-loop mode: if enabled, call draw() only once
+                if getattr(self, "_no_loop_mode", False):
+                    if not getattr(self, "_has_drawn_once", False):
+                        if debug:
+                            print(f"[pycreative.run] debug: calling draw() once due to no_loop")
+                        self.draw()
+                        self._has_drawn_once = True
+                else:
+                    if debug:
+                        print(f"[pycreative.run] debug: calling draw()")
+                    self.draw()
+            except Exception:
+                # On error, attempt teardown and stop
+                try:
+                    self.teardown()
+                finally:
+                    self._running = False
+                    raise
+
+            if debug:
+                print(f"[pycreative.run] debug: calling pygame.display.flip() for frame={self.frame_count}")
+            pygame.display.flip()
+            if debug:
+                try:
+                    surf = pygame.display.get_surface()
+                    print(f"[pycreative.run] debug: pygame.display.get_surface() exists={surf is not None}")
+                except Exception:
+                    pass
+            self.frame_count += 1
+            # If max_frames is provided, stop after reaching it
+            if max_frames is not None and self.frame_count >= int(max_frames):
+                self._running = False
+            # enforce framerate
+            if self._clock is not None:
+                self._clock.tick(self._frame_rate)
+
+        # Clean up
+        try:
+            self.teardown()
+        finally:
+            if debug:
+                print("[pycreative.run] debug: quitting pygame and exiting run loop")
             pygame.quit()
 
     def create_graphics(self, w: int, h: int, inherit_state: bool = False, inherit_transform: bool = False) -> OffscreenSurface:

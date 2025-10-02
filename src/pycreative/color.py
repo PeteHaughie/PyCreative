@@ -26,6 +26,13 @@ class Color:
     def to_tuple(self) -> Tuple[int, int, int]:
         return (self.r, self.g, self.b)
 
+    def to_rgba_tuple(self) -> Tuple[int, int, int, int]:
+        """Return an (r,g,b,a) tuple. Keep `to_tuple()` unchanged for back-compat.
+
+        Use this when callers need to preserve alpha.
+        """
+        return (self.r, self.g, self.b, self.a)
+
     @staticmethod
     def _clamp_int(v: int) -> int:
         return max(0, min(255, int(v)))
