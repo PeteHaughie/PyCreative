@@ -27,6 +27,7 @@ dist/
 
 # Test Files
 examples/tmp.py
+debug/
 
 # Work in progress
 examples/Generative Gestaltung
