@@ -58,6 +58,11 @@ class Sketch:
         self._pending_ellipse_mode = _PENDING_UNSET
         # Pending color mode (e.g., set in setup before surface exists)
         self._pending_color_mode = _PENDING_UNSET
+        # Pending line cap / join style (butt, round, square) / (miter, round, bevel)
+        self._pending_line_cap = _PENDING_UNSET
+        self._pending_line_join = _PENDING_UNSET
+        # Pending background/clear color set in setup() before surface exists
+        self._pending_background = _PENDING_UNSET
 
         # Runtime no-loop control (if True, draw() runs once then is suppressed)
         self._no_loop_mode = False
@@ -220,6 +225,117 @@ class Sketch:
             pass
 
         self._pending_cursor = bool(visible)
+
+    def background(self, color) -> None:
+        """Fill the entire canvas with `color`. Behaves like Processing.background().
+
+        If called before a Surface exists the color is recorded and applied when
+        the display is created. Accepts Color instances or RGB(A)/HSB tuples.
+        """
+        if self.surface is not None:
+            try:
+                # prefer surface.clear which understands color modes/alpha
+                self.surface.clear(color)
+                # clear any pending sentinel
+                self._pending_background = _PENDING_UNSET
+                return
+            except Exception:
+                # fall through to record pending value
+                pass
+
+        # record pending background to apply later in run()
+        self._pending_background = color
+
+    # --- Transform helpers (delegate to active Surface when available) ---
+    def push(self) -> None:
+        """Push the current transform on the stack."""
+        if self.surface is None:
+            return
+        try:
+            self.surface.push()
+        except Exception:
+            pass
+
+    def pop(self) -> None:
+        """Pop the top transform from the stack."""
+        if self.surface is None:
+            return
+        try:
+            self.surface.pop()
+        except Exception:
+            pass
+
+    def translate(self, dx: float, dy: float) -> None:
+        """Apply a translation to the current transform."""
+        if self.surface is None:
+            return
+        try:
+            self.surface.translate(dx, dy)
+        except Exception:
+            pass
+
+    def rotate(self, theta: float) -> None:
+        """Apply a rotation (radians) to the current transform."""
+        if self.surface is None:
+            return
+        try:
+            self.surface.rotate(theta)
+        except Exception:
+            pass
+
+    def scale(self, sx: float, sy: float | None = None) -> None:
+        """Apply a scale to the current transform."""
+        if self.surface is None:
+            return
+        try:
+            self.surface.scale(sx, sy)
+        except Exception:
+            pass
+
+    def reset_matrix(self) -> None:
+        """Reset the current transform matrix to identity."""
+        if self.surface is None:
+            return
+        try:
+            self.surface.reset_matrix()
+        except Exception:
+            pass
+
+    def get_matrix(self) -> list[list[float]] | None:
+        """Return a copy of the current transform matrix from the active surface, or None."""
+        if self.surface is None:
+            return None
+        try:
+            return self.surface.get_matrix()
+        except Exception:
+            return None
+
+    def set_matrix(self, M: list[list[float]]) -> None:
+        """Overwrite the current top matrix on the active surface with M."""
+        if self.surface is None:
+            return
+        try:
+            self.surface.set_matrix(M)
+        except Exception:
+            pass
+
+    def transform(self, translate: tuple[float, float] | None = None, rotate: float | None = None, scale: tuple[float, float] | None = None):
+        """Context manager that pushes a transform, applies optional ops, and pops on exit.
+
+        Example:
+            with self.transform(translate=(10,20), rotate=0.3):
+                self.rect(...)
+        """
+        if self.surface is None:
+            # no-op context manager
+            from contextlib import contextmanager
+
+            @contextmanager
+            def _noop():
+                yield None
+
+            return _noop()
+        return self.surface.transform(translate=translate, rotate=rotate, scale=scale)
 
     def set_double_buffer(self, enabled: bool) -> None:
         """Enable or disable double buffering for the display window.
@@ -867,6 +983,120 @@ class Sketch:
         if self.surface is not None:
             self.surface.stroke_weight(w)
 
+    @property
+    def stroke_cap(self) -> str | None:
+        """Get or set the global stroke cap. Valid values: 'butt','round','square'.
+
+        When set before a Surface exists the value is recorded and applied when
+        the Surface is created. When a Surface exists it is applied immediately.
+        """
+        # Return a callable proxy so older sketches can call `self.stroke_cap('square')`
+        # while newer code can do property assignment `self.stroke_cap = 'round'`.
+        sketch = self
+
+        class _CapProxy:
+            def __call__(self, cap_val: str | None) -> None:
+                sketch._apply_stroke_cap(cap_val)
+
+            def __str__(self) -> str:
+                if sketch.surface is not None:
+                    return str(getattr(sketch.surface, "_line_cap", None))
+                v = sketch._pending_line_cap
+                return str(None if v is _PENDING_UNSET else v)
+
+            def __repr__(self) -> str:
+                return f"<stroke_cap {str(self)}>"
+
+            def __eq__(self, other) -> bool:
+                if sketch.surface is not None:
+                    return getattr(sketch.surface, "_line_cap", None) == other
+                v = sketch._pending_line_cap
+                return (None if v is _PENDING_UNSET else v) == other
+
+        return _CapProxy()
+
+    def _apply_stroke_cap(self, cap: str | None) -> None:
+        valid = ("butt", "round", "square")
+        if cap is not None:
+            c = str(cap)
+            if c not in valid:
+                raise ValueError(f"Invalid stroke cap: {cap}")
+            cap = c
+
+        if self.surface is not None:
+            try:
+                # delegate to Surface
+                if cap is None:
+                    # restore default
+                    self.surface.set_line_cap("butt")
+                else:
+                    self.surface.set_line_cap(cap)
+                # clear any pending sentinel
+                self._pending_line_cap = _PENDING_UNSET
+                return
+            except Exception:
+                # fallback to pending
+                pass
+
+        # record pending value (None means clear)
+        self._pending_line_cap = cap
+
+    @stroke_cap.setter
+    def stroke_cap(self, cap: str | None) -> None:
+        self._apply_stroke_cap(cap)
+
+    @property
+    def stroke_join(self) -> str | None:
+        """Get or set the global stroke join. Valid values: 'miter','round','bevel'."""
+        # Return a callable proxy for backwards-compatible call-style usage
+        sketch = self
+
+        class _JoinProxy:
+            def __call__(self, join_val: str | None) -> None:
+                sketch._apply_stroke_join(join_val)
+
+            def __str__(self) -> str:
+                if sketch.surface is not None:
+                    return str(getattr(sketch.surface, "_line_join", None))
+                v = sketch._pending_line_join
+                return str(None if v is _PENDING_UNSET else v)
+
+            def __repr__(self) -> str:
+                return f"<stroke_join {str(self)}>"
+
+            def __eq__(self, other) -> bool:
+                if sketch.surface is not None:
+                    return getattr(sketch.surface, "_line_join", None) == other
+                v = sketch._pending_line_join
+                return (None if v is _PENDING_UNSET else v) == other
+
+        return _JoinProxy()
+
+    def _apply_stroke_join(self, join: str | None) -> None:
+        valid = ("miter", "round", "bevel")
+        if join is not None:
+            j = str(join)
+            if j not in valid:
+                raise ValueError(f"Invalid stroke join: {join}")
+            join = j
+
+        if self.surface is not None:
+            try:
+                if join is None:
+                    self.surface.set_line_join("miter")
+                else:
+                    self.surface.set_line_join(join)
+                self._pending_line_join = _PENDING_UNSET
+                return
+            except Exception:
+                pass
+
+        self._pending_line_join = join
+
+    @stroke_join.setter
+    def stroke_join(self, join: str | None) -> None:
+        self._apply_stroke_join(join)
+
     # --- Mouse helpers ---
     def mouse_pos(self) -> Optional[tuple[int, int]]:
         """Return the current mouse (x, y) position in window coordinates.
@@ -1024,6 +1254,34 @@ class Sketch:
             if self._pending_stroke_weight is not _PENDING_UNSET:
                 if isinstance(self._pending_stroke_weight, int):
                     self.surface.stroke_weight(self._pending_stroke_weight)
+            # apply pending line cap/join if present
+            if getattr(self, "_pending_line_cap", _PENDING_UNSET) is not _PENDING_UNSET:
+                try:
+                    v = self._pending_line_cap
+                    if v is None:
+                        self.surface.set_line_cap("butt")
+                    else:
+                        self.surface.set_line_cap(v)
+                except Exception:
+                    pass
+            if getattr(self, "_pending_line_join", _PENDING_UNSET) is not _PENDING_UNSET:
+                try:
+                    v = self._pending_line_join
+                    if v is None:
+                        self.surface.set_line_join("miter")
+                    else:
+                        self.surface.set_line_join(v)
+                except Exception:
+                    pass
+            # apply pending background if present
+            if getattr(self, "_pending_background", _PENDING_UNSET) is not _PENDING_UNSET:
+                try:
+                    bg = self._pending_background
+                    if bg is not _PENDING_UNSET:
+                        self.surface.clear(bg)
+                        self._pending_background = _PENDING_UNSET
+                except Exception:
+                    pass
             # apply pending rect/ellipse modes if set in setup()
             if getattr(self, "_pending_rect_mode", _PENDING_UNSET) is not _PENDING_UNSET:
                 try:
@@ -1073,6 +1331,16 @@ class Sketch:
                     self._running = False
                 else:
                     input_mod.dispatch_event(self, ev)
+
+            # Reset transform state at the start of each frame so calls like
+            # `self.translate(...)` in `draw()` behave like Processing (not
+            # cumulative across frames). Users who need persistent transforms
+            # can manage the matrix manually.
+            try:
+                if self.surface is not None:
+                    self.surface.reset_matrix()
+            except Exception:
+                pass
 
             if debug:
                 print("[pycreative.run] debug: events processed, now calling update/draw")
@@ -1200,6 +1468,23 @@ class Sketch:
                         off._rect_mode = self._pending_rect_mode
                     if getattr(self, "_pending_ellipse_mode", _PENDING_UNSET) is not _PENDING_UNSET:
                         off._ellipse_mode = self._pending_ellipse_mode
+                    # copy pending cap/join into offscreen when present
+                    if getattr(self, "_pending_line_cap", _PENDING_UNSET) is not _PENDING_UNSET:
+                        try:
+                            if self._pending_line_cap is None:
+                                off.set_line_cap("butt")
+                            else:
+                                off.set_line_cap(self._pending_line_cap)
+                        except Exception:
+                            pass
+                    if getattr(self, "_pending_line_join", _PENDING_UNSET) is not _PENDING_UNSET:
+                        try:
+                            if self._pending_line_join is None:
+                                off.set_line_join("miter")
+                            else:
+                                off.set_line_join(self._pending_line_join)
+                        except Exception:
+                            pass
                 except Exception:
                     pass
         # Optionally inherit transform matrix from the active surface

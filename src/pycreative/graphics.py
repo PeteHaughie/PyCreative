@@ -862,10 +862,10 @@ class Surface:
 
     def polygon_with_style(self, points: list[tuple[float, float]], fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, cap: Optional[str] = None, join: Optional[str] = None) -> None:
         if self._is_identity_transform():
-            pts = [(int(x), int(y)) for (x, y) in points]
+            pts = [(int(round(x)), int(round(y))) for (x, y) in points]
         else:
             ptsf = transform_points(self._current_matrix(), points)
-            pts = [(int(px), int(py)) for px, py in ptsf]
+            pts = [(int(round(px)), int(round(py))) for px, py in ptsf]
         prev_cap = self._line_cap
         prev_join = self._line_join
         try:
@@ -905,8 +905,8 @@ class Surface:
                 w = max(1, maxx - minx)
                 h = max(1, maxy - miny)
                 temp = self._get_temp_surface(w, h)
-                rel_pts = [(px - minx, py - miny) for px, py in pts]
-                pygame.draw.polygon(temp, fill_col, [(int(px), int(py)) for px, py in rel_pts])
+                rel_pts = [((px - minx), (py - miny)) for px, py in pts]
+                pygame.draw.polygon(temp, fill_col, [(int(round(px)), int(round(py))) for px, py in rel_pts])
                 self._surf.blit(temp, (minx, miny))
             else:
                 if fill_col is not None:
@@ -915,17 +915,38 @@ class Surface:
             if _has_alpha(stroke_col) and sw > 0:
                 xs = [p[0] for p in pts]
                 ys = [p[1] for p in pts]
-                minx, maxx = min(xs), max(xs)
-                miny, maxy = min(ys), max(ys)
-                w = max(1, maxx - minx)
-                h = max(1, maxy - miny)
+                minx0, maxx0 = min(xs), max(xs)
+                miny0, maxy0 = min(ys), max(ys)
+                # pad by stroke width to avoid clipping
+                pad = max(2, int(sw) + 2)
+                w = max(1, int(maxx0 - minx0) + pad * 2)
+                h = max(1, int(maxy0 - miny0) + pad * 2)
                 temp = self._get_temp_surface(w, h)
-                rel_pts = [(px - minx, py - miny) for px, py in pts]
-                pygame.draw.polygon(temp, stroke_col, [(int(px), int(py)) for px, py in rel_pts], sw)
-                self._surf.blit(temp, (minx, miny))
+                rel_pts = [((px - minx0) + pad, (py - miny0) + pad) for px, py in pts]
+                # draw each edge as a separate line to avoid gaps
+                n = len(rel_pts)
+                int_rel = [(int(round(p[0])), int(round(p[1]))) for p in rel_pts]
+                for i in range(n):
+                    a = int_rel[i]
+                    b = int_rel[(i + 1) % n]
+                    pygame.draw.line(temp, stroke_col, a, b, sw)
+                # stamp circles at vertices to close joins and avoid seams/clipping
+                radius = max(1, int(sw / 2))
+                for v in int_rel:
+                    pygame.draw.circle(temp, stroke_col, v, radius)
+                self._surf.blit(temp, (int(minx0 - pad), int(miny0 - pad)))
             else:
                 if stroke_col is not None and sw > 0:
-                    pygame.draw.polygon(self._surf, stroke_col, pts, sw)
+                    # draw each edge individually to avoid polygon outline quirks
+                    n = len(pts)
+                    for i in range(n):
+                        a = pts[i]
+                        b = pts[(i + 1) % n]
+                        pygame.draw.line(self._surf, stroke_col, a, b, sw)
+                    # ensure joins are filled by stamping small circles at vertices
+                    radius = max(1, int(sw / 2))
+                    for v in pts:
+                        pygame.draw.circle(self._surf, stroke_col, (int(round(v[0])), int(round(v[1]))), radius)
         finally:
             self._line_cap = prev_cap
             self._line_join = prev_join
@@ -1003,6 +1024,16 @@ class Surface:
             return
 
         mode = getattr(self, "_shape_mode", None)
+
+        # If a non-identity transform is active, apply it to the collected
+        # vertices so begin/vertex/end behave like Processing where transforms
+        # affect vertex coordinates.
+        try:
+            if not self._is_identity_transform():
+                pts = transform_points(self._current_matrix(), pts)
+        except Exception:
+            # ignore transform failures and draw with raw points
+            pass
 
         def draw_poly(p):
             # helper: draw polygon/triangle/quad using existing polygon helper
@@ -1229,23 +1260,62 @@ class Surface:
             stroke_col = stroke if stroke is not None else self._stroke
             sw = int(stroke_weight) if stroke_weight is not None else int(self._stroke_weight)
             pts = [(int(x), int(y)) for (x, y) in points]
-            # pygame.draw.lines draws connected segments; closed=False keeps it open
+
+            def _has_alpha(c):
+                return isinstance(c, tuple) and len(c) == 4 and c[3] != 255
+
+            # If stroke color includes alpha and dest surface may not support
+            # per-pixel alpha, draw into a temporary SRCALPHA surface and blit.
             if stroke_col is not None and sw > 0:
-                pygame.draw.lines(self._surf, stroke_col, False, pts, sw)
+                if _has_alpha(stroke_col):
+                    xs = [p[0] for p in pts]
+                    ys = [p[1] for p in pts]
+                    minx0, maxx0 = min(xs), max(xs)
+                    miny0, maxy0 = min(ys), max(ys)
+                    # pad by stroke width to avoid clipping of caps/joins
+                    pad = max(2, int(sw) + 2)
+                    w = max(1, int(maxx0 - minx0) + pad * 2)
+                    h = max(1, int(maxy0 - miny0) + pad * 2)
+                    temp = self._get_temp_surface(w, h)
+                    rel_pts = [((px - minx0) + pad, (py - miny0) + pad) for px, py in pts]
+                    int_rel = [(int(round(px)), int(round(py))) for px, py in rel_pts]
+                    pygame.draw.lines(temp, stroke_col, False, int_rel, sw)
 
-                # emulate round caps by drawing circles at endpoints
-                if self._line_cap == "round":
+                    # emulate round caps on temp (stamp circles at ends)
                     radius = max(1, int(sw / 2))
-                    start = pts[0]
-                    end = pts[-1]
-                    pygame.draw.circle(self._surf, stroke_col, start, radius)
-                    pygame.draw.circle(self._surf, stroke_col, end, radius)
+                    start = int_rel[0]
+                    end = int_rel[-1]
+                    if self._line_cap == "round":
+                        pygame.draw.circle(temp, stroke_col, start, radius)
+                        pygame.draw.circle(temp, stroke_col, end, radius)
 
-                # emulate round joins by drawing circles at internal vertices
-                if self._line_join == "round":
-                    radius = max(1, int(sw / 2))
-                    for v in pts[1:-1]:
-                        pygame.draw.circle(self._surf, stroke_col, v, radius)
+                    # stamp joins to avoid seams/clipping
+                    if self._line_join == "round":
+                        for v in int_rel[1:-1]:
+                            pygame.draw.circle(temp, stroke_col, v, radius)
+                    else:
+                        # also stamp vertices for non-round joins to close tiny gaps
+                        for v in int_rel:
+                            pygame.draw.circle(temp, stroke_col, v, radius)
+
+                    self._surf.blit(temp, (int(minx0 - pad), int(miny0 - pad)))
+                else:
+                    # opaque stroke: draw directly
+                    pygame.draw.lines(self._surf, stroke_col, False, pts, sw)
+
+                    # emulate round caps by drawing circles at endpoints
+                    if self._line_cap == "round":
+                        radius = max(1, int(sw / 2))
+                        start = pts[0]
+                        end = pts[-1]
+                        pygame.draw.circle(self._surf, stroke_col, start, radius)
+                        pygame.draw.circle(self._surf, stroke_col, end, radius)
+
+                    # emulate round joins by drawing circles at internal vertices
+                    if self._line_join == "round":
+                        radius = max(1, int(sw / 2))
+                        for v in pts[1:-1]:
+                            pygame.draw.circle(self._surf, stroke_col, v, radius)
         finally:
             self._line_cap = prev_cap
             self._line_join = prev_join
