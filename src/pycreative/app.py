@@ -113,16 +113,66 @@ class Sketch:
                     return PVector(x_val, y_val)
 
                 @staticmethod
-                def sub(a, b):
-                    ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
-                    bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
-                    return PVector(ax - bx, ay - by)
+                def sub(*args):
+                    """Support sub(a, b) or sub([a, b])."""
+                    def _to_xy(x):
+                        if isinstance(x, PVector):
+                            return x.x, x.y
+                        if hasattr(x, "__iter__"):
+                            vals = list(x)
+                            if len(vals) >= 2:
+                                return float(vals[0]), float(vals[1])
+                        raise TypeError("Expected a PVector or 2-length iterable")
+
+                    if len(args) == 2:
+                        a, b = args
+                        ax, ay = _to_xy(a)
+                        bx, by = _to_xy(b)
+                        return PVector(ax - bx, ay - by)
+                    if len(args) == 1:
+                        pair = args[0]
+                        # If caller accidentally passed a single PVector (common misuse),
+                        # raise a helpful message guiding them to use the instance method.
+                        if isinstance(pair, PVector):
+                            raise TypeError("pvector.sub requires two vector arguments; to mutate an existing vector use v.sub(other).")
+                        if hasattr(pair, "__iter__"):
+                            lst = list(pair)
+                            if len(lst) == 2:
+                                ax, ay = _to_xy(lst[0])
+                                bx, by = _to_xy(lst[1])
+                                return PVector(ax - bx, ay - by)
+                        raise TypeError("pvector.sub requires two vector arguments or a single iterable of two vectors. For mutating subtraction use v.sub(other).")
+                    raise TypeError("pvector.sub requires two arguments")
 
                 @staticmethod
-                def add(a, b):
-                    ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
-                    bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
-                    return PVector(ax + bx, ay + by)
+                def add(*args):
+                    """Support add(a, b) or add([a, b])."""
+                    def _to_xy(x):
+                        if isinstance(x, PVector):
+                            return x.x, x.y
+                        if hasattr(x, "__iter__"):
+                            vals = list(x)
+                            if len(vals) >= 2:
+                                return float(vals[0]), float(vals[1])
+                        raise TypeError("Expected a PVector or 2-length iterable")
+
+                    if len(args) == 2:
+                        a, b = args
+                        ax, ay = _to_xy(a)
+                        bx, by = _to_xy(b)
+                        return PVector(ax + bx, ay + by)
+                    if len(args) == 1:
+                        pair = args[0]
+                        if isinstance(pair, PVector):
+                            raise TypeError("pvector.add requires two vector arguments; to mutate an existing vector use v.add(other).")
+                        if hasattr(pair, "__iter__"):
+                            lst = list(pair)
+                            if len(lst) == 2:
+                                ax, ay = _to_xy(lst[0])
+                                bx, by = _to_xy(lst[1])
+                                return PVector(ax + bx, ay + by)
+                        raise TypeError("pvector.add requires two vector arguments or a single iterable of two vectors. For mutating addition use v.add(other).")
+                    raise TypeError("pvector.add requires two arguments")
 
                 @staticmethod
                 def mult(v, scalar: float):
