@@ -5,6 +5,7 @@ from typing import Optional, Tuple, Callable, Any, cast
 import time
 import os
 import pygame
+import math
 
 from . import input as input_mod
 from .graphics import Surface as GraphicsSurface
@@ -98,6 +99,74 @@ class Sketch:
             except Exception:
                 # best-effort: ignore seed errors
                 pass
+
+        # Provide a pvector factory on the instance that is callable and
+        # exposes class-style helpers like sub/add/mult/div/dot/angleBetween.
+        try:
+            from .vector import PVector
+
+            class _PVectorFactoryInst:
+                def __call__(self, xx: float = 0.0, yy: float = 0.0):
+                    # Accept None values (common when mouse pos isn't available)
+                    x_val = 0.0 if xx is None else float(xx)
+                    y_val = 0.0 if yy is None else float(yy)
+                    return PVector(x_val, y_val)
+
+                @staticmethod
+                def sub(a, b):
+                    ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
+                    bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
+                    return PVector(ax - bx, ay - by)
+
+                @staticmethod
+                def add(a, b):
+                    ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
+                    bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
+                    return PVector(ax + bx, ay + by)
+
+                @staticmethod
+                def mult(v, scalar: float):
+                    vx, vy = (v.x, v.y) if isinstance(v, PVector) else (float(v[0]), float(v[1]))
+                    s = float(scalar)
+                    return PVector(vx * s, vy * s)
+
+                @staticmethod
+                def div(v, scalar: float):
+                    vx, vy = (v.x, v.y) if isinstance(v, PVector) else (float(v[0]), float(v[1]))
+                    s = float(scalar)
+                    if s == 0.0:
+                        return PVector(vx, vy)
+                    return PVector(vx / s, vy / s)
+
+                @staticmethod
+                def dot(a, b):
+                    ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
+                    bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
+                    return ax * bx + ay * by
+
+                @staticmethod
+                def angleBetween(a, b):
+                    ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
+                    bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
+                    mag_a = math.hypot(ax, ay)
+                    mag_b = math.hypot(bx, by)
+                    if mag_a == 0.0 or mag_b == 0.0:
+                        return 0.0
+                    cosv = (ax * bx + ay * by) / (mag_a * mag_b)
+                    cosv = max(-1.0, min(1.0, cosv))
+                    return math.acos(cosv)
+
+            # attach factory instance to sketch instance; this shadows the
+            # `pvector` method so code can call `self.pvector.sub(...)` and
+            # `self.pvector(x,y)` interchangeably.
+            try:
+                self.pvector = _PVectorFactoryInst()
+            except Exception:
+                # if assignment fails for any reason, leave method-based behavior
+                pass
+        except Exception:
+            # ignore failures; the pvector() method will still work as a fallback
+            pass
 
     # --- Key hooks (override in sketches) ---
     def key_pressed(self) -> None:
@@ -370,7 +439,7 @@ class Sketch:
             self._escape_closes = True
 
     # --- Surface state helpers (delegate to self.surface) ---
-    def fill(self, color: Optional[Tuple[int, int, int]]):
+    def fill(self, color: Optional[tuple[int, ...]]):
         if self.surface is not None:
             # Set drawing style on the surface without clearing the canvas.
             try:
@@ -391,7 +460,7 @@ class Sketch:
         else:
             self._pending_fill = None
 
-    def stroke(self, color: Optional[Tuple[int, int, int]]):
+    def stroke(self, color: Optional[tuple[int, ...]]):
         if self.surface is not None:
             try:
                 coerced = self.surface._coerce_input_color(color)
@@ -827,6 +896,33 @@ class Sketch:
 
         return math.radians(deg)
 
+    def constrain(self, val, minimum, maximum):
+        """Constrain a value to lie between minimum and maximum (inclusive).
+
+        Mirrors Processing.constrain(): returns `minimum` if `val < minimum`,
+        `maximum` if `val > maximum`, otherwise returns `val`.
+
+        Works with ints and floats and will attempt to coerce numeric-like inputs.
+        """
+        try:
+            v = float(val)
+            lo = float(minimum)
+            hi = float(maximum)
+            # If min > max, behave like Processing and swap them
+            if lo > hi:
+                lo, hi = hi, lo
+            if v < lo:
+                return int(lo) if isinstance(val, int) and lo.is_integer() else lo
+            if v > hi:
+                return int(hi) if isinstance(val, int) and hi.is_integer() else hi
+            # return same type as input when reasonable
+            if isinstance(val, int) and v.is_integer():
+                return int(v)
+            return v
+        except Exception:
+            # best-effort fallback: return val unchanged on failure
+            return val
+
     def color(self, *args):
         """Create a Color object like Processing's color().
 
@@ -994,6 +1090,28 @@ class Sketch:
             return 0.0
         # fallback
         return 0.0
+
+    def random_gaussian(self) -> float:
+        """Return a normally-distributed random number with mean 0 and stddev 1.
+
+        This mirrors Processing.randomGaussian(). For reproducible results
+        use `self.random_seed()` which seeds Python's `random` module.
+        """
+        import random as _random
+
+        try:
+            return _random.gauss(0.0, 1.0)
+        except Exception:
+            # fallback: use Box-Muller directly
+            try:
+                u1 = _random.random()
+                u2 = _random.random()
+                import math
+
+                z0 = math.sqrt(-2.0 * math.log(max(u1, 1e-12))) * math.cos(2.0 * math.pi * u2)
+                return z0
+            except Exception:
+                return 0.0
 
     def random_seed(self, seed: int | None):
         """Seed the random number generator (Processing.randomSeed equivalent).
@@ -1167,7 +1285,7 @@ class Sketch:
         x: float,
         y: float,
         w: float,
-        h: float,
+        h: float | None = None,
         fill: Optional[Tuple[int, int, int]] = None,
         stroke: Optional[Tuple[int, int, int]] = None,
         stroke_weight: Optional[int] = None,
@@ -1187,9 +1305,56 @@ class Sketch:
         elif stroke_weight is not None:
             chosen_sw = int(stroke_weight)
 
+        # treat the 3-argument form (x,y,d) like Processing: diameter used as both
+        # width and height when `h` is omitted.
+        hh = float(w) if h is None else float(h)
+
         # forward per-call styles to Surface.ellipse which will coerce
         # HSB/RGB tuples as needed and won't clear the surface
-        self.surface.ellipse(x, y, w, h, fill=fill, stroke=stroke, stroke_weight=chosen_sw)
+        try:
+            self.surface.ellipse(x, y, float(w), hh, fill=fill, stroke=stroke, stroke_weight=chosen_sw)
+        except Exception:
+            # best-effort: ignore drawing errors in compatibility wrapper
+            return
+
+    def circle(
+        self,
+        x: float,
+        y: float,
+        d_or_w: float,
+        h: float | None = None,
+        fill: Optional[tuple[int, ...]] = None,
+        stroke: Optional[tuple[int, ...]] = None,
+        stroke_weight: Optional[int] = None,
+        stroke_width: Optional[int] = None,
+    ) -> None:
+        """Draw a circle. Call as `circle(x,y,d)` or `circle(x,y,w,h)`.
+
+        If `h` is None the third parameter is treated as a diameter (used for both
+        width and height). Per-call style overrides are supported like `ellipse()`.
+        """
+        if self.surface is None:
+            return
+        if h is None:
+            w = float(d_or_w)
+            hh = float(d_or_w)
+        else:
+            w = float(d_or_w)
+            hh = float(h)
+
+        # forward to Surface.circle if available; otherwise fall back to ellipse
+        try:
+            if hasattr(self.surface, "circle"):
+                self.surface.circle(x, y, w, fill=fill, stroke=stroke, stroke_weight=stroke_weight, stroke_width=stroke_width)
+                return
+        except Exception:
+            pass
+
+        # fallback to ellipse API: use w and hh
+        try:
+            self.surface.ellipse(x, y, w, hh, fill=fill, stroke=stroke, stroke_weight=stroke_weight)
+        except Exception:
+            return
 
     # --- Run loop ---
     def run(self, max_frames: Optional[int] = None, debug: bool = False) -> None:
@@ -1455,6 +1620,93 @@ class Sketch:
             return s2 + (v - s1) * (e2 - s2) / (e1 - s1)
         except Exception:
             return 0.0
+
+    def noise(self, x: float) -> float:
+        """Return 1D Perlin noise in range [0,1].
+
+        Delegates to the pure-Python Perlin implementation in `pycreative.noise`.
+        """
+        try:
+            from .noise import noise as _noise
+
+            return float(_noise(float(x)))
+        except Exception:
+            return 0.0
+
+    def noise_seed(self, seed: int | None) -> None:
+        """Reseed the perlin noise generator used by `noise()`.
+
+        Pass `None` to create a random seed.
+        """
+        try:
+            from .noise import seed as _seed
+
+            _seed(seed)
+        except Exception:
+            pass
+
+    def pvector(self, x: float = 0.0, y: float = 0.0):
+        """Create a PVector instance via the Sketch for convenience.
+
+        Usage in sketches: v = self.pvector(10, 20)
+        """
+        try:
+            from .vector import PVector
+
+            # Create a small callable factory that also exposes helper functions
+            class _PVectorFactory:
+                def __call__(self, xx: float = 0.0, yy: float = 0.0):
+                    return PVector(xx, yy)
+
+                # non-mutating/class-style helpers expected by Nature of Code sketches
+                @staticmethod
+                def sub(a, b):
+                    ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
+                    bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
+                    return PVector(ax - bx, ay - by)
+
+                @staticmethod
+                def add(a, b):
+                    ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
+                    bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
+                    return PVector(ax + bx, ay + by)
+
+                @staticmethod
+                def mult(v, scalar: float):
+                    vx, vy = (v.x, v.y) if isinstance(v, PVector) else (float(v[0]), float(v[1]))
+                    s = float(scalar)
+                    return PVector(vx * s, vy * s)
+
+                @staticmethod
+                def div(v, scalar: float):
+                    vx, vy = (v.x, v.y) if isinstance(v, PVector) else (float(v[0]), float(v[1]))
+                    s = float(scalar)
+                    if s == 0.0:
+                        return PVector(vx, vy)
+                    return PVector(vx / s, vy / s)
+
+                @staticmethod
+                def dot(a, b):
+                    ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
+                    bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
+                    return ax * bx + ay * by
+
+                @staticmethod
+                def angleBetween(a, b):
+                    ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
+                    bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
+                    mag_a = math.hypot(ax, ay)
+                    mag_b = math.hypot(bx, by)
+                    if mag_a == 0.0 or mag_b == 0.0:
+                        return 0.0
+                    cosv = (ax * bx + ay * by) / (mag_a * mag_b)
+                    cosv = max(-1.0, min(1.0, cosv))
+                    return math.acos(cosv)
+
+            return _PVectorFactory()(x, y) if (x is not None or y is not None) else _PVectorFactory()
+        except Exception:
+            # Fallback: return a simple tuple if PVector can't be imported
+            return (float(x), float(y))
 
 
     def create_graphics(self, w: int, h: int, inherit_state: bool = False, inherit_transform: bool = False) -> OffscreenSurface:

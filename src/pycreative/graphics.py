@@ -600,6 +600,22 @@ class Surface:
             self._line_cap = prev_cap
             self._line_join = prev_join
 
+    def circle(
+        self,
+        x: float,
+        y: float,
+        d: float,
+        fill: Optional[tuple[int, ...]] = None,
+        stroke: Optional[tuple[int, ...]] = None,
+        stroke_weight: Optional[int] = None,
+        stroke_width: Optional[int] = None,
+        cap: Optional[str] = None,
+        join: Optional[str] = None,
+    ) -> None:
+        """Convenience wrapper to draw a circle with diameter `d`. Forwards to ellipse()."""
+        # diameter used as both width and height
+        self.ellipse(x, y, d, d, fill=fill, stroke=stroke, stroke_weight=stroke_weight, stroke_width=stroke_width, cap=cap, join=join)
+
     # Backwards-compatible alias: `img` -> `image`
     def img(self, *args, **kwargs) -> None:
         """Compatibility alias matching some examples that call `img(...)` on surfaces."""
@@ -1377,7 +1393,7 @@ class Surface:
             self._line_join = join
 
     # --- style state helpers (public API) ---
-    def fill(self, color: Optional[Tuple[int, int, int]]) -> None:
+    def fill(self, color: Optional[tuple[int, ...]]) -> None:
         """Set the fill color. Use `None` to disable filling (noFill())."""
         if color is None:
             self._fill = None
@@ -1455,7 +1471,7 @@ class Surface:
         """Disable filling for subsequent shape draws."""
         self._fill = None
 
-    def stroke(self, color: Optional[Tuple[int, int, int]]) -> None:
+    def stroke(self, color: Optional[tuple[int, ...]]) -> None:
         """Set the stroke color. Use `None` to disable stroke (noStroke())."""
         if color is None:
             self._stroke = None
