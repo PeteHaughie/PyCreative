@@ -209,6 +209,16 @@
    - [ ] T801 Add integration tests for headless CI (mock pygame or use SDL dummy drivers)
    - [ ] T802 Publish `docs/api-mapping.md` and quickstart `docs/quickstart.md`
 
+      - [ ] T803 Editor hints / VS Code inlay hints (LOW)
+         - Files: `.vscode/settings.json`, `pyrightconfig.json`, `docs/quickstart.md` (or `docs/editor-setup.md`), `src/pycreative/*` (small docstring additions)
+         - Short: provide a recommended VS Code configuration and small typing/docs improvements so contributors get useful inline hints (parameter names, variable types, return types) via Pylance.
+         - Acceptance:
+             * Add a `.vscode/settings.json` template enabling Pylance inlay hints (e.g., `python.analysis.inlayHints.*` options) and recommended `python.analysis.typeCheckingMode`.
+             * Add a `pyrightconfig.json` that points at `src/` and configures `venv`/`env` search paths so Pylance resolves the package reliably.
+             * Add a short doc in `docs/` describing how to enable/adjust hints locally and why they help (links to Pylance docs).
+             * Add short docstrings to one or two core APIs (for example `Sketch.point` and `Surface.clear`) to demonstrate improved hover/signature help.
+         - Notes: Low-priority, developer-facing improvement that doesn't change runtime behavior. Keep changes small and reversible; do not enforce the settings (place in `.vscode/` which is optional for contributors).
+
    ---
 
    ## Task ordering & dependencies

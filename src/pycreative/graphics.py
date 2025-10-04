@@ -787,12 +787,48 @@ class Surface:
             self._stroke = prev_stroke
             self._stroke_weight = prev_sw
 
-    def point(self, x: float, y: float, color: Tuple[int, int, int]) -> None:
+    def point(self, x: float, y: float, color: Tuple[int, int, int] | None = None, z: float | None = None) -> None:
+        """Draw a point at (x,y).
+
+        - If `color` is provided, use it; otherwise use the current stroke color.
+        - `z` is accepted for API compatibility but ignored for the 2D pygame backend.
+        - Honors transforms. If `stroke_weight` > 1, draw a small filled circle/rect
+          to approximate a thicker point.
+        """
+        # choose color: explicit color overrides stroke
+        draw_color = color if color is not None else self._stroke
+        if draw_color is None:
+            # nothing to draw
+            return
+
+        # resolve transformed coordinates
         if self._is_identity_transform():
-            self._surf.set_at((int(x), int(y)), color)
+            tx = float(x)
+            ty = float(y)
         else:
             tx, ty = self._transform_point(x, y)
-            self._surf.set_at((int(tx), int(ty)), color)
+
+        ix = int(round(tx))
+        iy = int(round(ty))
+
+        sw = max(1, int(self._stroke_weight))
+        try:
+            if sw <= 1:
+                # fastest path: set single pixel
+                self._surf.set_at((ix, iy), draw_color)
+            else:
+                # draw a small filled circle using a temp surface for alpha-safe compositing
+                size = sw
+                tmp = self._get_temp_surface(size, size)
+                # center point on tmp
+                cx = size // 2
+                cy = size // 2
+                pygame.draw.circle(tmp, draw_color, (cx, cy), size // 2)
+                # blit centered at the integer pixel position
+                self._surf.blit(tmp, (ix - cx, iy - cy))
+        except Exception:
+            # best-effort: ignore draw errors
+            return
 
     def blit(self, other: pygame.Surface, x: int = 0, y: int = 0) -> None:
         self._surf.blit(other, (int(x), int(y)))

@@ -43,26 +43,27 @@ class Sketch:
         self._cache_store = {}
         # Pending drawing state if user sets it before the Surface is created.
         # Use a sentinel to distinguish "no pending change" from an explicit
-        # `None` (which means disable fill/stroke).
-        self._pending_fill = _PENDING_UNSET
-        self._pending_stroke = _PENDING_UNSET
-        self._pending_stroke_weight = _PENDING_UNSET
+        # `None` (which means disable fill/stroke). These are typed Any to
+        # keep static analysis tractable when a sentinel object is used.
+        self._pending_fill: Any = _PENDING_UNSET
+        self._pending_stroke: Any = _PENDING_UNSET
+        self._pending_stroke_weight: Any = _PENDING_UNSET
         # Pending cursor visibility state: use sentinel to distinguish
         # "no pending change" from an explicit show/hide request.
-        self._pending_cursor = _PENDING_UNSET
+        self._pending_cursor: Any = _PENDING_UNSET
         # By default, pressing Escape closes the sketch; this can be disabled
         # by calling `self.set_escape_closes(False)` in the sketch.
         self._escape_closes = True
         # Pending shape mode state for rect/ellipse - allow setting in setup()
-        self._pending_rect_mode = _PENDING_UNSET
-        self._pending_ellipse_mode = _PENDING_UNSET
+        self._pending_rect_mode: Any = _PENDING_UNSET
+        self._pending_ellipse_mode: Any = _PENDING_UNSET
         # Pending color mode (e.g., set in setup before surface exists)
-        self._pending_color_mode = _PENDING_UNSET
+        self._pending_color_mode: Any = _PENDING_UNSET
         # Pending line cap / join style (butt, round, square) / (miter, round, bevel)
-        self._pending_line_cap = _PENDING_UNSET
-        self._pending_line_join = _PENDING_UNSET
+        self._pending_line_cap: Any = _PENDING_UNSET
+        self._pending_line_join: Any = _PENDING_UNSET
         # Pending background/clear color set in setup() before surface exists
-        self._pending_background = _PENDING_UNSET
+        self._pending_background: Any = _PENDING_UNSET
 
         # Runtime no-loop control (if True, draw() runs once then is suppressed)
         self._no_loop_mode = False
@@ -473,6 +474,33 @@ class Sketch:
     def text(self, txt: str, x: int, y: int, font_name: Optional[str] = None, size: int = 24, color: Tuple[int, int, int] = (0, 0, 0)) -> None:
         if self.surface is not None:
             self.surface.text(txt, x, y, font_name=font_name, size=size, color=color)
+
+    def point(self, x: float, y: float, color: Optional[Tuple[int, int, int]] = None, z: float | None = None) -> None:
+        """Draw a point on the sketch surface. Delegates to Surface.point.
+
+        If `color` is provided it will be coerced; otherwise the surface's
+        current stroke color is used. If the surface is not yet available
+        the call is ignored (consistent with other drawing helpers).
+        """
+        if self.surface is None:
+            return
+        if color is not None:
+            try:
+                coerced = self.surface._coerce_input_color(color)
+                self.surface.point(x, y, coerced.to_tuple(), z)
+                return
+            except Exception:
+                # best-effort: fall back to passing the raw color through
+                try:
+                    self.surface.point(x, y, color, z)
+                    return
+                except Exception:
+                    return
+        # no explicit color: let the surface use its current stroke
+        try:
+            self.surface.point(x, y, None, z)
+        except Exception:
+            return
 
     # --- color/channel helpers (convenience for sketches) ---
     def _coerce_color(self, c):
@@ -898,12 +926,12 @@ class Sketch:
             cm = self._pending_color_mode if self._pending_color_mode is not _PENDING_UNSET else None
 
         if cm is None:
-            mode, m1, m2, m3 = ("RGB", 255, 255, 255)
+            mode, m1, m2, m3, m4 = ("RGB", 255, 255, 255, 255)
         else:
             try:
-                mode, m1, m2, m3 = cm
+                mode, m1, m2, m3, m4 = cm
             except Exception:
-                mode, m1, m2, m3 = ("RGB", 255, 255, 255)
+                mode, m1, m2, m3, m4 = ("RGB", 255, 255, 255, 255)
 
         if str(mode).upper() == "HSB":
             # convert RGB to normalized HSV via colorsys (expects 0..1)
@@ -937,7 +965,7 @@ class Sketch:
 
         return out
 
-    def random(self, *args):
+    def random(self, *args) -> float:
         """Return a random float similar to Processing.random().
 
         Usage:
@@ -959,6 +987,8 @@ class Sketch:
                 return low + _random.random() * (high - low)
         except Exception:
             return 0.0
+        # fallback
+        return 0.0
 
     def random_seed(self, seed: int | None):
         """Seed the random number generator (Processing.randomSeed equivalent).
@@ -984,7 +1014,7 @@ class Sketch:
             self.surface.stroke_weight(w)
 
     @property
-    def stroke_cap(self) -> str | None:
+    def stroke_cap(self) -> Any:
         """Get or set the global stroke cap. Valid values: 'butt','round','square'.
 
         When set before a Surface exists the value is recorded and applied when
@@ -1025,9 +1055,8 @@ class Sketch:
 
         if self.surface is not None:
             try:
-                # delegate to Surface
+                # delegate to Surface; when cap is None set default 'butt'
                 if cap is None:
-                    # restore default
                     self.surface.set_line_cap("butt")
                 else:
                     self.surface.set_line_cap(cap)
@@ -1035,7 +1064,7 @@ class Sketch:
                 self._pending_line_cap = _PENDING_UNSET
                 return
             except Exception:
-                # fallback to pending
+                # fallback to pending behavior
                 pass
 
         # record pending value (None means clear)
@@ -1046,7 +1075,7 @@ class Sketch:
         self._apply_stroke_cap(cap)
 
     @property
-    def stroke_join(self) -> str | None:
+    def stroke_join(self) -> Any:
         """Get or set the global stroke join. Valid values: 'miter','round','bevel'."""
         # Return a callable proxy for backwards-compatible call-style usage
         sketch = self
