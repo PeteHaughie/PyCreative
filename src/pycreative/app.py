@@ -926,12 +926,17 @@ class Sketch:
             cm = self._pending_color_mode if self._pending_color_mode is not _PENDING_UNSET else None
 
         if cm is None:
-            mode, m1, m2, m3, m4 = ("RGB", 255, 255, 255, 255)
+            mode, m1, m2, m3 = ("RGB", 255, 255, 255)
         else:
             try:
-                mode, m1, m2, m3, m4 = cm
+                # color_mode may include an optional alpha max as a 5th element;
+                # we only need the first four values here (mode, m1, m2, m3).
+                mode = cm[0]
+                m1 = int(cm[1])
+                m2 = int(cm[2])
+                m3 = int(cm[3])
             except Exception:
-                mode, m1, m2, m3, m4 = ("RGB", 255, 255, 255, 255)
+                mode, m1, m2, m3 = ("RGB", 255, 255, 255)
 
         if str(mode).upper() == "HSB":
             # convert RGB to normalized HSV via colorsys (expects 0..1)
