@@ -103,13 +103,14 @@ class Sketch:
         # Provide a pvector factory on the instance that is callable and
         # exposes class-style helpers like sub/add/mult/div/dot/angleBetween.
         try:
+            # Import only for runtime; TYPE_CHECKING import below helps static analyzers
             from .vector import PVector
 
             class _PVectorFactoryInst:
-                def __call__(self, xx: float = 0.0, yy: float = 0.0):
+                def __call__(self, x: float = 0.0, y: float = 0.0) -> "PVector":
                     # Accept None values (common when mouse pos isn't available)
-                    x_val = 0.0 if xx is None else float(xx)
-                    y_val = 0.0 if yy is None else float(yy)
+                    x_val = 0.0 if x is None else float(x)
+                    y_val = 0.0 if y is None else float(y)
                     return PVector(x_val, y_val)
 
                 @staticmethod
@@ -210,7 +211,8 @@ class Sketch:
             # `pvector` method so code can call `self.pvector.sub(...)` and
             # `self.pvector(x,y)` interchangeably.
             try:
-                self.pvector = _PVectorFactoryInst()
+                # annotate as Any to avoid signature mismatch warnings from static checkers
+                self.pvector: Any = _PVectorFactoryInst()
             except Exception:
                 # if assignment fails for any reason, leave method-based behavior
                 pass
@@ -1695,68 +1697,10 @@ class Sketch:
         except Exception:
             pass
 
-    def pvector(self, x: float = 0.0, y: float = 0.0):
-        """Create a PVector instance via the Sketch for convenience.
-
-        Usage in sketches: v = self.pvector(10, 20)
-        """
-        try:
-            from .vector import PVector
-
-            # Create a small callable factory that also exposes helper functions
-            class _PVectorFactory:
-                def __call__(self, xx: float = 0.0, yy: float = 0.0):
-                    return PVector(xx, yy)
-
-                # non-mutating/class-style helpers expected by Nature of Code sketches
-                @staticmethod
-                def sub(a, b):
-                    ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
-                    bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
-                    return PVector(ax - bx, ay - by)
-
-                @staticmethod
-                def add(a, b):
-                    ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
-                    bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
-                    return PVector(ax + bx, ay + by)
-
-                @staticmethod
-                def mult(v, scalar: float):
-                    vx, vy = (v.x, v.y) if isinstance(v, PVector) else (float(v[0]), float(v[1]))
-                    s = float(scalar)
-                    return PVector(vx * s, vy * s)
-
-                @staticmethod
-                def div(v, scalar: float):
-                    vx, vy = (v.x, v.y) if isinstance(v, PVector) else (float(v[0]), float(v[1]))
-                    s = float(scalar)
-                    if s == 0.0:
-                        return PVector(vx, vy)
-                    return PVector(vx / s, vy / s)
-
-                @staticmethod
-                def dot(a, b):
-                    ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
-                    bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
-                    return ax * bx + ay * by
-
-                @staticmethod
-                def angleBetween(a, b):
-                    ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
-                    bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
-                    mag_a = math.hypot(ax, ay)
-                    mag_b = math.hypot(bx, by)
-                    if mag_a == 0.0 or mag_b == 0.0:
-                        return 0.0
-                    cosv = (ax * bx + ay * by) / (mag_a * mag_b)
-                    cosv = max(-1.0, min(1.0, cosv))
-                    return math.acos(cosv)
-
-            return _PVectorFactory()(x, y) if (x is not None or y is not None) else _PVectorFactory()
-        except Exception:
-            # Fallback: return a simple tuple if PVector can't be imported
-            return (float(x), float(y))
+    # pvector is provided as an instance attribute (factory) in __init__.
+    # The older method-style implementation was removed to avoid shadowing
+    # and static-analysis confusion. The instance-assigned factory supports
+    # both callable creation and class-style helpers (add/sub/etc.).
 
 
     def create_graphics(self, w: int, h: int, inherit_state: bool = False, inherit_transform: bool = False) -> OffscreenSurface:
