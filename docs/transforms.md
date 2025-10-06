@@ -80,7 +80,7 @@ self.ellipse(0, 60, 30, 30)
 self.pop()
 ```
 
-to be extra safe you can also protect the trnsformation with a try catch condition:
+To be extra safe you can also protect the transformation with a non-idiomatic try catch condition:
 
 ```py
 self.push()
