@@ -1452,13 +1452,20 @@ class Surface:
             # otherwise treat as RGB (values may be in a custom max range)
             if hasattr(color, "__iter__"):
                 vals = list(color)
-                r, g, b = vals[0], vals[1], vals[2]
-                col = Color.from_rgb(r, g, b, max_value=m1)
-                if len(vals) >= 4:
-                    a = int(vals[3]) & 255
+                # Support shorthand grayscale + alpha: (v, a) -> (v,v,v,a)
+                if len(vals) == 2:
+                    v = vals[0]
+                    a = int(vals[1]) & 255
+                    col = Color.from_rgb(v, v, v, max_value=m1)
                     self._fill = (col.r, col.g, col.b, a)
                 else:
-                    self._fill = col.to_tuple()
+                    r, g, b = vals[0], vals[1], vals[2]
+                    col = Color.from_rgb(r, g, b, max_value=m1)
+                    if len(vals) >= 4:
+                        a = int(vals[3]) & 255
+                        self._fill = (col.r, col.g, col.b, a)
+                    else:
+                        self._fill = col.to_tuple()
                 try:
                     self._surf.fill(self._fill)
                 except Exception:

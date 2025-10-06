@@ -46,6 +46,18 @@ if __name__ == '__main__':
     TriangleSketch().run()
 ```
 
+Shorthand grayscale + alpha
+
+For convenience `fill()` accepts a 2-tuple in RGB color mode where the first
+value is a grayscale intensity and the second is alpha. For example
+
+```py
+surface.fill((128, 200))  # equivalent to (128,128,128,200)
+```
+
+This mirrors common Processing shorthand and is interpreted using the
+current `color_mode()` magnitude (default 0-255).
+
 Example — pre-rendered polygon in an offscreen buffer
 
 ```py
