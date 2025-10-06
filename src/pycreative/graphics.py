@@ -134,11 +134,21 @@ class Surface:
         top = self._current_matrix()
         self._matrix_stack.append([row[:] for row in top])
 
+    # Processing-style aliases
+    def push_matrix(self) -> None:
+        """Alias for push() to match Processing-style API."""
+        return self.push()
+
     def pop(self) -> None:
         """Pop the top transform. The base identity matrix cannot be popped."""
         if len(self._matrix_stack) == 1:
             raise IndexError("cannot pop base transform")
         self._matrix_stack.pop()
+
+    # Processing-style aliases
+    def pop_matrix(self) -> None:
+        """Alias for pop() to match Processing-style API."""
+        return self.pop()
 
     def translate(self, dx: float, dy: float) -> None:
         """Apply a translation to the current transform."""
@@ -275,8 +285,12 @@ class Surface:
         """
         if mode is None:
             return self._rect_mode
-        if mode in (self.MODE_CORNER, self.MODE_CENTER):
-            self._rect_mode = mode
+        try:
+            m = str(mode).upper()
+        except Exception:
+            return None
+        if m in (self.MODE_CORNER, self.MODE_CENTER):
+            self._rect_mode = m
         return None
 
     def ellipse_mode(self, mode: str | None = None) -> str | None:
@@ -285,8 +299,12 @@ class Surface:
         """
         if mode is None:
             return self._ellipse_mode
-        if mode in (self.MODE_CORNER, self.MODE_CENTER):
-            self._ellipse_mode = mode
+        try:
+            m = str(mode).upper()
+        except Exception:
+            return None
+        if m in (self.MODE_CORNER, self.MODE_CENTER):
+            self._ellipse_mode = m
         return None
 
     @property

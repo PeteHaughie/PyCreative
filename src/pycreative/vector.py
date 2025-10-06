@@ -38,6 +38,35 @@ class PVector:
         self.y += oy
         return self
 
+    def set(self, x, y=None) -> "PVector":
+        """Set this vector's components.
+
+        Usage:
+          v.set(other)          # other is a PVector or 2-length iterable
+          v.set(x, y)           # x and y are numeric
+
+        Returns self for chaining.
+        """
+        if isinstance(x, PVector):
+            self.x = float(x.x)
+            self.y = float(x.y)
+            return self
+        # allow a single 2-length iterable
+        if y is None and hasattr(x, "__iter__"):
+            vals = list(x)
+            if len(vals) >= 2:
+                self.x = float(vals[0])
+                self.y = float(vals[1])
+                return self
+            raise TypeError("set() requires a 2-length iterable when a single argument is provided")
+
+        if y is None:
+            raise TypeError("set() requires two numeric arguments or a single PVector/iterable")
+
+        self.x = float(x)
+        self.y = float(y)
+        return self
+
     def sub(self, other) -> "PVector":
         ox, oy = (other.x, other.y) if isinstance(other, PVector) else (float(other[0]), float(other[1]))
         self.x -= ox

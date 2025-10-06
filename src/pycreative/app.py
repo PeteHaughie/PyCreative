@@ -23,6 +23,10 @@ class Sketch:
     This is intentionally small and focused on the lifecycle and basic drawing helpers
     so examples and tests can run during bootstrapping.
     """
+    # Backwards-compatible shorthand constants used by many examples: allow
+    # sketches to refer to `self.CENTER` / `self.CORNER` when setting modes.
+    CENTER = GraphicsSurface.MODE_CENTER
+    CORNER = GraphicsSurface.MODE_CORNER
 
     def __init__(self, sketch_path: Optional[str] = None, seed: int | None = None) -> None:
         # Optional path to the user sketch file that instantiated this Sketch
@@ -405,6 +409,11 @@ class Sketch:
         except Exception:
             pass
 
+    # Processing-style alias
+    def push_matrix(self) -> None:
+        """Alias for push() to match Processing-style API."""
+        return self.push()
+
     def pop(self) -> None:
         """Pop the top transform from the stack."""
         if self.surface is None:
@@ -413,6 +422,11 @@ class Sketch:
             self.surface.pop()
         except Exception:
             pass
+
+    # Processing-style alias
+    def pop_matrix(self) -> None:
+        """Alias for pop() to match Processing-style API."""
+        return self.pop()
 
     def translate(self, dx: float, dy: float) -> None:
         """Apply a translation to the current transform."""
@@ -577,8 +591,12 @@ class Sketch:
             if v is _PENDING_UNSET:
                 return None
             return cast(str, v)
-        if mode in (GraphicsSurface.MODE_CORNER, GraphicsSurface.MODE_CENTER):
-            self._pending_rect_mode = mode
+        try:
+            m = str(mode).upper()
+        except Exception:
+            return None
+        if m in (GraphicsSurface.MODE_CORNER, GraphicsSurface.MODE_CENTER):
+            self._pending_rect_mode = m
         return None
 
     def ellipse_mode(self, mode: Optional[str] = None) -> str | None:
@@ -593,8 +611,12 @@ class Sketch:
             if v is _PENDING_UNSET:
                 return None
             return cast(str, v)
-        if mode in (GraphicsSurface.MODE_CORNER, GraphicsSurface.MODE_CENTER):
-            self._pending_ellipse_mode = mode
+        try:
+            m = str(mode).upper()
+        except Exception:
+            return None
+        if m in (GraphicsSurface.MODE_CORNER, GraphicsSurface.MODE_CENTER):
+            self._pending_ellipse_mode = m
         return None
 
     def color_mode(self, mode: Optional[str] = None, max1: int = 255, max2: int = 255, max3: int = 255, max4: int | None = None):

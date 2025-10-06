@@ -23,6 +23,11 @@ with surface.transform(translate=(10,20), rotate=0.5):
     surface.rect(0,0,100,50)
 ```
 
+Compatibility aliases
+
+- `push_matrix()` / `pop_matrix()` — Processing-style aliases for `push()` / `pop()` are available on `Surface` and `Sketch` (they behave identically to `push()`/`pop()`).
+- `CENTER` / `CORNER` — `Sketch` exposes `CENTER` and `CORNER` constants mapped to the corresponding `Surface` mode constants so examples can use `self.CENTER` when calling `rect_mode()` / `ellipse_mode()`.
+
 Semantics and implementation notes
 
 - Matrices are represented as 3x3 nested lists (homogeneous coordinates). The
@@ -61,6 +66,29 @@ with surface.transform(translate=(200,150), rotate=frame_time * 0.5):
     surface.fill((255,100,100))
     surface.rect(-40, -20, 80, 40)
     surface.ellipse(0, 60, 30, 30)
+```
+
+is equivalent to:
+
+```py
+self.push()
+self.translate(200, 150)
+self.rotate(frame_time * 0.5)
+self.fill((255, 100, 100))
+self.rect(-40, -20, 80, 40)
+self.ellipse(0, 60, 30, 30)
+self.pop()
+```
+
+to be extra safe you can also protect the trnsformation with a try catch condition:
+
+```py
+self.push()
+try:
+    self.translate(...)
+    ...
+finally:
+    self.pop()
 ```
 
 Copying transforms to offscreen surfaces
