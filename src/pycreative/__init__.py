@@ -6,7 +6,7 @@ dependencies (like pygame) at import-time. Consumers can still do
 the attribute is accessed.
 """
 
-__all__ = ["Sketch", "input"]
+__all__ = ["Sketch", "input", "Observable"]
 
 
 def __getattr__(name: str):
@@ -22,6 +22,9 @@ def __getattr__(name: str):
 	if name == "input":
 		_mod = importlib.import_module(f"{__name__}.input")
 		return _mod
+	if name == "Observable":
+		_mod = importlib.import_module(f"{__name__}.observable")
+		return getattr(_mod, "Observable")
 	raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

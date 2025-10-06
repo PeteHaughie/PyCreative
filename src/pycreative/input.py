@@ -42,19 +42,52 @@ def dispatch_event(sketch, event: Any):
     """
     Dispatch a normalized Event to the sketch's on_event method.
     """
+    # If the runtime hasn't finished initialization (setup(), display created,
+    # pending state applied) we should buffer events so user handlers don't
+    # run before their expected attributes exist. Buffer raw pygame events on
+    # a per-sketch queue and return early. This is defensive: some sketches
+    # or older code may not have the attribute, so use getattr() with a
+    # fallback.
+    try:
+        if not getattr(sketch, "_setup_complete", True):
+            # Ensure a queue exists
+            q = getattr(sketch, "_pending_event_queue", None)
+            if q is None:
+                try:
+                    sketch._pending_event_queue = []
+                    q = sketch._pending_event_queue
+                except Exception:
+                    # If we cannot create the queue fall back to dropping events
+                    q = None
+            if q is not None:
+                try:
+                    q.append(event)
+                except Exception:
+                    pass
+            # Don't dispatch further until the runner flushes the queue.
+            return
+    except Exception:
+        # If anything goes wrong, fall back to normal dispatch below.
+        pass
+
     e = Event.from_pygame(event)
-    # print(f"on_event: {event.type} {getattr(event, 'button', None)} {getattr(event, 'raw', None)}")
-    sketch.on_event(e)
+    # Call the general on_event hook first
+    try:
+        sketch.on_event(e)
+    except Exception:
+        # don't let user hook errors stop input processing
+        pass
+
     # Default behavior: allow Escape to close the sketch window.
     # This behavior is enabled by default but can be disabled by the sketch
     # via `self.set_escape_closes(False)`.
     try:
         raw = getattr(e, "raw", None)
-        # Update sketch key convenience state for key events
+
+        # KEY events
         if e.type == "key":
             try:
                 sketch.key_code = getattr(e, "key", None)
-                # readable name if possible
                 if sketch.key_code is not None:
                     try:
                         sketch.key = pygame.key.name(sketch.key_code)
@@ -69,7 +102,6 @@ def dispatch_event(sketch, event: Any):
             # KEYDOWN
             if raw is not None and getattr(raw, "type", None) == pygame.KEYDOWN:
                 sketch.key_is_pressed = True
-                # call hook if present
                 try:
                     sketch.key_pressed()
                 except Exception:
@@ -82,10 +114,9 @@ def dispatch_event(sketch, event: Any):
                 except Exception:
                     pass
 
-        # MOUSE events: set convenience properties and call mouse hooks
+        # MOUSE button events (down/up)
         if e.type == "mouse":
-            # best-effort attribute updates, but ensure hooks are still called
-            # (don't let property/setter errors prevent hook invocation)
+            # Update convenience mouse attributes (best-effort)
             try:
                 prev_pos = getattr(sketch, "_mouse_pos_prev", None)
                 if prev_pos is None:
@@ -94,13 +125,11 @@ def dispatch_event(sketch, event: Any):
                 else:
                     sketch.pmouse_x, sketch.pmouse_y = prev_pos
 
-                # store current pos on internal attrs to avoid clobbering read-only properties
                 if getattr(e, "pos", None) is not None:
                     try:
                         sketch._mouse_x, sketch._mouse_y = e.pos
                         sketch._mouse_pos_prev = e.pos
                     except Exception:
-                        # ignore failures to set internal attrs
                         pass
                 else:
                     try:
@@ -109,16 +138,14 @@ def dispatch_event(sketch, event: Any):
                     except Exception:
                         pass
 
-                # public mouse_button and is_pressed are safe to set
                 try:
                     sketch.mouse_button = getattr(e, "button", None)
                 except Exception:
                     pass
             except Exception:
-                # ignore attr update errors
                 pass
 
-            # Call hooks based on the raw pygame event type (fire-and-forget)
+            # Call hooks
             try:
                 if raw is not None and getattr(raw, "type", None) == pygame.MOUSEBUTTONDOWN:
                     try:
@@ -139,7 +166,43 @@ def dispatch_event(sketch, event: Any):
                     except Exception:
                         pass
             except Exception:
-                # don't allow hook exceptions to crash dispatch
+                pass
+
+        # MOUSE MOTION (move or drag)
+        if e.type == "motion":
+            try:
+                prev_pos = getattr(sketch, "_mouse_pos_prev", None)
+                if prev_pos is None:
+                    sketch.pmouse_x = None
+                    sketch.pmouse_y = None
+                else:
+                    sketch.pmouse_x, sketch.pmouse_y = prev_pos
+
+                if getattr(e, "pos", None) is not None:
+                    try:
+                        sketch._mouse_x, sketch._mouse_y = e.pos
+                        sketch._mouse_pos_prev = e.pos
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        sketch._mouse_x = None
+                        sketch._mouse_y = None
+                    except Exception:
+                        pass
+
+                # call moved vs dragged depending on whether a button is pressed
+                if getattr(sketch, "mouse_is_pressed", False):
+                    try:
+                        sketch.mouse_dragged()
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        sketch.mouse_moved()
+                    except Exception:
+                        pass
+            except Exception:
                 pass
 
         # Allow Escape to close the sketch window on keydown by default
@@ -151,4 +214,125 @@ def dispatch_event(sketch, event: Any):
                     pass
     except Exception:
         # best-effort; don't let input dispatch crash the app
+        pass
+
+
+def dispatch_event_now(sketch, event: Any):
+    """
+    Immediately dispatch a normalized Event to the sketch without any
+    queuing logic. This is intended for internal use when flushing buffered
+    events after initialization.
+    """
+    e = Event.from_pygame(event)
+    # Call user on_event first
+    try:
+        sketch.on_event(e)
+    except Exception:
+        pass
+
+    try:
+        raw = getattr(e, "raw", None)
+
+        if e.type == "key":
+            try:
+                sketch.key_code = getattr(e, "key", None)
+                if sketch.key_code is not None:
+                    try:
+                        sketch.key = pygame.key.name(sketch.key_code)
+                    except Exception:
+                        sketch.key = None
+                else:
+                    sketch.key = None
+            except Exception:
+                sketch.key = None
+                sketch.key_code = None
+
+            if raw is not None and getattr(raw, "type", None) == pygame.KEYDOWN:
+                sketch.key_is_pressed = True
+                try:
+                    sketch.key_pressed()
+                except Exception:
+                    pass
+            if raw is not None and getattr(raw, "type", None) == pygame.KEYUP:
+                sketch.key_is_pressed = False
+                try:
+                    sketch.key_released()
+                except Exception:
+                    pass
+
+        if e.type == "mouse":
+            try:
+                prev_pos = getattr(sketch, "_mouse_pos_prev", None)
+                if prev_pos is None:
+                    sketch.pmouse_x = None
+                    sketch.pmouse_y = None
+                else:
+                    sketch.pmouse_x, sketch.pmouse_y = prev_pos
+
+                if getattr(e, "pos", None) is not None:
+                    sketch._mouse_x, sketch._mouse_y = e.pos
+                    sketch._mouse_pos_prev = e.pos
+                else:
+                    sketch._mouse_x = None
+                    sketch._mouse_y = None
+
+                sketch.mouse_button = getattr(e, "button", None)
+            except Exception:
+                pass
+
+            if raw is not None and getattr(raw, "type", None) == pygame.MOUSEBUTTONDOWN:
+                try:
+                    sketch.mouse_is_pressed = True
+                except Exception:
+                    pass
+                try:
+                    sketch.mouse_pressed()
+                except Exception:
+                    pass
+            if raw is not None and getattr(raw, "type", None) == pygame.MOUSEBUTTONUP:
+                try:
+                    sketch.mouse_is_pressed = False
+                except Exception:
+                    pass
+                try:
+                    sketch.mouse_released()
+                except Exception:
+                    pass
+
+        if e.type == "motion":
+            try:
+                prev_pos = getattr(sketch, "_mouse_pos_prev", None)
+                if prev_pos is None:
+                    sketch.pmouse_x = None
+                    sketch.pmouse_y = None
+                else:
+                    sketch.pmouse_x, sketch.pmouse_y = prev_pos
+
+                if getattr(e, "pos", None) is not None:
+                    sketch._mouse_x, sketch._mouse_y = e.pos
+                    sketch._mouse_pos_prev = e.pos
+                else:
+                    sketch._mouse_x = None
+                    sketch._mouse_y = None
+
+                if getattr(sketch, "mouse_is_pressed", False):
+                    try:
+                        sketch.mouse_dragged()
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        sketch.mouse_moved()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        if e.type == "key" and getattr(e, "key", None) == pygame.K_ESCAPE and raw is not None and getattr(raw, "type", None) == pygame.KEYDOWN:
+            if getattr(sketch, "_escape_closes", True):
+                try:
+                    sketch._running = False
+                except Exception:
+                    pass
+    except Exception:
         pass

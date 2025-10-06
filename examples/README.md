@@ -57,6 +57,7 @@ This folder contains example sketches demonstrating PyCreative features.
 - `curve_example.py` — demonstrates Processing-style curve primitives.
 - `graphics_example.py` — general graphics primitives and usage of the Surface API.
 - `input_example.py` — shows keyboard and mouse handling with the Sketch input simplifications.
+- `mouse_examples.py` — consolidated mouse interaction examples (moved from older single-purpose examples). Demonstrates `mouse_pressed`, `mouse_released`, `mouse_moved`, and `mouse_dragged`.
 - `offscreen_example.py` — demonstrates creating an offscreen buffer with `create_graphics()`, rendering an expensive static pattern into it once, and blitting the cached buffer each frame.
 - `offscreen_transformations_example.py` — demonstrates drawing into offscreen surfaces while sharing or inheriting transforms.
 - `pixels_example.py` — demonstrates pixel-level access and copying between images.

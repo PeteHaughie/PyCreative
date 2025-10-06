@@ -90,6 +90,29 @@ class Sketch:
         self.key = None
         self.key_code = None
         self.key_is_pressed = False
+        # Mouse convenience state (set by input.dispatch_event)
+        # Public read-only helpers `mouse_x` / `mouse_y` expose these values.
+        self._mouse_x: Optional[int] = None
+        self._mouse_y: Optional[int] = None
+        # previous mouse coords (public fields kept for compatibility)
+        self.pmouse_x: Optional[int] = None
+        self.pmouse_y: Optional[int] = None
+        # Which mouse button (if any) and whether a button is pressed
+        self.mouse_button: Optional[int] = None
+        self.mouse_is_pressed: bool = False
+
+        # Internal lifecycle flag: True once the runtime has finished running
+        # setup(), created the display/surface, and applied pending state.
+        # Default to True to preserve existing behavior where dispatch_event
+        # delivers events immediately for sketches instantiated in tests or
+        # interactive flows. When initialize() runs, it will temporarily
+        # mark the sketch as not-ready while setup/display creation are in
+        # progress and then set this flag True and flush any queued events.
+        self._setup_complete: bool = True
+        # Queue of raw pygame.Event objects received before the sketch is
+        # ready. This is used by the input dispatcher to buffer and the run()
+        # loop to flush after initialization.
+        self._pending_event_queue: list = []
 
         # Apply optional seed for deterministic behavior if provided.
         # Use the random_seed helper which seeds Python's random module.
@@ -308,6 +331,10 @@ class Sketch:
     @save_folder.setter
     def save_folder(self, folder: Optional[str]) -> None:
         self.set_save_folder(folder)
+
+    # NOTE: `mouse_x` / `mouse_y` properties are defined later using
+    # `mouse_pos()` which queries pygame. We keep internal `_mouse_x/_mouse_y`
+    # for the input system but avoid duplicating property names here.
 
     def set_title(self, title: str) -> None:
         self._title = str(title)
@@ -975,6 +1002,24 @@ class Sketch:
             # best-effort fallback: return val unchanged on failure
             return val
 
+    def dist(self, x1: float, y1: float, x2: float, y2: float) -> float:
+        """Return the Euclidean distance between two 2D points.
+
+        Mirrors Processing.dist(x1, y1, x2, y2).
+        """
+        try:
+            import math
+
+            return float(math.hypot(float(x2) - float(x1), float(y2) - float(y1)))
+        except Exception:
+            # best-effort: attempt numeric subtraction or fallback to 0.0
+            try:
+                dx = float(x2) - float(x1)
+                dy = float(y2) - float(y1)
+                return float((dx * dx + dy * dy) ** 0.5)
+            except Exception:
+                return 0.0
+
     def color(self, *args):
         """Create a Color object like Processing's color().
 
@@ -1318,12 +1363,25 @@ class Sketch:
     @property
     def mouse_x(self) -> Optional[int]:
         """Return the current mouse x position or None if unavailable."""
+        # Prefer the value updated by the input dispatch system if available
+        mx = getattr(self, "_mouse_x", None)
+        if mx is not None:
+            try:
+                return int(mx)
+            except Exception:
+                return None
         p = self.mouse_pos()
         return int(p[0]) if p is not None else None
 
     @property
     def mouse_y(self) -> Optional[int]:
         """Return the current mouse y position or None if unavailable."""
+        my = getattr(self, "_mouse_y", None)
+        if my is not None:
+            try:
+                return int(my)
+            except Exception:
+                return None
         p = self.mouse_pos()
         return int(p[1]) if p is not None else None
 
@@ -1409,25 +1467,156 @@ class Sketch:
             return
 
     # --- Run loop ---
-    def run(self, max_frames: Optional[int] = None, debug: bool = False) -> None:
+    def initialize(self, debug: bool = False) -> None:
+        """Prepare the sketch for running without entering the main loop.
+
+        This runs the user's `setup()`, creates the display surface, applies
+        any pending state that was set before the surface existed, marks the
+        sketch as ready, and flushes any queued events so user handlers will
+        see an initialized sketch. Tests or tooling can call this instead of
+        running the full `run()` loop when they only need initialization.
+        """
         if debug:
-            print("[pycreative.run] debug: initializing pygame")
+            print("[pycreative.initialize] debug: initializing pygame")
         pygame.init()
         if debug:
-            print(f"[pycreative.run] debug: sketch_path={self.sketch_path}, width={self.width}, height={self.height}, fullscreen={self.fullscreen}")
-        # Initialize assets manager early so setup() can use it
+            print(f"[pycreative.initialize] debug: sketch_path={self.sketch_path}, width={self.width}, height={self.height}, fullscreen={self.fullscreen}")
         sketch_dir = os.path.dirname(self.sketch_path) if self.sketch_path else os.getcwd()
         try:
             self.assets = Assets(sketch_dir)
         except Exception:
             self.assets = None
 
-        # Call setup early so user can call self.size() there
         try:
+            # Mark not-ready while we run setup/display creation so any
+            # incoming events during this window are buffered and flushed
+            # once initialization completes.
+            try:
+                self._setup_complete = False
+            except Exception:
+                pass
             self.setup()
         except Exception:
-            # setup exceptions should not crash import; re-raise
             raise
+
+        flags = 0
+        if self.fullscreen:
+            flags = pygame.FULLSCREEN
+        if getattr(self, "_double_buffer", False):
+            try:
+                flags |= pygame.DOUBLEBUF
+            except Exception:
+                pass
+
+        try:
+            if debug:
+                print(f"[pycreative.initialize] debug: creating display mode w={self.width} h={self.height} flags={flags} vsync={getattr(self,'_vsync',0)}")
+            self._surface = pygame.display.set_mode((self.width, self.height), flags, vsync=getattr(self, "_vsync", 0))
+        except TypeError:
+            if debug:
+                print("[pycreative.initialize] debug: set_mode with vsync kwarg failed, falling back to positional call")
+            self._surface = pygame.display.set_mode((self.width, self.height), flags)
+
+        pygame.display.set_caption(self._title)
+        self.surface = GraphicsSurface(self._surface)
+        # Apply pending state (color mode, fill, stroke, background, modes)
+        try:
+            if debug:
+                print("[pycreative.initialize] debug: applying pending state to Surface")
+            # apply pending color mode first so pending fill/stroke are interpreted correctly
+            if getattr(self, "_pending_color_mode", _PENDING_UNSET) is not _PENDING_UNSET:
+                try:
+                    cm = self._pending_color_mode
+                    if isinstance(cm, tuple) and len(cm) >= 4:
+                        if len(cm) >= 5:
+                            self.surface.color_mode(cm[0], cm[1], cm[2], cm[3], cm[4])
+                        else:
+                            self.surface.color_mode(cm[0], cm[1], cm[2], cm[3])
+                except Exception:
+                    pass
+
+            if self._pending_fill is not _PENDING_UNSET:
+                val = None if self._pending_fill is None else tuple(self._pending_fill)  # type: ignore[arg-type]
+                if debug:
+                    print(f"[pycreative.initialize] debug: applying pending fill={val}")
+                self.surface.fill(val)  # type: ignore[arg-type]
+            if self._pending_stroke is not _PENDING_UNSET:
+                col = None if self._pending_stroke is None else tuple(self._pending_stroke)  # type: ignore[arg-type]
+                if debug:
+                    print(f"[pycreative.initialize] debug: applying pending stroke={col}")
+                self.surface.stroke(col)  # type: ignore[arg-type]
+            if self._pending_stroke_weight is not _PENDING_UNSET:
+                if isinstance(self._pending_stroke_weight, int):
+                    self.surface.stroke_weight(self._pending_stroke_weight)
+
+            if getattr(self, "_pending_line_cap", _PENDING_UNSET) is not _PENDING_UNSET:
+                try:
+                    v = self._pending_line_cap
+                    if v is None:
+                        self.surface.set_line_cap("butt")
+                    else:
+                        self.surface.set_line_cap(v)
+                except Exception:
+                    pass
+            if getattr(self, "_pending_line_join", _PENDING_UNSET) is not _PENDING_UNSET:
+                try:
+                    v = self._pending_line_join
+                    if v is None:
+                        self.surface.set_line_join("miter")
+                    else:
+                        self.surface.set_line_join(v)
+                except Exception:
+                    pass
+            if getattr(self, "_pending_background", _PENDING_UNSET) is not _PENDING_UNSET:
+                try:
+                    bg = self._pending_background
+                    if bg is not _PENDING_UNSET:
+                        self.surface.clear(bg)
+                        self._pending_background = _PENDING_UNSET
+                except Exception:
+                    pass
+            if getattr(self, "_pending_rect_mode", _PENDING_UNSET) is not _PENDING_UNSET:
+                try:
+                    rm = self._pending_rect_mode
+                    if isinstance(rm, str) or rm is None:
+                        self.surface.rect_mode(rm)
+                except Exception:
+                    pass
+            if getattr(self, "_pending_ellipse_mode", _PENDING_UNSET) is not _PENDING_UNSET:
+                try:
+                    em = self._pending_ellipse_mode
+                    if isinstance(em, str) or em is None:
+                        self.surface.ellipse_mode(em)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        # Mark ready and flush any buffered events
+        try:
+            self._setup_complete = True
+        except Exception:
+            pass
+        try:
+            q = getattr(self, "_pending_event_queue", None)
+            if q:
+                try:
+                    from . import input as input_mod_inner
+                    while q:
+                        ev = q.pop(0)
+                        try:
+                            input_mod_inner.dispatch_event_now(self, ev)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def run(self, max_frames: Optional[int] = None, debug: bool = False) -> None:
+        # Initialize runtime (setup(), display/pending state, queued-event flush)
+        self.initialize(debug=debug)
+        if debug:
+            print("[pycreative.run] debug: entering main loop")
 
         flags = 0
         if self.fullscreen:
@@ -1550,6 +1739,37 @@ class Sketch:
                     pass
         except Exception:
             # best-effort; don't fail startup for state application
+            pass
+        # Mark setup as complete and flush any buffered events that arrived
+        # during early initialization. This ensures user handlers see a
+        # fully-initialized sketch (attributes created in setup()) and avoids
+        # surprising AttributeError when tests/imports call handlers early.
+        try:
+            # mark ready so dispatch_event will not queue further events
+            self._setup_complete = True
+        except Exception:
+            pass
+        try:
+            # Flush any queued raw pygame.Event objects by dispatching them
+            # immediately using the internal dispatch helper.
+            q = getattr(self, "_pending_event_queue", None)
+            if q:
+                # import here to avoid circular import at module load
+                try:
+                    from . import input as input_mod_inner
+
+                    # drain queue in FIFO order
+                    while q:
+                        ev = q.pop(0)
+                        try:
+                            input_mod_inner.dispatch_event_now(self, ev)
+                        except Exception:
+                            # swallow errors to avoid failing startup
+                            pass
+                except Exception:
+                    # if flushing fails, drop events
+                    pass
+        except Exception:
             pass
         if debug:
             print("[pycreative.run] debug: entering main loop")
