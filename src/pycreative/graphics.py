@@ -76,6 +76,7 @@ class Surface:
 
     MODE_CORNER = "CORNER"
     MODE_CENTER = "CENTER"
+    MODE_CORNERS = "CORNERS"
 
     def __init__(self, surf: pygame.Surface) -> None:
         self._surf = surf
@@ -85,6 +86,11 @@ class Surface:
         self._stroke_weight: int = 1
         self._rect_mode: str = self.MODE_CORNER
         self._ellipse_mode: str = self.MODE_CENTER
+        # Image mode controls how image(x,y,w,h) interprets x/y (corner vs center)
+        self._image_mode: str = self.MODE_CORNER
+        # Tint color applied to subsequent image draws; None means no tint.
+        # Stored as an already-coerced pygame-friendly tuple (3- or 4-tuple)
+        self._tint: Optional[Tuple[int, ...]] = None
         # Line styling options (cap: 'butt'|'round'|'square', join: 'miter'|'round'|'bevel')
         self._line_cap: str = "butt"
         self._line_join: str = "miter"
@@ -305,6 +311,57 @@ class Surface:
             return None
         if m in (self.MODE_CORNER, self.MODE_CENTER):
             self._ellipse_mode = m
+        return None
+
+    def image_mode(self, mode: str | None = None) -> str | None:
+        """Get or set image mode. Call with no args to get current mode,
+        or pass `Surface.MODE_CORNER` / `Surface.MODE_CENTER` / `Surface.MODE_CORNERS` to set it.
+        """
+        if mode is None:
+            return self._image_mode
+        try:
+            m = str(mode).upper()
+        except Exception:
+            return None
+        if m in (self.MODE_CORNER, self.MODE_CENTER, self.MODE_CORNERS):
+            self._image_mode = m
+        return None
+
+    def tint(self, *args) -> Optional[tuple[int, ...]]:
+        """Get or set the image tint color. When called with no args returns current tint.
+
+        Accepts Processing-style forms:
+          tint(gray)
+          tint(gray, alpha)
+          tint(r, g, b)
+          tint(r, g, b, a)
+          tint((r,g,b)) or tint((r,g,b,a))
+        """
+        # getter
+        if len(args) == 0:
+            return self._tint
+
+        # normalize args into a single color tuple-like
+        if len(args) == 1:
+            color_in = args[0]
+        else:
+            color_in = tuple(args)
+
+        # Support Processing-style shorthand: (gray) or (gray, alpha)
+        try:
+            if isinstance(color_in, (list, tuple)):
+                if len(color_in) == 1:
+                    v = int(color_in[0]) & 255
+                    color_in = (v, v, v)
+                elif len(color_in) == 2:
+                    v = int(color_in[0]) & 255
+                    a = int(color_in[1]) & 255
+                    color_in = (v, v, v, a)
+        except Exception:
+            pass
+
+        coerced = self._coerce_input_color(color_in)
+        self._tint = coerced
         return None
 
     @property
@@ -755,7 +812,11 @@ class Surface:
                         self._fill = fill.to_tuple()
                 else:
                     try:
-                        mode, m1, _m2, _m3 = self._color_mode
+                        # _color_mode may include optional alpha max (5-tuple)
+                        mode = self._color_mode[0]
+                        m1 = int(self._color_mode[1])
+                        _m2 = int(self._color_mode[2])
+                        _m3 = int(self._color_mode[3])
                     except Exception:
                         mode, m1, _m2, _m3 = ("RGB", 255, 255, 255)
                     try:
@@ -890,12 +951,127 @@ class Surface:
             return
         src = getattr(img, "raw", img)
         try:
+            # Helper to blit with optional tint applied
+            def _blit_with_optional_tint(surf_to_blit: pygame.Surface, bx: int, by: int):
+                # Apply tint when present: perform a multiply blend using a
+                # temporary surface filled with the tint color and BLEND_RGBA_MULT.
+                if self._tint is None:
+                    self._surf.blit(surf_to_blit, (bx, by))
+                    return
+                try:
+                    tint_col = self._tint
+                    # Ensure source has SRCALPHA so operations work predictably.
+                    # Avoid convert_alpha() because it requires a video mode; instead
+                    # create an SRCALPHA surface and blit the source onto it.
+                    try:
+                        src_size = surf_to_blit.get_size()
+                        src_copy = pygame.Surface(src_size, flags=pygame.SRCALPHA)
+                        src_copy.blit(surf_to_blit, (0, 0))
+                    except Exception:
+                        # fallback to direct copy (best-effort)
+                        src_copy = surf_to_blit.copy()
+                    # Normalize tint to r,g,b,a
+                    if isinstance(tint_col, tuple):
+                        if len(tint_col) == 3:
+                            r, g, b = tint_col
+                            a = 255
+                        else:
+                            r, g, b, a = tint_col[0], tint_col[1], tint_col[2], tint_col[3]
+                    else:
+                        # defensive fallback
+                        src_copy = surf_to_blit
+                        self._surf.blit(src_copy, (bx, by))
+                        return
+
+                    # Create a tint surface and multiply all channels (including alpha)
+                    tw, th = src_copy.get_size()
+                    # Perform explicit per-pixel multiplication to ensure consistent
+                    # behavior across pygame builds (multiply RGBA channels by tint/255).
+                    try:
+                        src_copy.lock()
+                        w_s, h_s = src_copy.get_size()
+                        for yy in range(h_s):
+                            for xx in range(w_s):
+                                pr, pg, pb, pa = src_copy.get_at((xx, yy))
+                                nr = (pr * int(r)) // 255
+                                ng = (pg * int(g)) // 255
+                                nb = (pb * int(b)) // 255
+                                na = (pa * int(a)) // 255
+                                src_copy.set_at((xx, yy), (nr, ng, nb, na))
+                    except Exception:
+                        # fallback: try BLEND_RGBA_MULT
+                        try:
+                            tint_surf = pygame.Surface((tw, th), flags=pygame.SRCALPHA)
+                            tint_surf.fill((int(r), int(g), int(b), int(a)))
+                            src_copy.blit(tint_surf, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                        except Exception:
+                            pass
+                    finally:
+                        try:
+                            src_copy.unlock()
+                        except Exception:
+                            pass
+                    self._surf.blit(src_copy, (bx, by))
+                    return
+                except Exception as e:
+                    # print full traceback for debugging then fallback to simple blit
+                    try:
+                        import traceback
+                        print("DEBUG_TINT_EXCEPTION:")
+                        traceback.print_exc()
+                    except Exception:
+                        try:
+                            print("DEBUG_TINT_EXCEPTION (no traceback):", repr(e))
+                        except Exception:
+                            pass
+                    # fallback to simple blit
+                    self._surf.blit(surf_to_blit, (bx, by))
+
             if self._is_identity_transform():
-                if w is None or h is None:
-                    self._surf.blit(src, (int(x), int(y)))
+                # Interpret x,y according to image_mode
+                if self._image_mode == self.MODE_CENTER:
+                    # center: x,y represent center of drawn image
+                    if w is None or h is None:
+                        iw, ih = src.get_size() if hasattr(src, 'get_size') else (src.get_width(), src.get_height())
+                    else:
+                        iw, ih = int(w), int(h)
+                    bx = int(x - iw / 2)
+                    by = int(y - ih / 2)
+                    if w is None or h is None:
+                        _blit_with_optional_tint(src, bx, by)
+                    else:
+                        scaled = pygame.transform.smoothscale(src, (int(w), int(h)))
+                        _blit_with_optional_tint(scaled, bx, by)
+                elif self._image_mode == self.MODE_CORNERS:
+                    # Interpret (x,y,w,h) as (x1,y1,x2,y2)
+                    if w is None or h is None:
+                        # fallback to CORNER behavior
+                        bx = int(x)
+                        by = int(y)
+                        if w is None or h is None:
+                            _blit_with_optional_tint(src, bx, by)
+                    else:
+                        x1 = int(x)
+                        y1 = int(y)
+                        x2 = int(w)
+                        y2 = int(h)
+                        left = min(x1, x2)
+                        top = min(y1, y2)
+                        width = abs(x2 - x1)
+                        height = abs(y2 - y1)
+                        if width == 0 or height == 0:
+                            return
+                        scaled = pygame.transform.smoothscale(src, (width, height))
+                        _blit_with_optional_tint(scaled, left, top)
                 else:
-                    scaled = pygame.transform.smoothscale(src, (int(w), int(h)))
-                    self._surf.blit(scaled, (int(x), int(y)))
+                    # default CORNER: x,y represent top-left
+                    bx = int(x)
+                    by = int(y)
+                    if w is None or h is None:
+                        _blit_with_optional_tint(src, bx, by)
+                    else:
+                        scaled = pygame.transform.smoothscale(src, (int(w), int(h)))
+                        _blit_with_optional_tint(scaled, bx, by)
             else:
                 # Simple image transform support: handle translation + uniform scale + rotation via rotozoom
                 # Attempt to detect uniform scale from current matrix; fall back to blit at transformed origin.

@@ -64,6 +64,9 @@ class Sketch:
         self._pending_ellipse_mode: Any = _PENDING_UNSET
         # Pending color mode (e.g., set in setup before surface exists)
         self._pending_color_mode: Any = _PENDING_UNSET
+        # Pending image mode/tint recorded before surface exists
+        self._pending_image_mode: Any = _PENDING_UNSET
+        self._pending_tint: Any = _PENDING_UNSET
         # Pending line cap / join style (butt, round, square) / (miter, round, bevel)
         self._pending_line_cap: Any = _PENDING_UNSET
         self._pending_line_join: Any = _PENDING_UNSET
@@ -618,6 +621,48 @@ class Sketch:
         if m in (GraphicsSurface.MODE_CORNER, GraphicsSurface.MODE_CENTER):
             self._pending_ellipse_mode = m
         return None
+
+    def image_mode(self, mode: Optional[str] = None) -> str | None:
+        """Get or set image mode. When called before a Surface exists this
+        records a pending value which will be applied when the display is
+        created (in `run()`)."""
+        if self.surface is not None:
+            return self.surface.image_mode(mode)
+        if mode is None:
+            v = self._pending_image_mode
+            if v is _PENDING_UNSET:
+                return None
+            return cast(str, v)
+        try:
+            m = str(mode).upper()
+        except Exception:
+            return None
+        if m in (GraphicsSurface.MODE_CORNER, GraphicsSurface.MODE_CENTER, GraphicsSurface.MODE_CORNERS):
+            self._pending_image_mode = m
+        return None
+
+    def tint(self, *args):
+        """Get or set the tint color. Accepts the same overloads as Surface.tint.
+
+        If called before a Surface exists the raw args are recorded and coerced
+        when the Surface is created.
+        """
+        if len(args) == 0:
+            if self.surface is not None:
+                return self.surface.tint()
+            return self._pending_tint if self._pending_tint is not _PENDING_UNSET else None
+
+        # store pending raw args; coercion happens in initialize when applying pending state
+        if self.surface is not None:
+            try:
+                self.surface.tint(*args)
+                return None
+            except Exception:
+                self._pending_tint = args
+                return None
+        else:
+            self._pending_tint = args
+            return None
 
     def color_mode(self, mode: Optional[str] = None, max1: int = 255, max2: int = 255, max3: int = 255, max4: int | None = None):
         """Get or set color mode. When called before a Surface exists this
@@ -1609,6 +1654,26 @@ class Sketch:
                     em = self._pending_ellipse_mode
                     if isinstance(em, str) or em is None:
                         self.surface.ellipse_mode(em)
+                except Exception:
+                    pass
+            if getattr(self, "_pending_image_mode", _PENDING_UNSET) is not _PENDING_UNSET:
+                try:
+                    im = self._pending_image_mode
+                    if isinstance(im, str) or im is None:
+                        self.surface.image_mode(im)
+                except Exception:
+                    pass
+            if getattr(self, "_pending_tint", _PENDING_UNSET) is not _PENDING_UNSET:
+                try:
+                    t = self._pending_tint
+                    if t is None:
+                        self.surface.tint(None)
+                    else:
+                        # t may be raw args tuple recorded by Sketch.tint
+                        if isinstance(t, tuple):
+                            self.surface.tint(*t)
+                        else:
+                            self.surface.tint(t)
                 except Exception:
                     pass
         except Exception:
