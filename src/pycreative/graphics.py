@@ -221,6 +221,19 @@ class Surface:
         """
         if color_val is None:
             return None
+
+        # helper to clamp numeric channel values into 0..255 (don't wrap negatives)
+        def _clamp_byte(v):
+            try:
+                iv = int(v)
+            except Exception:
+                return 0
+            if iv < 0:
+                return 0
+            if iv > 255:
+                return 255
+            return iv
+
         # Accept Color instances directly
         if isinstance(color_val, Color):
             try:
@@ -253,11 +266,11 @@ class Surface:
         try:
             if hasattr(color_val, "__iter__"):
                 vals = list(color_val)
-                r = int(vals[0]) & 255
-                g = int(vals[1]) & 255
-                b = int(vals[2]) & 255
+                r = _clamp_byte(vals[0])
+                g = _clamp_byte(vals[1])
+                b = _clamp_byte(vals[2])
                 if len(vals) >= 4:
-                    a = int(vals[3]) & 255
+                    a = _clamp_byte(vals[3])
                     return (r, g, b, a)
                 return (r, g, b)
         except Exception:
@@ -350,12 +363,23 @@ class Surface:
         # Support Processing-style shorthand: (gray) or (gray, alpha)
         try:
             if isinstance(color_in, (list, tuple)):
+                def _clamp_byte_local(x):
+                    try:
+                        iv = int(x)
+                    except Exception:
+                        return 0
+                    if iv < 0:
+                        return 0
+                    if iv > 255:
+                        return 255
+                    return iv
+
                 if len(color_in) == 1:
-                    v = int(color_in[0]) & 255
+                    v = _clamp_byte_local(color_in[0])
                     color_in = (v, v, v)
                 elif len(color_in) == 2:
-                    v = int(color_in[0]) & 255
-                    a = int(color_in[1]) & 255
+                    v = _clamp_byte_local(color_in[0])
+                    a = _clamp_byte_local(color_in[1])
                     color_in = (v, v, v, a)
         except Exception:
             pass
@@ -1013,19 +1037,10 @@ class Surface:
                             pass
                     self._surf.blit(src_copy, (bx, by))
                     return
-                except Exception as e:
-                    # print full traceback for debugging then fallback to simple blit
-                    try:
-                        import traceback
-                        print("DEBUG_TINT_EXCEPTION:")
-                        traceback.print_exc()
-                    except Exception:
-                        try:
-                            print("DEBUG_TINT_EXCEPTION (no traceback):", repr(e))
-                        except Exception:
-                            pass
-                    # fallback to simple blit
+                except Exception:
+                    # On error, fall back to a plain blit so examples/tests keep running.
                     self._surf.blit(surf_to_blit, (bx, by))
+                    return
 
             if self._is_identity_transform():
                 # Interpret x,y according to image_mode
