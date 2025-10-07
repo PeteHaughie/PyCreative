@@ -428,9 +428,12 @@ def polygon_with_style(surface, points: Sequence[tuple[float, float]], fill: Opt
     if surface._is_identity_transform():
         pts = [(int(round(x)), int(round(y))) for (x, y) in points]
     else:
+        # When a transform is active, apply it to the vertex list so
+        # polygons/triangles respect translate/rotate/scale on the surface.
         ptsf = points
         try:
-            ptsf = surface._current_matrix() and points
+            # Use the public helper which understands the surface matrix.
+            ptsf = surface.transform_points(points)
         except Exception:
             ptsf = points
         pts = [(int(round(px)), int(round(py))) for px, py in ptsf]
