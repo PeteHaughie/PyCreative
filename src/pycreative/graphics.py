@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, cast
 from collections.abc import Sequence
-from .types import ColorInput, ColorTupleOrNone, ColorTuple
+from .types import ColorInput, ColorTupleOrNone, ColorTuple, Number
 
 import pygame
 from typing import Any
@@ -197,7 +197,7 @@ class Surface:
             and m[1][2] == 0.0
         )
 
-    def _coerce_input_color(self, color_val: ColorInput | None) -> ColorTupleOrNone:
+    def _coerce_input_color(self, color_val: ColorInput | Sequence[Number] | None) -> ColorTupleOrNone:
         """Coerce various color inputs into a pygame-friendly tuple.
 
         Accepts a Color instance, an HSB tuple when color mode is HSB, or an
@@ -237,7 +237,7 @@ class Surface:
         # Determine current color mode
         try:
             mode = self._color_mode[0]
-            m1 = int(self._color_mode[1])
+            m1 = int(cast(int, self._color_mode[1]))
         except Exception:
             mode = "RGB"
             m1 = 255
@@ -247,11 +247,11 @@ class Surface:
             # Prefer explicit Sequence checks so type-checkers know this is iterable
             if mode == "HSB" and isinstance(color_val, Sequence) and not isinstance(color_val, (str, bytes, bytearray)):
                 vals = list(color_val)
-                h, s, v = vals[0], vals[1], vals[2]
+                h, s, hv = vals[0], vals[1], vals[2]
                 a = vals[3] if len(vals) >= 4 else 255
                 # Use configured alpha max when present (fifth entry in _color_mode)
-                ma = int(self._color_mode[4]) if len(self._color_mode) >= 5 else m1
-                col = Color.from_hsb(float(h), float(s), float(v), a=a, max_h=m1, max_s=self._color_mode[2], max_v=self._color_mode[3], max_a=ma)
+                ma = int(cast(int, self._color_mode[4])) if len(self._color_mode) >= 5 else m1
+                col = Color.from_hsb(float(h), float(s), float(hv), a=a, max_h=m1, max_s=self._color_mode[2], max_v=self._color_mode[3], max_a=ma)
                 return col.to_rgba_tuple() if col.a != 255 else col.to_tuple()
         except Exception:
             pass
