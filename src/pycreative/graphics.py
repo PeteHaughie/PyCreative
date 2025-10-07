@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional, Tuple
-from .types import ColorLike, ColorOrNone
+from .types import ColorInput, ColorTupleOrNone, ColorTuple
 
 import pygame
 from typing import Any
@@ -58,8 +58,9 @@ class Surface:
         self._surf = surf
         # Drawing state
         # _fill/_stroke accept either 3- or 4-length tuples (RGB or RGBA)
-        self._fill: Optional[Tuple[int, ...]] = (255, 255, 255)
-        self._stroke: Optional[Tuple[int, ...]] = None
+        # Use the concrete ColorTupleOrNone annotation for internal storage
+        self._fill: ColorTupleOrNone = (255, 255, 255)
+        self._stroke: ColorTupleOrNone = None
         self._stroke_weight: int = 1
         self._rect_mode: str = self.MODE_CORNER
         self._ellipse_mode: str = self.MODE_CENTER
@@ -67,7 +68,7 @@ class Surface:
         self._image_mode: str = self.MODE_CORNER
         # Tint color applied to subsequent image draws; None means no tint.
         # Stored as an already-coerced pygame-friendly tuple (3- or 4-tuple)
-        self._tint: Optional[Tuple[int, ...]] = None
+        self._tint: ColorTupleOrNone = None
         # Blend mode controls how source pixels combine with destination
         # Default is source-over alpha blend (Processing BLEND)
         self._blend_mode: str = self.BLEND
@@ -192,7 +193,7 @@ class Surface:
             and m[1][2] == 0.0
         )
 
-    def _coerce_input_color(self, color_val: ColorLike | None) -> ColorOrNone:
+    def _coerce_input_color(self, color_val: ColorInput | None) -> ColorTupleOrNone:
         """Coerce various color inputs into a pygame-friendly tuple.
 
         Accepts a Color instance, an HSB tuple when color mode is HSB, or an
@@ -263,6 +264,9 @@ class Surface:
                 return (r, g, b)
         except Exception:
             return None
+
+        # Explicit fallback for type-checkers: ensure a None return is present
+        return None
 
     def _transform_point(self, x: float, y: float) -> tuple[float, float]:
         return transform_point(self._current_matrix(), x, y)
@@ -552,10 +556,10 @@ class Surface:
         y1: float,
         x2: float,
         y2: float,
-        color: Optional[Tuple[int, int, int]] = None,
+    color: ColorTupleOrNone = None,
         width: Optional[int] = None,
-        # compatibility aliases
-        stroke: Optional[Tuple[int, int, int]] = None,
+    # compatibility aliases
+    stroke: ColorTupleOrNone = None,
         stroke_width: Optional[int] = None,
         cap: Optional[str] = None,
         join: Optional[str] = None,
@@ -570,16 +574,16 @@ class Surface:
 
     # Convenience shape helpers to mirror Sketch API on Surface so OffscreenSurface
     # supports triangle/quad directly.
-    def triangle(self, x1, y1, x2, y2, x3, y3, fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
+    def triangle(self, x1, y1, x2, y2, x3, y3, fill: ColorTupleOrNone = None, stroke: ColorTupleOrNone = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
         return _primitives.triangle(self, x1, y1, x2, y2, x3, y3, fill=fill, stroke=stroke, stroke_weight=stroke_weight, stroke_width=stroke_width)
 
-    def quad(self, x1, y1, x2, y2, x3, y3, x4, y4, fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
+    def quad(self, x1, y1, x2, y2, x3, y3, x4, y4, fill: ColorTupleOrNone = None, stroke: ColorTupleOrNone = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
         return _primitives.quad(self, x1, y1, x2, y2, x3, y3, x4, y4, fill=fill, stroke=stroke, stroke_weight=stroke_weight, stroke_width=stroke_width)
 
-    def arc(self, x: float, y: float, w: float, h: float, start_rad: float, end_rad: float, mode: str = "open", fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
+    def arc(self, x: float, y: float, w: float, h: float, start_rad: float, end_rad: float, mode: str = "open", fill: ColorTupleOrNone = None, stroke: ColorTupleOrNone = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
         return _primitives.arc(self, x, y, w, h, start_rad, end_rad, mode=mode, fill=fill, stroke=stroke, stroke_weight=stroke_weight, stroke_width=stroke_width)
 
-    def point(self, x: float, y: float, color: Tuple[int, int, int] | None = None, z: float | None = None) -> None:
+    def point(self, x: float, y: float, color: ColorTupleOrNone = None, z: float | None = None) -> None:
         """Draw a point at (x,y).
 
         - If `color` is provided, use it; otherwise use the current stroke color.
@@ -614,12 +618,15 @@ class Surface:
         if img is None:
             return
         src = getattr(img, "raw", img)
+        # src may be a pygame.Surface or an object exposing `raw`. Statically
+        # treat it as a pygame.Surface for typing purposes.
+        src_surf: pygame.Surface = src  # type: ignore[assignment]
         # Delegate tint + blend logic to dedicated module for testability and
         # future optimization (blending.py). This mirrors the previous
         # inlined `_blit_with_optional_tint` behavior.
         from pycreative.blending import apply_blit_with_blend
 
-        def _blit_with_optional_tint(surf_to_blit: pygame.Surface, bx: int, by: int):
+        def _blit_with_optional_tint(surf_to_blit: pygame.Surface, bx: int, by: int) -> None:
             apply_blit_with_blend(self._surf, surf_to_blit, bx, by, self._blend_mode, tint=self._tint)
 
         if self._is_identity_transform():
@@ -627,15 +634,15 @@ class Surface:
             if self._image_mode == self.MODE_CENTER:
                 # center: x,y represent center of drawn image
                 if w is None or h is None:
-                    iw, ih = src.get_size() if hasattr(src, 'get_size') else (src.get_width(), src.get_height())
+                    iw, ih = src_surf.get_size() if hasattr(src_surf, "get_size") else (src_surf.get_width(), src_surf.get_height())
                 else:
                     iw, ih = int(w), int(h)
                 bx = int(x - iw / 2)
                 by = int(y - ih / 2)
                 if w is None or h is None:
-                    _blit_with_optional_tint(src, bx, by)
+                    _blit_with_optional_tint(src_surf, bx, by)
                 else:
-                    scaled = pygame.transform.smoothscale(src, (int(w), int(h)))
+                    scaled = pygame.transform.smoothscale(src_surf, (int(w), int(h)))
                     _blit_with_optional_tint(scaled, bx, by)
             elif self._image_mode == self.MODE_CORNERS:
                 # Interpret (x,y,w,h) as (x1,y1,x2,y2)
@@ -644,7 +651,7 @@ class Surface:
                     bx = int(x)
                     by = int(y)
                     if w is None or h is None:
-                        _blit_with_optional_tint(src, bx, by)
+                        _blit_with_optional_tint(src_surf, bx, by)
                 else:
                     x1 = int(x)
                     y1 = int(y)
@@ -656,16 +663,16 @@ class Surface:
                     height = abs(y2 - y1)
                     if width == 0 or height == 0:
                         return
-                    scaled = pygame.transform.smoothscale(src, (width, height))
+                    scaled = pygame.transform.smoothscale(src_surf, (width, height))
                     _blit_with_optional_tint(scaled, left, top)
             else:
                 # default CORNER: x,y represent top-left
                 bx = int(x)
                 by = int(y)
                 if w is None or h is None:
-                    _blit_with_optional_tint(src, bx, by)
+                    _blit_with_optional_tint(src_surf, bx, by)
                 else:
-                    scaled = pygame.transform.smoothscale(src, (int(w), int(h)))
+                    scaled = pygame.transform.smoothscale(src_surf, (int(w), int(h)))
                     _blit_with_optional_tint(scaled, bx, by)
         else:
             # Simple image transform support: handle translation + uniform scale + rotation via rotozoom
@@ -676,9 +683,9 @@ class Surface:
             tx, ty = self._transform_point(x, y)
             try:
                 if w is None or h is None:
-                    img_surf = src
+                    img_surf = src_surf
                 else:
-                    img_surf = pygame.transform.smoothscale(src, (int(w), int(h)))
+                    img_surf = pygame.transform.smoothscale(src_surf, (int(w), int(h)))
                 # use rotozoom for rotation+scale; angle extraction is approximate
                 # compute angle from matrix using arctan2 of first column
                 import math
@@ -693,13 +700,13 @@ class Surface:
                 self._surf.blit(transformed, (int(tx - rect.width / 2), int(ty - rect.height / 2)))
             except Exception:
                 # fallback: simple blit at transformed origin
-                self._surf.blit(src, (int(tx), int(ty)))
+                self._surf.blit(src_surf, (int(tx), int(ty)))
         
 
     def polygon(self, points: list[tuple[float, float]]) -> None:
         return _primitives.polygon(self, points)
 
-    def polygon_with_style(self, points: list[tuple[float, float]], fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, cap: Optional[str] = None, join: Optional[str] = None) -> None:
+    def polygon_with_style(self, points: list[tuple[float, float]], fill: ColorTupleOrNone = None, stroke: ColorTupleOrNone = None, stroke_weight: Optional[int] = None, cap: Optional[str] = None, join: Optional[str] = None) -> None:
         return _primitives.polygon_with_style(self, points, fill=fill, stroke=stroke, stroke_weight=stroke_weight, cap=cap, join=join)
 
     # --- shape construction helpers (beginShape/vertex/endShape) ---
@@ -776,15 +783,10 @@ class Surface:
 
         mode = getattr(self, "_shape_mode", None)
 
-        # If a non-identity transform is active, apply it to the collected
-        # vertices so begin/vertex/end behave like Processing where transforms
-        # affect vertex coordinates.
-        try:
-            if not self._is_identity_transform():
-                pts = transform_points(self._current_matrix(), pts)
-        except Exception:
-            # ignore transform failures and draw with raw points
-            pass
+        # Note: do not pre-apply transforms here. Primitives are responsible
+        # for applying the current transform (when appropriate) to ensure a
+        # single, consistent transform pass. Applying transforms twice can
+        # move vertices off their intended positions.
 
         def draw_poly(p):
             # helper: draw polygon/triangle/quad using existing polygon helper
@@ -929,7 +931,7 @@ class Surface:
         # default simple wrapper uses the current stroke/weight — delegate
         return _primitives.polyline(self, points)
 
-    def polyline_with_style(self, points: list[tuple[float, float]], stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, cap: Optional[str] = None, join: Optional[str] = None) -> None:
+    def polyline_with_style(self, points: list[tuple[float, float]], stroke: ColorTupleOrNone = None, stroke_weight: Optional[int] = None, cap: Optional[str] = None, join: Optional[str] = None) -> None:
         """Draw an open polyline connecting the sequence of points with optional per-call styling."""
         if not points:
             return
@@ -1089,16 +1091,16 @@ class Surface:
         # HSB/RGB modes and Color instances.
         try:
             coerced = self._coerce_input_color(color_in)
-            self._stroke = coerced
+            self._stroke = tuple(coerced) if coerced is not None else None  # type: ignore[assignment]
             return
         except Exception:
             # Fallback: best-effort handling similar to prior behavior
             try:
                 if isinstance(color_in, Color):
                     try:
-                        self._stroke = color_in.to_rgba_tuple()
+                        self._stroke = tuple(color_in.to_rgba_tuple())  # type: ignore[assignment]
                     except Exception:
-                        self._stroke = color_in.to_tuple()
+                        self._stroke = tuple(color_in.to_tuple())  # type: ignore[assignment]
                     return
                 # last resort: try treating as iterable RGB(A)
                 if hasattr(color_in, "__iter__"):
@@ -1109,7 +1111,7 @@ class Surface:
                         a = int(vals[3]) & 255
                         self._stroke = (col.r, col.g, col.b, a)
                     else:
-                        self._stroke = col.to_tuple()
+                        self._stroke = tuple(col.to_tuple())  # type: ignore[assignment]
                     return
             except Exception:
                 self._stroke = None
@@ -1189,11 +1191,20 @@ class Surface:
                 else:
                     self.stroke(stroke)
             if stroke_weight is not ...:
-                self.stroke_weight(int(stroke_weight))
+                from typing import cast
+
+                try:
+                    self.stroke_weight(int(cast(int, stroke_weight)))
+                except Exception:
+                    # ignore invalid stroke weight values
+                    pass
             if cap is not ...:
-                self.set_line_cap(cap)
+                # only accept string caps
+                if isinstance(cap, str):
+                    self.set_line_cap(cap)
             if join is not ...:
-                self.set_line_join(join)
+                if isinstance(join, str):
+                    self.set_line_join(join)
             yield self
         finally:
             # restore previous style state
@@ -1255,7 +1266,7 @@ class Surface:
         """Return a single pixel color tuple (RGB) or (RGBA). Delegates to `pixels.get_pixel`."""
         return get_pixel(self._surf, x, y)
 
-    def set_pixel(self, x: int, y: int, color: Tuple[int, ...]) -> None:
+    def set_pixel(self, x: int, y: int, color: ColorTuple) -> None:
         """Set a single pixel color. Accepts (r,g,b) or (r,g,b,a). Delegates to `pixels.set_pixel`."""
         return set_pixel(self._surf, x, y, color)
 
@@ -1335,7 +1346,7 @@ class Surface:
         """
         # copy() -> return self (Processing returns PImage)
         if len(args) == 0:
-            return self
+            return None
 
         # copy from other surface: first arg is source
         if len(args) == 9:
@@ -1379,7 +1390,7 @@ class Surface:
             except Exception:
                 tmp = pygame.transform.scale(tmp, (dw, dh))
 
-        # Blit into destination (self._surf)
+    # Blit into destination (self._surf)
         try:
             self._surf.blit(tmp, (dx, dy))
         except Exception as e:
@@ -1394,7 +1405,8 @@ class Surface:
             img.copy_to(self.surface, sx, sy, sw, sh, dx, dy, dw, dh)
         """
         # Delegate to the destination Surface.copy using this surface as src
-        return dest.copy(self, sx, sy, sw, sh, dx, dy, dw, dh)
+        dest.copy(self, sx, sy, sw, sh, dx, dy, dw, dh)
+        return None
 
     def set(self, x: int, y: int, value) -> None:
         """PImage-style set. If `value` is a color tuple, set a single pixel.

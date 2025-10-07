@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional, Tuple
+from typing import Sequence
 
 import pygame
 
@@ -373,7 +374,7 @@ def point(surface, x: float, y: float, color: Optional[Tuple[int, ...]] = None, 
         return
 
 
-def polygon_with_style(surface, points: list[tuple[float, float]], fill: Optional[Tuple[int, ...]] = None, stroke: Optional[Tuple[int, ...]] = None, stroke_weight: Optional[int] = None, cap: Optional[str] = None, join: Optional[str] = None) -> None:
+def polygon_with_style(surface, points: Sequence[tuple[float, float]], fill: Optional[Tuple[int, ...]] = None, stroke: Optional[Tuple[int, ...]] = None, stroke_weight: Optional[int] = None, cap: Optional[str] = None, join: Optional[str] = None) -> None:
     if surface._is_identity_transform():
         pts = [(int(round(x)), int(round(y))) for (x, y) in points]
     else:
@@ -475,7 +476,34 @@ def polyline(surface, points: list[tuple[float, float]]) -> None:
     # draw lines between successive points
     if pts:
         n = len(pts)
-        for i in range(n - 1):
-            a = pts[i]
-            b = pts[i + 1]
-            pygame.draw.line(surface._surf, surface._stroke if surface._stroke is not None else surface._fill, a, b, int(surface._stroke_weight))
+        stroke_col = surface._stroke if surface._stroke is not None else surface._fill
+        sw = int(surface._stroke_weight)
+        if stroke_col is None or sw <= 0:
+            return
+
+        # If stroke has alpha, draw onto a temporary SRCALPHA surface and blit
+        if has_alpha(stroke_col):
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            minx, maxx = min(xs), max(xs)
+            miny, maxy = min(ys), max(ys)
+            pad = max(1, int(sw))
+            w = max(1, maxx - minx + pad * 2)
+            h = max(1, maxy - miny + pad * 2)
+            temp = surface._get_temp_surface(w, h)
+            rel_pts = [((px - minx) + pad, (py - miny) + pad) for px, py in pts]
+            int_rel = [(int(round(p[0])), int(round(p[1]))) for p in rel_pts]
+            # draw lines and round end-caps
+            for i in range(len(int_rel) - 1):
+                a = int_rel[i]
+                b = int_rel[i + 1]
+                pygame.draw.line(temp, stroke_col, a, b, sw)
+            radius = max(1, int(sw / 2))
+            for v in int_rel:
+                pygame.draw.circle(temp, stroke_col, v, radius)
+            surface._surf.blit(temp, (int(minx - pad), int(miny - pad)))
+        else:
+            for i in range(n - 1):
+                a = pts[i]
+                b = pts[i + 1]
+                pygame.draw.line(surface._surf, stroke_col, a, b, sw)

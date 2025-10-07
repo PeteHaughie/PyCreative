@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional, Tuple, Callable, Any, cast
-from .types import ColorOrNone
+from .types import ColorOrNone, ColorTupleOrNone
 
 import time
 import os
@@ -57,7 +57,7 @@ class Sketch:
         self.frame_count: int = 0
         self._title: str = "PyCreative"
         # Generic cache store for sketches (used by cached graphics helpers)
-        self._cache_store = {}
+        self._cache_store: dict = {}
         # Pending drawing state if user sets it before the Surface is created.
         # Use a sentinel to distinguish "no pending change" from an explicit
         # `None` (which means disable fill/stroke). Narrow types where possible
@@ -96,7 +96,7 @@ class Sketch:
         # the helper `self.set_save_folder('snapshots')`.
         # Use a plain assignment (no forward annotation) to avoid static
         # analysis issues in older type-checkers.
-        self._save_folder = None
+        self._save_folder: Optional[str] = None
         # Display options: double buffering and vsync
         # - double buffering reduces tearing and is recommended for smooth updates
         # - vsync requests buffer swap synchronization with the display; support
@@ -118,6 +118,26 @@ class Sketch:
         # previous mouse coords (public fields kept for compatibility)
         self.pmouse_x: Optional[int] = None
         self.pmouse_y: Optional[int] = None
+        # Provide a small Processing-like math facade on the Sketch instance
+        # so sketches can use `self.math.cos(...)` or `self.PI` without
+        # depending on the stdlib math module directly. The module is
+        # implemented in `pycreative.pmath`.
+        try:
+            from . import pmath
+
+            # pmath exposes small math helpers used by sketches. Annotate as
+            # Any to satisfy type-checkers here; the runtime assignment can be
+            # either the pmath module or stdlib math as a fallback.
+            self.math: Any = pmath
+            self.PI = pmath.PI
+            self.TWO_PI = pmath.TWO_PI
+            self.HALF_PI = pmath.HALF_PI
+        except Exception:
+            # Fall back to stdlib math if pmath can't be imported for any reason
+            self.math = math  # type: ignore[assignment]
+            self.PI = math.pi
+            self.TWO_PI = 2.0 * math.pi
+            self.HALF_PI = 0.5 * math.pi
         # Which mouse button (if any) and whether a button is pressed
         self.mouse_button: Optional[int] = None
         self.mouse_is_pressed: bool = False
@@ -218,6 +238,15 @@ class Sketch:
                                 return PVector(ax + bx, ay + by)
                         raise TypeError("pvector.add requires two vector arguments or a single iterable of two vectors. For mutating addition use v.add(other).")
                     raise TypeError("pvector.add requires two arguments")
+
+                @staticmethod
+                def random2D() -> "PVector":
+                    """Return a new unit PVector pointing in a random 2D direction.
+
+                    Delegates to `PVector.random2D()` so callers can use
+                    `self.pvector.random2D()` like Processing.
+                    """
+                    return PVector.random2D()
 
                 @staticmethod
                 def mult(v, scalar: float):
@@ -609,7 +638,8 @@ class Sketch:
         if self.surface is not None:
             try:
                 coerced = self.surface._coerce_input_color(color_in)
-                self.surface._fill = coerced
+                # Surface._fill expects a Tuple[int,...] | None; coerce and cast
+                self.surface._fill = tuple(coerced) if coerced is not None else None  # type: ignore[assignment]
                 return None
             except Exception:
                 # fallback: try calling surface.fill directly
@@ -667,7 +697,8 @@ class Sketch:
         if self.surface is not None:
             try:
                 coerced = self.surface._coerce_input_color(color_in)
-                self.surface._stroke = coerced
+                # Surface._stroke expects a Tuple[int,...] | None; coerce and cast
+                self.surface._stroke = tuple(coerced) if coerced is not None else None  # type: ignore[assignment]
                 return None
             except Exception:
                 # fallback: try calling surface.stroke directly
@@ -837,8 +868,27 @@ class Sketch:
             return
         if color is not None:
             try:
+                from typing import cast
+                from .color import Color
                 coerced = self.surface._coerce_input_color(color)
-                self.surface.point(x, y, coerced.to_tuple(), z)
+                # coerced may be a Color-like object with to_tuple(), or an
+                # iterable/tuple. Normalize to a concrete tuple form expected
+                # by Surface.point. Use isinstance() to narrow for the static
+                # type checker instead of hasattr checks.
+                if isinstance(coerced, Color):
+                    candidate = coerced.to_tuple()
+                elif isinstance(coerced, tuple):
+                    candidate = tuple(coerced)  # already a concrete tuple
+                elif coerced is None:
+                    candidate = None
+                else:
+                    try:
+                        candidate = tuple(coerced)  # type: ignore[arg-type]
+                    except Exception:
+                        candidate = None
+                # cast to the narrow union the Surface.point accepts
+                col_tuple = cast(tuple | None, candidate)
+                self.surface.point(x, y, col_tuple, z)
                 return
             except Exception:
                 # best-effort: fall back to passing the raw color through
@@ -893,7 +943,7 @@ class Sketch:
         col = self._coerce_color(c)
         # use current color_mode to determine scaling; default to 255
         cm = self.color_mode() or ("RGB", 255, 255, 255)
-        if isinstance(cm, tuple) and len(cm) >= 1 and cm[0] == "HSB":
+        if isinstance(cm, tuple) and len(cm) >= 2 and cm[0] == "HSB":
             max_h = cm[1]
         else:
             max_h = 255
@@ -904,14 +954,16 @@ class Sketch:
         col = self._coerce_color(c)
         cm = self.color_mode() or ("RGB", 255, 255, 255)
         max_s = cm[2] if isinstance(cm, tuple) and len(cm) >= 3 else 255
-        h, s, v, a = col.to_hsb(max_h=cm[1] if isinstance(cm, tuple) else 255, max_s=max_s)
+        max_h_for_call = cm[1] if isinstance(cm, tuple) and len(cm) >= 2 else 255
+        h, s, v, a = col.to_hsb(max_h=max_h_for_call, max_s=max_s)
         return int(s)
 
     def brightness(self, c) -> int:
         col = self._coerce_color(c)
         cm = self.color_mode() or ("RGB", 255, 255, 255)
         max_v = cm[3] if isinstance(cm, tuple) and len(cm) >= 4 else 255
-        h, s, v, a = col.to_hsb(max_h=cm[1] if isinstance(cm, tuple) else 255, max_v=max_v)
+        max_h_for_call = cm[1] if isinstance(cm, tuple) and len(cm) >= 2 else 255
+        h, s, v, a = col.to_hsb(max_h=max_h_for_call, max_v=max_v)
         return int(v)
 
     def load_image(self, path: str) -> object:
@@ -931,10 +983,11 @@ class Sketch:
         # fallback to surface loader if available
         try:
             if self.surface is not None:
-                img = self.surface.load_image(path)
-                # surface.load_image returns a pygame.Surface; wrap in OffscreenSurface
-                if img is not None:
-                    return OffscreenSurface(getattr(img, "raw", img))
+                loader = getattr(self.surface, "load_image", None)
+                if callable(loader):
+                    img = loader(path)
+                    if img is not None:
+                        return OffscreenSurface(getattr(img, "raw", img))
         except Exception:
             pass
 
@@ -951,7 +1004,7 @@ class Sketch:
             self.surface.blit_image(img, x=x, y=y)
 
     # --- Backwards-compatible primitive wrappers (old example APIs) ---
-    def line(self, x1, y1, x2, y2, stroke: Optional[Tuple[int, int, int]] = None, stroke_width: Optional[int] = None, cap: Optional[str] = None, join: Optional[str] = None):
+    def line(self, x1, y1, x2, y2, stroke: ColorTupleOrNone = None, stroke_width: Optional[int] = None, cap: Optional[str] = None, join: Optional[str] = None):
         if self.surface is None:
             return
         # If stroke/stroke_width are None, Surface.line will use the global
@@ -964,14 +1017,14 @@ class Sketch:
         # forward per-call styles to Surface.rect
         self.surface.rect(x, y, w, h, fill=fill, stroke=stroke, stroke_weight=stroke_width)
 
-    def triangle(self, x1, y1, x2, y2, x3, y3, fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_width: Optional[int] = None):
+    def triangle(self, x1, y1, x2, y2, x3, y3, fill: ColorTupleOrNone = None, stroke: ColorTupleOrNone = None, stroke_width: Optional[int] = None):
         if self.surface is None:
             return
         pts = [(x1, y1), (x2, y2), (x3, y3)]
         # forward per-call styles to Surface.polygon_with_style
         self.surface.polygon_with_style(pts, fill=fill, stroke=stroke, stroke_weight=stroke_width)
 
-    def quad(self, x1, y1, x2, y2, x3, y3, x4, y4, fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_width: Optional[int] = None):
+    def quad(self, x1, y1, x2, y2, x3, y3, x4, y4, fill: ColorTupleOrNone = None, stroke: ColorTupleOrNone = None, stroke_width: Optional[int] = None):
         if self.surface is None:
             return
         pts = [(x1, y1), (x2, y2), (x3, y3), (x4, y4)]
@@ -979,7 +1032,7 @@ class Sketch:
         # with other shape helpers.
         self.surface.polygon_with_style(pts, fill=fill, stroke=stroke, stroke_weight=stroke_width)
 
-    def polyline(self, points: list[tuple[float, float]], stroke: Optional[Tuple[int, int, int]] = None, stroke_width: Optional[int] = None):
+    def polyline(self, points: list[tuple[float, float]], stroke: ColorTupleOrNone = None, stroke_width: Optional[int] = None):
         """Draw an open polyline. Accepts list of (x,y) points and optional stroke/stroke_width.
 
         This temporarily applies stroke settings like other compatibility shims.
@@ -1173,11 +1226,7 @@ class Sketch:
 
     # NOTE: no alias for save_snapshot; use `save_frame()`
 
-    def radians(self, deg: float) -> float:
-        import math
-
-        return math.radians(deg)
-
+    # (math wrappers defined later)
     def constrain(self, val, minimum, maximum):
         """Constrain a value to lie between minimum and maximum (inclusive).
 
@@ -1436,8 +1485,7 @@ class Sketch:
         if self.surface is not None:
             self.surface.stroke_weight(w)
 
-    @property
-    def stroke_cap(self) -> Any:
+    def _get_stroke_cap(self) -> Any:
         """Get or set the global stroke cap. Valid values: 'butt','round','square'.
 
         When set before a Surface exists the value is recorded and applied when
@@ -1493,12 +1541,14 @@ class Sketch:
         # record pending value (None means clear)
         self._pending_line_cap = cap
 
-    @stroke_cap.setter
-    def stroke_cap(self, cap: str | None) -> None:
+    def _set_stroke_cap(self, cap: str | None) -> None:
         self._apply_stroke_cap(cap)
 
-    @property
-    def stroke_join(self) -> Any:
+    # Explicit property to avoid confusing static analyzers with decorator-based
+    # setter bindings on callables.
+    stroke_cap = property(_get_stroke_cap, _set_stroke_cap)
+
+    def _get_stroke_join(self) -> Any:
         """Get or set the global stroke join. Valid values: 'miter','round','bevel'."""
         # Return a callable proxy for backwards-compatible call-style usage
         sketch = self
@@ -1545,9 +1595,10 @@ class Sketch:
 
         self._pending_line_join = join
 
-    @stroke_join.setter
-    def stroke_join(self, join: str | None) -> None:
+    def _set_stroke_join(self, join: str | None) -> None:
         self._apply_stroke_join(join)
+
+    stroke_join = property(_get_stroke_join, _set_stroke_join)
 
     # --- Mouse helpers ---
     def mouse_pos(self) -> Optional[tuple[int, int]]:
@@ -1802,11 +1853,6 @@ class Sketch:
                         # Debug: log pending background application so external
                         # runs (non-headless or display-backed) can confirm
                         # whether initialize() applied the value.
-                        try:
-                            print(f"[pycreative.initialize] applying pending_background={bg!r}")
-                        except Exception:
-                            # best-effort logging; never fail initialize for debug
-                            pass
                         # Try to apply pending background directly; accept numbers,
                         # Color instances, and tuples/lists. Fall back to tuple()
                         # when necessary. This avoids silently dropping pending
@@ -1933,10 +1979,16 @@ class Sketch:
                 if self._surface is None:
                     print("[pycreative.run] debug: set_mode returned None (no surface)")
                 else:
+
+                    # Prepare a typed `sz` variable once to satisfy static checkers.
+                    sz: tuple[Optional[int], Optional[int]] = (None, None)
                     try:
-                        sz = self._surface.get_size()
+                        maybe_size = self._surface.get_size()
+                        # `get_size()` should return (int, int) but guard in case of error
+                        sz = (maybe_size[0], maybe_size[1])
                     except Exception:
-                        sz = (None, None)
+                        # keep the default (None, None)
+                        pass
                     try:
                         flags_now = self._surface.get_flags()
                     except Exception:
@@ -2201,6 +2253,37 @@ class Sketch:
         except Exception:
             pass
 
+    # --- Small math convenience wrappers (Processing-style helpers) ---
+    def cos(self, x: float) -> float:
+        return self.math.cos(x)
+
+    def sin(self, x: float) -> float:
+        return self.math.sin(x)
+
+    def tan(self, x: float) -> float:
+        return self.math.tan(x)
+
+    def atan2(self, y: float, x: float) -> float:
+        return self.math.atan2(y, x)
+
+    def sqrt(self, x: float) -> float:
+        return self.math.sqrt(x)
+
+    def pow(self, x: float, y: float) -> float:
+        return self.math.pow(x, y)
+
+    def floor(self, x: float) -> int:
+        return self.math.floor(x)
+
+    def ceil(self, x: float) -> int:
+        return self.math.ceil(x)
+
+    def radians(self, x: float) -> float:
+        return self.math.radians(x)
+
+    def degrees(self, x: float) -> float:
+        return self.math.degrees(x)
+
     # pvector is provided as an instance attribute (factory) in __init__.
     # The older method-style implementation was removed to avoid shadowing
     # and static-analysis confusion. The instance-assigned factory supports
@@ -2238,12 +2321,14 @@ class Sketch:
                     if getattr(self, "_pending_fill", _PENDING_UNSET) is not _PENDING_UNSET:
                         # attempt to coerce pending fill using off surface
                         try:
-                            off._fill = off._coerce_input_color(self._pending_fill)
+                            coerced = off._coerce_input_color(self._pending_fill)
+                            off._fill = tuple(coerced) if coerced is not None else None  # type: ignore[assignment]
                         except Exception:
                             off._fill = getattr(self, "_pending_fill", off._fill)
                     if getattr(self, "_pending_stroke", _PENDING_UNSET) is not _PENDING_UNSET:
                         try:
-                            off._stroke = off._coerce_input_color(self._pending_stroke)
+                            coerced_s = off._coerce_input_color(self._pending_stroke)
+                            off._stroke = tuple(coerced_s) if coerced_s is not None else None  # type: ignore[assignment]
                         except Exception:
                             off._stroke = getattr(self, "_pending_stroke", off._stroke)
                     if getattr(self, "_pending_stroke_weight", _PENDING_UNSET) is not _PENDING_UNSET:

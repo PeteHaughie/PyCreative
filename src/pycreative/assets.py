@@ -3,7 +3,7 @@ pycreative.assets: Asset manager for sketches (images, audio, video, etc.)
 """
 
 import os
-from typing import Optional
+from typing import Optional, Dict
 
 import pygame
 
@@ -11,7 +11,9 @@ import pygame
 class Assets:
     def __init__(self, sketch_dir: str):
         self.sketch_dir = sketch_dir
-        self.cache = {}
+        # cache maps resolved absolute path -> pygame.Surface
+        # Store as an instance attribute so static analyzers understand `self.cache`
+        self.cache: Dict[str, pygame.Surface] = {}
 
     def _resolve_path(self, path: str) -> Optional[str]:
         parts = path.replace("\\", "/").split("/")

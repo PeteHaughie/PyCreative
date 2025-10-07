@@ -3,6 +3,7 @@ PyCreative CLI runner
 """
 
 import argparse
+from typing import Any
 import importlib.util
 import inspect
 import pathlib
@@ -55,8 +56,12 @@ def run_sketch(path, max_frames=None, debug: bool = False, seed: int | None = No
         return
     # Auto-detect any Sketch subclass and run it (prefer over base Sketch)
     # Lazy import BaseSketch to avoid importing pygame when running --help/--version
+    # Import lazily; annotate BaseSketch as Any so static tools don't assume
+    # a concrete type at module import time.
+    BaseSketch: Any = None
     try:
-        from pycreative.app import Sketch as BaseSketch
+        from pycreative.app import Sketch as BaseSketchImport
+        BaseSketch = BaseSketchImport
     except Exception:
         BaseSketch = None
 

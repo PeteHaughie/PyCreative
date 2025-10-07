@@ -127,8 +127,12 @@ def dispatch_event(sketch, event: Any):
 
                 if getattr(e, "pos", None) is not None:
                     try:
-                        sketch._mouse_x, sketch._mouse_y = e.pos
-                        sketch._mouse_pos_prev = e.pos
+                            pos = e.pos
+                            if pos is not None and hasattr(pos, '__iter__'):
+                                vals = list(pos)
+                                if len(vals) >= 2:
+                                    sketch._mouse_x, sketch._mouse_y = vals[0], vals[1]
+                                    sketch._mouse_pos_prev = pos
                     except Exception:
                         pass
                 else:
@@ -180,8 +184,12 @@ def dispatch_event(sketch, event: Any):
 
                 if getattr(e, "pos", None) is not None:
                     try:
-                        sketch._mouse_x, sketch._mouse_y = e.pos
-                        sketch._mouse_pos_prev = e.pos
+                        pos = e.pos
+                        if pos is not None and hasattr(pos, '__iter__'):
+                            vals = list(pos)
+                            if len(vals) >= 2:
+                                sketch._mouse_x, sketch._mouse_y = vals[0], vals[1]
+                                sketch._mouse_pos_prev = pos
                     except Exception:
                         pass
                 else:
@@ -269,9 +277,18 @@ def dispatch_event_now(sketch, event: Any):
                 else:
                     sketch.pmouse_x, sketch.pmouse_y = prev_pos
 
-                if getattr(e, "pos", None) is not None:
-                    sketch._mouse_x, sketch._mouse_y = e.pos
-                    sketch._mouse_pos_prev = e.pos
+                # Guarded extraction of e.pos: ensure it's iterable and has at least two
+                # elements before unpacking to avoid TypeErrors and satisfy static
+                # type checkers.
+                pos_val = getattr(e, "pos", None)
+                if pos_val is not None and hasattr(pos_val, "__iter__"):
+                    try:
+                        vals = list(pos_val)
+                        if len(vals) >= 2:
+                            sketch._mouse_x, sketch._mouse_y = vals[0], vals[1]
+                            sketch._mouse_pos_prev = tuple(vals[0:2])
+                    except Exception:
+                        pass
                 else:
                     sketch._mouse_x = None
                     sketch._mouse_y = None
@@ -308,9 +325,15 @@ def dispatch_event_now(sketch, event: Any):
                 else:
                     sketch.pmouse_x, sketch.pmouse_y = prev_pos
 
-                if getattr(e, "pos", None) is not None:
-                    sketch._mouse_x, sketch._mouse_y = e.pos
-                    sketch._mouse_pos_prev = e.pos
+                pos_val = getattr(e, "pos", None)
+                if pos_val is not None and hasattr(pos_val, "__iter__"):
+                    try:
+                        vals = list(pos_val)
+                        if len(vals) >= 2:
+                            sketch._mouse_x, sketch._mouse_y = vals[0], vals[1]
+                            sketch._mouse_pos_prev = tuple(vals[0:2])
+                    except Exception:
+                        pass
                 else:
                     sketch._mouse_x = None
                     sketch._mouse_y = None
