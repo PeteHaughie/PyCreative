@@ -260,6 +260,11 @@ class Surface:
         try:
             if isinstance(color_val, Sequence) and not isinstance(color_val, (str, bytes, bytearray)):
                 vals = list(color_val)
+                # Support shorthand grayscale + alpha: (v, a) -> (v, v, v, a)
+                if len(vals) == 2:
+                    r = _clamp_byte(vals[0])
+                    a = _clamp_byte(vals[1])
+                    return (r, r, r, a)
                 r = _clamp_byte(vals[0])
                 g = _clamp_byte(vals[1])
                 b = _clamp_byte(vals[2])
