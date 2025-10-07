@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional, Tuple
+from collections.abc import Sequence
 from .types import ColorInput, ColorTupleOrNone, ColorTuple
 
 import pygame
@@ -240,7 +241,8 @@ class Surface:
 
         # If HSB mode and iterable input interpret as HSB
         try:
-            if mode == "HSB" and hasattr(color_val, "__iter__"):
+            # Prefer explicit Sequence checks so type-checkers know this is iterable
+            if mode == "HSB" and isinstance(color_val, Sequence) and not isinstance(color_val, (str, bytes, bytearray)):
                 vals = list(color_val)
                 h, s, v = vals[0], vals[1], vals[2]
                 a = vals[3] if len(vals) >= 4 else 255
@@ -253,7 +255,7 @@ class Surface:
 
         # Fallback: treat as RGB(A)
         try:
-            if hasattr(color_val, "__iter__"):
+            if isinstance(color_val, Sequence) and not isinstance(color_val, (str, bytes, bytearray)):
                 vals = list(color_val)
                 r = _clamp_byte(vals[0])
                 g = _clamp_byte(vals[1])
@@ -1162,7 +1164,7 @@ class Surface:
                         except Exception:
                             mode, m1, _m2, _m3 = ("RGB", 255, 255, 255)
                         try:
-                            if mode == "HSB" and hasattr(fill, "__iter__"):
+                            if mode == "HSB" and isinstance(fill, Sequence) and not isinstance(fill, (str, bytes, bytearray)):
                                 vals = list(fill)
                                 h, s, v = vals[0], vals[1], vals[2]
                                 ma = int(self._color_mode[4]) if len(self._color_mode) >= 5 else m1
@@ -1172,7 +1174,7 @@ class Surface:
                                     self._fill = (col.r, col.g, col.b, a)
                                 else:
                                     self._fill = col.to_tuple()
-                            elif hasattr(fill, "__iter__"):
+                            elif isinstance(fill, Sequence) and not isinstance(fill, (str, bytes, bytearray)):
                                 vals = list(fill)
                                 r, g, b = vals[0], vals[1], vals[2]
                                 col = Color.from_rgb(r, g, b, max_value=m1)

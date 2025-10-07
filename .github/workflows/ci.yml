@@ -16,10 +16,30 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: pip install -e .[test]
-      - name: Install linting tools
-        run: pip install ruff pytest
-      - name: Run tests
-        run: pytest
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[test]
+
+      - name: Install linting and typing tools
+        run: |
+          pip install --upgrade pip
+          pip install ruff mypy
+
+      # Optional: run Pyright (Pylance-like) via Node if you want editor-style diagnostics
+      # - name: Setup Node (for pyright)
+      #   uses: actions/setup-node@v4
+      #   with:
+      #     node-version: '18'
+      # - name: Install pyright
+      #   run: npm install -g pyright
+      # - name: Run pyright
+      #   run: pyright
+
       - name: Run Ruff
         run: ruff check .
+
+      - name: Run mypy
+        run: mypy --config-file pyproject.toml
+
+      - name: Run tests
+        run: pytest -q

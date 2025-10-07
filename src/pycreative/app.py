@@ -976,7 +976,7 @@ class Sketch:
             if hasattr(self, "assets") and self.assets:
                 img = self.assets.load_image(path)
                 if img is not None:
-                    return OffscreenSurface(getattr(img, "raw", img))
+                    return OffscreenSurface(cast(pygame.Surface, getattr(img, "raw", img)))
         except Exception as e:
             print(f"Sketch: Assets.load_image failed for '{path}': {e}")
 
@@ -987,14 +987,14 @@ class Sketch:
                 if callable(loader):
                     img = loader(path)
                     if img is not None:
-                        return OffscreenSurface(getattr(img, "raw", img))
+                        return OffscreenSurface(cast(pygame.Surface, getattr(img, "raw", img)))
         except Exception:
             pass
 
         # final fallback to pygame
         try:
             img = pygame.image.load(path)
-            return OffscreenSurface(img)
+            return OffscreenSurface(cast(pygame.Surface, img))
         except Exception:
             print(f"Failed to load image: {path}")
             return None
@@ -1797,7 +1797,10 @@ class Sketch:
             pass
 
         pygame.display.set_caption(self._title)
-        self.surface = GraphicsSurface(self._surface)
+        # `self._surface` is typed as Optional[pygame.Surface]; cast here to
+        # satisfy type checkers that expect a concrete pygame.Surface at this
+        # callsite. We guard for None above, so this cast is safe at runtime.
+        self.surface = GraphicsSurface(cast(pygame.Surface, self._surface))
         # Apply pending state (color mode, fill, stroke, background, modes)
         try:
             if debug:
@@ -1997,7 +2000,8 @@ class Sketch:
             except Exception:
                 pass
         pygame.display.set_caption(self._title)
-        self.surface = GraphicsSurface(self._surface)
+        # Same cast as earlier: ensure the typechecker knows this is a pygame.Surface.
+        self.surface = GraphicsSurface(cast(pygame.Surface, self._surface))
         # Apply any drawing state set earlier in setup() before the Surface existed
         try:
             if debug:
