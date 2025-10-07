@@ -42,7 +42,18 @@ def _apply_tint(src: pygame.Surface, tint: RGB | RGBA) -> pygame.Surface:
                     nr = (pr * int(r)) // 255
                     ng = (pg * int(g)) // 255
                     nb = (pb * int(b)) // 255
+                    # compute resulting alpha after tint
                     na = (pa * int(a)) // 255
+                    # Premultiply RGB by resulting alpha so additive/blend ops
+                    # that ignore alpha (e.g. BLEND_RGBA_ADD) behave correctly
+                    # and fully-transparent pixels contribute no color.
+                    try:
+                        nr = (nr * na) // 255
+                        ng = (ng * na) // 255
+                        nb = (nb * na) // 255
+                    except Exception:
+                        # if any arithmetic fails, fall back to unclamped values
+                        pass
                     src_copy.set_at((xx, yy), (nr, ng, nb, na))
         except Exception:
             try:
