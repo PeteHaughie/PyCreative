@@ -13,6 +13,7 @@ dependencies = [
     "pillow",
     "PyOpenGL",
     "opencv-python",
+    "pytest"
 ]
 
 [optional-dependencies]
