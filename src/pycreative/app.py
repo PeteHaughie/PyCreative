@@ -27,6 +27,17 @@ class Sketch:
     # sketches to refer to `self.CENTER` / `self.CORNER` when setting modes.
     CENTER = GraphicsSurface.MODE_CENTER
     CORNER = GraphicsSurface.MODE_CORNER
+    # Expose blend mode constants so sketches can call self.BLEND / self.ADD etc.
+    BLEND = GraphicsSurface.BLEND
+    ADD = GraphicsSurface.ADD
+    SUBTRACT = GraphicsSurface.SUBTRACT
+    DARKEST = GraphicsSurface.DARKEST
+    LIGHTEST = GraphicsSurface.LIGHTEST
+    DIFFERENCE = GraphicsSurface.DIFFERENCE
+    EXCLUSION = GraphicsSurface.EXCLUSION
+    MULTIPLY = GraphicsSurface.MULTIPLY
+    SCREEN = GraphicsSurface.SCREEN
+    REPLACE = GraphicsSurface.REPLACE
 
     def __init__(self, sketch_path: Optional[str] = None, seed: int | None = None) -> None:
         # Optional path to the user sketch file that instantiated this Sketch
@@ -67,6 +78,8 @@ class Sketch:
         # Pending image mode/tint recorded before surface exists
         self._pending_image_mode: Any = _PENDING_UNSET
         self._pending_tint: Any = _PENDING_UNSET
+        # Pending blend mode
+        self._pending_blend: Any = _PENDING_UNSET
         # Pending line cap / join style (butt, round, square) / (miter, round, bevel)
         self._pending_line_cap: Any = _PENDING_UNSET
         self._pending_line_join: Any = _PENDING_UNSET
@@ -535,20 +548,63 @@ class Sketch:
             self._escape_closes = True
 
     # --- Surface state helpers (delegate to self.surface) ---
-    def fill(self, color: Optional[tuple[int, ...]]):
-        if self.surface is not None:
-            # Set drawing style on the surface without clearing the canvas.
-            try:
-                coerced = self.surface._coerce_input_color(color)
-                self.surface._fill = coerced
-            except Exception:
-                # fallback: call surface.fill as a best-effort
-                try:
-                    self.surface.fill(color)
-                except Exception:
-                    self._pending_fill = color
+    def fill(self, *args):
+        """Set the sketch fill color.
+
+        Accepts the same flexible forms as `Surface.fill` and `Surface._coerce_input_color`:
+          - fill(r, g, b)
+          - fill(r, g, b, a)
+          - fill((r, g, b))
+          - fill((r, g, b, a))
+          - fill(None)  # disable fill
+
+        When called before the Surface exists the normalized args are
+        recorded as pending and applied in `run()` (same behavior as other
+        pending state helpers).
+        """
+        # Normalize incoming args into a single color object or None
+        if len(args) == 0:
+            # no-op / getter not supported on Sketch wrapper; keep prior behavior
+            return None
+
+        if len(args) == 1:
+            color_in = args[0]
         else:
-            self._pending_fill = color
+            # multiple positional args -> treat as individual channels
+            color_in = tuple(args)
+
+        # If explicit None provided, treat as no_fill()
+        if color_in is None:
+            if self.surface is not None:
+                try:
+                    self.surface.no_fill()
+                    return None
+                except Exception:
+                    self._pending_fill = None
+                    return None
+            else:
+                self._pending_fill = None
+                return None
+
+        # If a surface exists, attempt to coerce & apply immediately
+        if self.surface is not None:
+            try:
+                coerced = self.surface._coerce_input_color(color_in)
+                self.surface._fill = coerced
+                return None
+            except Exception:
+                # fallback: try calling surface.fill directly
+                try:
+                    self.surface.fill(color_in)
+                    return None
+                except Exception:
+                    # record pending raw value as a last resort
+                    self._pending_fill = color_in
+                    return None
+
+        # Surface not yet available: record pending raw value
+        self._pending_fill = color_in
+        return None
 
     def no_fill(self) -> None:
         if self.surface is not None:
@@ -663,6 +719,29 @@ class Sketch:
         else:
             self._pending_tint = args
             return None
+
+    def blend_mode(self, mode: Optional[str] = None) -> str | None:
+        """Get or set blend mode on the active surface (or record pending).
+
+        When called before a Surface exists this records the pending mode and
+        applies it when the Surface is created. When the surface exists this
+        forwards to `Surface.blend_mode()`.
+        """
+        if self.surface is not None:
+            return self.surface.blend_mode(mode)
+        # getter when no surface
+        if mode is None:
+            v = self._pending_blend
+            if v is _PENDING_UNSET:
+                return None
+            return cast(str, v)
+        try:
+            m = str(mode)
+        except Exception:
+            return None
+        # record pending value for later application
+        self._pending_blend = m
+        return None
 
     def color_mode(self, mode: Optional[str] = None, max1: int = 255, max2: int = 255, max3: int = 255, max4: int | None = None):
         """Get or set color mode. When called before a Surface exists this
@@ -1674,6 +1753,15 @@ class Sketch:
                             self.surface.tint(*t)
                         else:
                             self.surface.tint(t)
+                except Exception:
+                    pass
+            if getattr(self, "_pending_blend", _PENDING_UNSET) is not _PENDING_UNSET:
+                try:
+                    b = self._pending_blend
+                    if b is None:
+                        self.surface.blend_mode(None)
+                    else:
+                        self.surface.blend_mode(b)
                 except Exception:
                     pass
         except Exception:
