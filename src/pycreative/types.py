@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-from typing import Tuple, Optional, Union
-import pycreative
+from typing import Tuple, Optional, Union, TYPE_CHECKING
+
+# Avoid importing the runtime Color here to prevent circular imports. Expose
+# the Color name to static checkers only.
+if TYPE_CHECKING:
+    from .color import Color  # pragma: no cover
 
 # Simple numeric alias used throughout the codebase
 Number = float | int
@@ -13,7 +17,9 @@ RGBA = Tuple[int, int, int, int]
 # grayscale numeric value (e.g., 255), a 3- or 4-tuple, or a runtime
 # `pycreative.color.Color` instance. This type is intentionally permissive
 # because public-facing helpers accept many shorthand forms.
-ColorInput = Union[Number, RGB, RGBA, "pycreative.color.Color"]
+# Use the local "Color" forward-ref so TYPE_CHECKING can resolve it without
+# importing at runtime (avoids circular imports).
+ColorInput = Union[Number, RGB, RGBA, "Color"]
 
 # ColorTuple is the normalized, internal representation used by the Surface
 # implementation and pygame: a concrete 3- or 4-length tuple of ints.

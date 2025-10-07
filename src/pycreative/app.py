@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional, Tuple, Callable, Any, cast
 from collections.abc import Iterable
-from .types import ColorOrNone, ColorTupleOrNone
+from .types import ColorOrNone, ColorTupleOrNone, ColorInput
 
 import time
 import os
@@ -1895,10 +1895,12 @@ class Sketch:
                         coerced_bg = _to_color_tuple_local(bg)
                         if coerced_bg is not None:
                             try:
+                                # coerced_bg is a concrete tuple of ints (3 or 4-length)
                                 self.surface.clear(coerced_bg)
                             except Exception:
                                 pass
                         else:
+                            # Accept explicit Color instances or numeric grayscale.
                             try:
                                 from .color import Color as _Color
 
@@ -1907,12 +1909,34 @@ class Sketch:
                                         self.surface.clear(bg)
                                     except Exception:
                                         pass
+                                elif isinstance(bg, (int, float)):
+                                    try:
+                                        self.surface.clear(int(bg) & 255)
+                                    except Exception:
+                                        pass
+                                elif isinstance(bg, tuple):
+                                    # Ensure tuple is 3- or 4-length of ints before passing
+                                    try:
+                                        if len(bg) in (3, 4):
+                                            t3 = tuple(int(x) for x in bg)
+                                            # mypy wants concrete fixed-size tuple types; cast to ColorInput
+                                            self.surface.clear(cast(ColorInput, t3))
+                                    except Exception:
+                                        pass
                             except Exception:
-                                # last-resort: attempt to call clear and ignore failures
-                                try:
-                                    self.surface.clear(bg)
-                                except Exception:
-                                    pass
+                                # If Color import failed, fall back to guarded tuple/numeric handling
+                                if isinstance(bg, (int, float)):
+                                    try:
+                                        self.surface.clear(int(bg) & 255)
+                                    except Exception:
+                                        pass
+                                elif isinstance(bg, tuple):
+                                    try:
+                                        if len(bg) in (3, 4):
+                                            t3 = tuple(int(x) for x in bg)
+                                            self.surface.clear(cast(ColorInput, t3))
+                                    except Exception:
+                                        pass
                         self._pending_background = _PENDING_UNSET
                 except Exception:
                     pass
@@ -2151,11 +2175,32 @@ class Sketch:
                                         self.surface.clear(bg)
                                     except Exception:
                                         pass
+                                elif isinstance(bg, (int, float)):
+                                    try:
+                                        self.surface.clear(int(bg) & 255)
+                                    except Exception:
+                                        pass
+                                elif isinstance(bg, tuple):
+                                    try:
+                                        if len(bg) in (3, 4):
+                                            t3 = tuple(int(x) for x in bg)
+                                            self.surface.clear(cast(ColorInput, t3))
+                                    except Exception:
+                                        pass
                             except Exception:
-                                try:
-                                    self.surface.clear(bg)
-                                except Exception:
-                                    pass
+                                # Last-resort guarded handling without importing Color
+                                if isinstance(bg, (int, float)):
+                                    try:
+                                        self.surface.clear(int(bg) & 255)
+                                    except Exception:
+                                        pass
+                                elif isinstance(bg, tuple):
+                                    try:
+                                        if len(bg) in (3, 4):
+                                            t3 = tuple(int(x) for x in bg)
+                                            self.surface.clear(cast(ColorInput, t3))
+                                    except Exception:
+                                        pass
                         self._pending_background = _PENDING_UNSET
                 except Exception:
                     pass
