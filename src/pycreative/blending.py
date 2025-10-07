@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from typing import Optional
+from collections import OrderedDict
 from .types import RGB, RGBA
 
 import pygame
+
+# Simple LRU cache for premultiplied surfaces keyed by a small sample fingerprint
+# Keys are tuples: (w, h, bitsize, sample_pixels)
+_PREMULT_CACHE_MAX = 128
+_premult_cache: "OrderedDict[tuple, pygame.Surface]" = OrderedDict()
 
 
 def _apply_tint(src: pygame.Surface, tint: RGB | RGBA) -> pygame.Surface:
@@ -44,16 +50,10 @@ def _apply_tint(src: pygame.Surface, tint: RGB | RGBA) -> pygame.Surface:
                     nb = (pb * int(b)) // 255
                     # compute resulting alpha after tint
                     na = (pa * int(a)) // 255
-                    # Premultiply RGB by resulting alpha so additive/blend ops
-                    # that ignore alpha (e.g. BLEND_RGBA_ADD) behave correctly
-                    # and fully-transparent pixels contribute no color.
-                    try:
-                        nr = (nr * na) // 255
-                        ng = (ng * na) // 255
-                        nb = (nb * na) // 255
-                    except Exception:
-                        # if any arithmetic fails, fall back to unclamped values
-                        pass
+                    # Store tinted RGB and updated alpha. Do NOT premultiply here;
+                    # keep prior behavior where RGB = src* tint_rgb and alpha = src_alpha * tint_alpha.
+                    # Premultiplication is applied selectively before additive/subtractive blits
+                    # to avoid halos while preserving Processing-like tint semantics.
                     src_copy.set_at((xx, yy), (nr, ng, nb, na))
         except Exception:
             try:
@@ -94,13 +94,89 @@ def apply_blit_with_blend(dst: pygame.Surface, src: pygame.Surface, bx: int, by:
     except Exception:
         m = "BLEND"
 
+    # Helper: return a premultiplied copy of src (RGB scaled by alpha)
+    def _premultiply_surface(surface: pygame.Surface) -> pygame.Surface:
+        try:
+            w, h = surface.get_size()
+        except Exception:
+            return surface
+
+        # Build a small fingerprint of the surface: corners (or fewer if tiny) and bitsize.
+        try:
+            bits = surface.get_bitsize()
+        except Exception:
+            bits = 32
+
+        samples = []
+        coords = [(0, 0), (max(0, w - 1), 0), (0, max(0, h - 1)), (max(0, w - 1), max(0, h - 1))]
+        try:
+            for (sx, sy) in coords:
+                # Guard against errors on tiny surfaces
+                if sx < w and sy < h:
+                    try:
+                        samples.append(tuple(surface.get_at((sx, sy))))
+                    except Exception:
+                        samples.append((0, 0, 0, 0))
+                else:
+                    samples.append((0, 0, 0, 0))
+        except Exception:
+            samples = [(0, 0, 0, 0)] * 4
+
+        key = (w, h, bits, tuple(samples))
+
+        # Cache lookup (LRU)
+        cached = _premult_cache.get(key)
+        if cached is not None:
+            # mark as recently used
+            try:
+                _premult_cache.move_to_end(key)
+            except Exception:
+                pass
+            return cached
+
+        # Not cached: compute premultiplied surface
+        try:
+            pm = pygame.Surface((w, h), flags=pygame.SRCALPHA)
+            pm.blit(surface, (0, 0))
+            pm.lock()
+            for yy in range(h):
+                for xx in range(w):
+                    try:
+                        r, g, b, a = pm.get_at((xx, yy))
+                    except Exception:
+                        continue
+                    if a == 255:
+                        continue
+                    nr = (int(r) * int(a)) // 255
+                    ng = (int(g) * int(a)) // 255
+                    nb = (int(b) * int(a)) // 255
+                    pm.set_at((xx, yy), (nr, ng, nb, a))
+            pm.unlock()
+            # store in cache (might raise if cache mutated concurrently)
+            try:
+                _premult_cache[key] = pm
+                _premult_cache.move_to_end(key)
+                if len(_premult_cache) > _PREMULT_CACHE_MAX:
+                    _premult_cache.popitem(last=False)
+            except Exception:
+                # if cache update fails, ignore and continue
+                pass
+            return pm
+        except Exception:
+            try:
+                return surface.copy()
+            except Exception:
+                return surface
+
     # Map common modes to pygame blend flags where available
     try:
         if m == "ADD":
-            dst.blit(src_copy, (bx, by), special_flags=pygame.BLEND_RGBA_ADD)
+            # additive blits should operate on premultiplied RGB so that
+            # fully-transparent pixels (a==0) do not leak color.
+            dst.blit(_premultiply_surface(src_copy), (bx, by), special_flags=pygame.BLEND_RGBA_ADD)
             return
         if m == "SUBTRACT":
-            dst.blit(src_copy, (bx, by), special_flags=pygame.BLEND_RGBA_SUB)
+            dst.blit(_premultiply_surface(src_copy), (bx, by), special_flags=pygame.BLEND_RGBA_SUB)
             return
         if m == "MULTIPLY":
             dst.blit(src_copy, (bx, by), special_flags=pygame.BLEND_RGBA_MULT)
