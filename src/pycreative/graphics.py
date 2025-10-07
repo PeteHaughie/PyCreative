@@ -60,7 +60,10 @@ class Surface:
         # Drawing state
         # _fill/_stroke accept either 3- or 4-length tuples (RGB or RGBA)
         # Use the concrete ColorTupleOrNone annotation for internal storage
-        self._fill: ColorTupleOrNone = (255, 255, 255)
+        from typing import cast as _cast
+
+        # default white fill (3-tuple). Cast to ColorTupleOrNone for clarity
+        self._fill: ColorTupleOrNone = _cast(ColorTupleOrNone, (255, 255, 255))
         self._stroke: ColorTupleOrNone = None
         self._stroke_weight: int = 1
         self._rect_mode: str = self.MODE_CORNER
@@ -430,7 +433,7 @@ class Surface:
             return
 
     # --- basic operations ---
-    def clear(self, color: Tuple[int, int, int]) -> None:
+    def clear(self, color: ColorInput) -> None:
         """Fill the entire surface with a color.
 
         Accepts the same color forms as `fill()`: a `Color` instance, an HSB
@@ -439,6 +442,8 @@ class Surface:
         # Accept Color instances directly (preserve alpha if present)
         try:
             if isinstance(color, Color):
+                # annotate local variable to accept either RGB or RGBA
+                rgba: ColorTuple
                 try:
                     rgba = color.to_rgba_tuple()
                 except Exception:
@@ -461,7 +466,7 @@ class Surface:
         try:
             # support (mode, max1, max2, max3, max4)
             mode, m1, m2, m3, *_rest = self._color_mode
-            if mode == "HSB" and hasattr(color, "__iter__"):
+            if mode == "HSB" and isinstance(color, Sequence) and not isinstance(color, (str, bytes, bytearray)):
                 # allow 3- or 4-length tuples: (h,s,v) or (h,s,v,a)
                 vals = list(color)
                 h, s, v = vals[0], vals[1], vals[2]
@@ -478,9 +483,9 @@ class Surface:
         except Exception:
             pass
 
-        # fallback: treat as RGB tuple (allow alpha)
+    # fallback: treat as RGB tuple (allow alpha)
         try:
-            if hasattr(color, "__iter__"):
+            if isinstance(color, Sequence) and not isinstance(color, (str, bytes, bytearray)):
                 vals = list(color)
                 r = int(vals[0]) & 255
                 g = int(vals[1]) & 255

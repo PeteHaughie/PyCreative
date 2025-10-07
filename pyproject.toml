@@ -38,6 +38,8 @@ disallow_untyped_defs = false
 warn_unused_ignores = true
 # Exclude examples and sketches from mypy checks (they are example sketches, not library code)
 exclude = '(^examples/|^sketches/)'
+# Default files/directories to type-check when no CLI targets are provided
+files = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

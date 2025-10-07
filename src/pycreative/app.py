@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional, Tuple, Callable, Any, cast
+from collections.abc import Iterable
 from .types import ColorOrNone, ColorTupleOrNone
 
 import time
@@ -134,7 +135,7 @@ class Sketch:
             self.HALF_PI = pmath.HALF_PI
         except Exception:
             # Fall back to stdlib math if pmath can't be imported for any reason
-            self.math = math  # type: ignore[assignment]
+            self.math = math
             self.PI = math.pi
             self.TWO_PI = 2.0 * math.pi
             self.HALF_PI = 0.5 * math.pi
@@ -638,8 +639,8 @@ class Sketch:
         if self.surface is not None:
             try:
                 coerced = self.surface._coerce_input_color(color_in)
-                # Surface._fill expects a Tuple[int,...] | None; coerce and cast
-                self.surface._fill = tuple(coerced) if coerced is not None else None  # type: ignore[assignment]
+                # Surface._fill expects a ColorTupleOrNone; cast the result
+                self.surface._fill = cast(ColorTupleOrNone, tuple(coerced)) if coerced is not None else None
                 return None
             except Exception:
                 # fallback: try calling surface.fill directly
@@ -697,8 +698,8 @@ class Sketch:
         if self.surface is not None:
             try:
                 coerced = self.surface._coerce_input_color(color_in)
-                # Surface._stroke expects a Tuple[int,...] | None; coerce and cast
-                self.surface._stroke = tuple(coerced) if coerced is not None else None  # type: ignore[assignment]
+                # Surface._stroke expects a ColorTupleOrNone; cast the result
+                self.surface._stroke = cast(ColorTupleOrNone, tuple(coerced)) if coerced is not None else None
                 return None
             except Exception:
                 # fallback: try calling surface.stroke directly
@@ -837,7 +838,7 @@ class Sketch:
         """
         if self.surface is not None:
             # forward optional alpha max when surface exists
-            return self.surface.color_mode(mode, max1, max2, max3, max4)  # type: ignore[arg-type]
+            return self.surface.color_mode(mode, max1, max2, max3, max4)
         if mode is None:
             v = self._pending_color_mode
             if v is _PENDING_UNSET:
@@ -883,7 +884,10 @@ class Sketch:
                     candidate = None
                 else:
                     try:
-                        candidate = tuple(coerced)  # type: ignore[arg-type]
+                        if isinstance(coerced, Iterable) and not isinstance(coerced, (str, bytes, bytearray)):
+                            candidate = tuple(coerced)
+                        else:
+                            candidate = None
                     except Exception:
                         candidate = None
                 # cast to the narrow union the Surface.point accepts
@@ -1818,15 +1822,37 @@ class Sketch:
                     pass
 
             if self._pending_fill is not _PENDING_UNSET:
-                val = None if self._pending_fill is None else tuple(self._pending_fill)  # type: ignore[arg-type]
+                # Safely coerce pending color-like values to concrete tuples.
+                def _to_color_tuple(v: object) -> ColorTupleOrNone:
+                    if v is None:
+                        return None
+                    try:
+                        # Only call tuple() on iterables
+                        if isinstance(v, Iterable) and not isinstance(v, (str, bytes, bytearray)):
+                            return tuple(v)
+                    except Exception:
+                        pass
+                    return None
+
+                val = _to_color_tuple(self._pending_fill)
                 if debug:
                     print(f"[pycreative.initialize] debug: applying pending fill={val}")
-                self.surface.fill(val)  # type: ignore[arg-type]
+                self.surface.fill(val)
             if self._pending_stroke is not _PENDING_UNSET:
-                col = None if self._pending_stroke is None else tuple(self._pending_stroke)  # type: ignore[arg-type]
+                def _to_color_tuple(v: object) -> ColorTupleOrNone:
+                    if v is None:
+                        return None
+                    try:
+                        if isinstance(v, Iterable) and not isinstance(v, (str, bytes, bytearray)):
+                            return tuple(v)
+                    except Exception:
+                        pass
+                    return None
+
+                col = _to_color_tuple(self._pending_stroke)
                 if debug:
                     print(f"[pycreative.initialize] debug: applying pending stroke={col}")
-                self.surface.stroke(col)  # type: ignore[arg-type]
+                self.surface.stroke(col)
             if self._pending_stroke_weight is not _PENDING_UNSET:
                 if isinstance(self._pending_stroke_weight, int):
                     self.surface.stroke_weight(self._pending_stroke_weight)
@@ -1853,20 +1879,40 @@ class Sketch:
                 try:
                     bg = self._pending_background
                     if bg is not _PENDING_UNSET:
-                        # Debug: log pending background application so external
-                        # runs (non-headless or display-backed) can confirm
-                        # whether initialize() applied the value.
-                        # Try to apply pending background directly; accept numbers,
-                        # Color instances, and tuples/lists. Fall back to tuple()
-                        # when necessary. This avoids silently dropping pending
-                        # background values when their Python type isn't a tuple.
-                        try:
-                            self.surface.clear(bg)  # type: ignore[arg-type]
-                        except Exception:
+                        # Try a safe coercion path: prefer concrete tuple forms,
+                        # then fall back to Color instances. Avoid passing raw
+                        # unknown types to Surface.clear to satisfy static checkers.
+                        def _to_color_tuple_local(v: object) -> ColorTupleOrNone:
+                            if v is None:
+                                return None
                             try:
-                                self.surface.clear(tuple(bg))  # type: ignore[arg-type]
+                                if isinstance(v, Iterable) and not isinstance(v, (str, bytes, bytearray)):
+                                    return tuple(v)
                             except Exception:
                                 pass
+                            return None
+
+                        coerced_bg = _to_color_tuple_local(bg)
+                        if coerced_bg is not None:
+                            try:
+                                self.surface.clear(coerced_bg)
+                            except Exception:
+                                pass
+                        else:
+                            try:
+                                from .color import Color as _Color
+
+                                if isinstance(bg, _Color):
+                                    try:
+                                        self.surface.clear(bg)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                # last-resort: attempt to call clear and ignore failures
+                                try:
+                                    self.surface.clear(bg)
+                                except Exception:
+                                    pass
                         self._pending_background = _PENDING_UNSET
                 except Exception:
                     pass
@@ -2021,15 +2067,35 @@ class Sketch:
 
             if self._pending_fill is not _PENDING_UNSET:
                 # explicit None means disable fill; narrow type for static checkers
-                val = None if self._pending_fill is None else tuple(self._pending_fill)  # type: ignore[arg-type]
+                def _to_color_tuple(v: object) -> ColorTupleOrNone:
+                    if v is None:
+                        return None
+                    try:
+                        if isinstance(v, Iterable) and not isinstance(v, (str, bytes, bytearray)):
+                            return tuple(v)
+                    except Exception:
+                        pass
+                    return None
+
+                val = _to_color_tuple(self._pending_fill)
                 if debug:
                     print(f"[pycreative.run] debug: applying pending fill={val}")
-                self.surface.fill(val)  # type: ignore[arg-type]
+                self.surface.fill(val)
             if self._pending_stroke is not _PENDING_UNSET:
-                col = None if self._pending_stroke is None else tuple(self._pending_stroke)  # type: ignore[arg-type]
+                def _to_color_tuple(v: object) -> ColorTupleOrNone:
+                    if v is None:
+                        return None
+                    try:
+                        if isinstance(v, Iterable) and not isinstance(v, (str, bytes, bytearray)):
+                            return tuple(v)
+                    except Exception:
+                        pass
+                    return None
+
+                col = _to_color_tuple(self._pending_stroke)
                 if debug:
                     print(f"[pycreative.run] debug: applying pending stroke={col}")
-                self.surface.stroke(col)  # type: ignore[arg-type]
+                self.surface.stroke(col)
             if self._pending_stroke_weight is not _PENDING_UNSET:
                 if isinstance(self._pending_stroke_weight, int):
                     self.surface.stroke_weight(self._pending_stroke_weight)
@@ -2057,8 +2123,39 @@ class Sketch:
                 try:
                     bg = self._pending_background
                     if bg is not _PENDING_UNSET:
-                        # cast to satisfy static checkers; runtime accepts Color/tuple
-                        self.surface.clear(cast(tuple, bg))  # type: ignore[arg-type]
+                        # Reuse safe coercion path to avoid unsafe casts here
+                        def _to_color_tuple_local(v: object) -> ColorTupleOrNone:
+                            if v is None:
+                                return None
+                            try:
+                                from collections.abc import Sequence as _Seq
+
+                                if isinstance(v, _Seq) and not isinstance(v, (str, bytes, bytearray)):
+                                    return tuple(v)
+                            except Exception:
+                                pass
+                            return None
+
+                        coerced_bg = _to_color_tuple_local(bg)
+                        if coerced_bg is not None:
+                            try:
+                                self.surface.clear(coerced_bg)
+                            except Exception:
+                                pass
+                        else:
+                            try:
+                                from .color import Color as _Color
+
+                                if isinstance(bg, _Color):
+                                    try:
+                                        self.surface.clear(bg)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                try:
+                                    self.surface.clear(bg)
+                                except Exception:
+                                    pass
                         self._pending_background = _PENDING_UNSET
                 except Exception:
                     pass
@@ -2326,13 +2423,13 @@ class Sketch:
                         # attempt to coerce pending fill using off surface
                         try:
                             coerced = off._coerce_input_color(self._pending_fill)
-                            off._fill = tuple(coerced) if coerced is not None else None  # type: ignore[assignment]
+                            off._fill = cast(ColorTupleOrNone, tuple(coerced)) if coerced is not None else None
                         except Exception:
                             off._fill = getattr(self, "_pending_fill", off._fill)
                     if getattr(self, "_pending_stroke", _PENDING_UNSET) is not _PENDING_UNSET:
                         try:
                             coerced_s = off._coerce_input_color(self._pending_stroke)
-                            off._stroke = tuple(coerced_s) if coerced_s is not None else None  # type: ignore[assignment]
+                            off._stroke = cast(ColorTupleOrNone, tuple(coerced_s)) if coerced_s is not None else None
                         except Exception:
                             off._stroke = getattr(self, "_pending_stroke", off._stroke)
                     if getattr(self, "_pending_stroke_weight", _PENDING_UNSET) is not _PENDING_UNSET:
