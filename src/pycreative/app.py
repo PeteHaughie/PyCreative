@@ -1282,7 +1282,7 @@ class Sketch:
         Behavior:
         - If current color_mode is HSB, interprets args as (h,s,v) or (h,s,v,a)
         - If current color_mode is RGB, interprets args as (r,g,b) or (r,g,b,a)
-        Returns a `pycreative.color.Color` instance.
+        Returns a `Color` instance.
         """
         # lazy import to avoid heavy deps at module import time
         from .color import Color

@@ -15,8 +15,8 @@ RGB = Tuple[int, int, int]
 RGBA = Tuple[int, int, int, int]
 # ColorInput covers the loose forms accepted by public APIs: a single
 # grayscale numeric value (e.g., 255), a 3- or 4-tuple, or a runtime
-# `pycreative.color.Color` instance. This type is intentionally permissive
-# because public-facing helpers accept many shorthand forms.
+# `Color` instance. This type is intentionally permissive because public-
+# facing helpers accept many shorthand forms.
 # Use the local "Color" forward-ref so TYPE_CHECKING can resolve it without
 # importing at runtime (avoids circular imports).
 ColorInput = Union[Number, RGB, RGBA, "Color"]
