@@ -147,6 +147,31 @@ class PVector:
             return self.copy()
         return PVector(self.x / s, self.y / s)
 
+    # Right-side operator overloads so Python will dispatch here when the
+    # left operand doesn't know how to handle an operation (e.g., a tuple).
+    # This makes expressions like (x,y) - PVector(...) or 2 * PVector(...) work
+    # and prevents confusing TypeErrors for learners.
+    def __radd__(self, other) -> "PVector":
+        ox, oy = (other.x, other.y) if isinstance(other, PVector) else (float(other[0]), float(other[1]))
+        return PVector(ox + self.x, oy + self.y)
+
+    def __rsub__(self, other) -> "PVector":
+        ox, oy = (other.x, other.y) if isinstance(other, PVector) else (float(other[0]), float(other[1]))
+        return PVector(ox - self.x, oy - self.y)
+
+    def __rmul__(self, scalar: float) -> "PVector":
+        # support scalar * PVector
+        try:
+            s = float(scalar)
+        except Exception:
+            # if a 2-length iterable was provided, fall back to elementwise
+            if isinstance(scalar, (tuple, list)):
+                vals = list(scalar)
+                if len(vals) >= 2:
+                    return PVector(float(vals[0]) * self.x, float(vals[1]) * self.y)
+            raise TypeError("Unsupported operand type(s) for *: '{}' and 'PVector'".format(type(scalar).__name__))
+        return PVector(self.x * s, self.y * s)
+
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return f"PVector({self.x!r}, {self.y!r})"
 
