@@ -1761,7 +1761,7 @@ class Sketch:
             print(f"[pycreative.initialize] debug: sketch_path={self.sketch_path}, width={self.width}, height={self.height}, fullscreen={self.fullscreen}")
         sketch_dir = os.path.dirname(self.sketch_path) if self.sketch_path else os.getcwd()
         try:
-            self.assets = Assets(sketch_dir)
+            self.assets = Assets(sketch_dir, debug=debug)
         except Exception:
             self.assets = None
 

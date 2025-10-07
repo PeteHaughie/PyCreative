@@ -9,8 +9,10 @@ import pygame
 
 
 class Assets:
-    def __init__(self, sketch_dir: str):
+    def __init__(self, sketch_dir: str, debug: bool = False):
         self.sketch_dir = sketch_dir
+        # enable verbose debug printing when True
+        self.debug = bool(debug)
         # cache maps resolved absolute path -> pygame.Surface
         # Store as an instance attribute so static analyzers understand `self.cache`
         self.cache: Dict[str, pygame.Surface] = {}
@@ -26,30 +28,38 @@ class Assets:
         candidates.append(os.path.join(self.sketch_dir, "examples", "data", *parts))
         candidates.append(os.path.join(self.sketch_dir, "examples", *parts))
 
-        print(f"[Assets] Debug: sketch_dir={self.sketch_dir}")
+        if self.debug:
+            print(f"[Assets] Debug: sketch_dir={self.sketch_dir}")
         for p in candidates:
-            print(f"[Assets] Debug: Trying {p}")
+            if self.debug:
+                print(f"[Assets] Debug: Trying {p}")
             if os.path.exists(p):
-                print(f"[Assets] Debug: Found asset at {p}")
+                if self.debug:
+                    print(f"[Assets] Debug: Found asset at {p}")
                 return p
 
-        print("[Assets] Debug: Not found in candidate locations")
+        if self.debug:
+            print("[Assets] Debug: Not found in candidate locations")
         return None
 
     def load_image(self, path: str) -> Optional[pygame.Surface]:
-        print(f"[Assets] Debug: load_image called with path={path}")
+        if self.debug:
+            print(f"[Assets] Debug: load_image called with path={path}")
         resolved = self._resolve_path(path)
         if not resolved:
             print(f"[Assets] Error: '{path}' not found in 'data/' or sketch directory: {self.sketch_dir}")
             return None
-        print(f"[Assets] Debug: Loading image from {resolved}")
+        if self.debug:
+            print(f"[Assets] Debug: Loading image from {resolved}")
         if resolved in self.cache:
-            print("[Assets] Debug: Returning cached image")
+            if self.debug:
+                print("[Assets] Debug: Returning cached image")
             return self.cache[resolved]
         try:
             img = pygame.image.load(resolved)
             self.cache[resolved] = img
-            print("[Assets] Debug: Image loaded successfully")
+            if self.debug:
+                print("[Assets] Debug: Image loaded successfully")
             return img
         except Exception as e:
             print(f"[Assets] Error loading image '{resolved}': {e}")
