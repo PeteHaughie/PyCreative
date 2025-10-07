@@ -3,7 +3,6 @@ transforms_example.py: Example sketch demonstrating geometric transformations.
 """
 
 from pycreative.app import Sketch
-import math
 
 class TransformExample(Sketch):
     def setup(self):
@@ -13,10 +12,10 @@ class TransformExample(Sketch):
 
     def update(self, dt):
         self.t = self.frame_count / 60.0  # time in seconds
-        self.x = math.sin(self.t) * 100 + self.width / 2
-        self.y = math.cos(self.t) * 100 + self.height / 2
-        self.scale = (math.sin(self.t * 2) + 1) / 2
-        self.angle = math.radians(self.t % 360) * 20
+        self.x = self.sin(self.t) * 100 + self.width / 2
+        self.y = self.cos(self.t) * 100 + self.height / 2
+        self.scale = (self.sin(self.t * 2) + 1) / 2
+        self.angle = self.radians(self.t % 360) * 20
 
     def draw(self):
         self.clear(self.bg)

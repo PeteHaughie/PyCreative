@@ -3,7 +3,6 @@ offscreen_example.py: Example sketch demonstrating offscreen surface caching.
 """
 
 from pycreative.app import Sketch
-import math
 
 class OffscreenExample(Sketch):
     """Offscreen Surface caching demo.
@@ -32,10 +31,10 @@ class OffscreenExample(Sketch):
 
     def update(self, dt):
         self.t = self.frame_count / 60.0  # time in seconds
-        self.x = math.sin(self.t) * 100 + self.width / 2
-        self.y = math.cos(self.t) * 100 + self.height / 2
-        self.scale = (math.sin(self.t * 2) + 1) / 2
-        self.angle = math.radians(self.t % 360) * 20
+        self.x = self.sin(self.t) * 100 + self.width / 2
+        self.y = self.cos(self.t) * 100 + self.height / 2
+        self.scale = (self.sin(self.t * 2) + 1) / 2
+        self.angle = self.radians(self.t % 360) * 20
 
 
     def draw(self):
@@ -64,8 +63,8 @@ class OffscreenExample(Sketch):
             self.off.rect(50, off_h / 2 - 100, rect_w, 100, stroke_width=2)
 
             # moving ellipse
-            ex = 225 + math.sin(self.t * 1.5) * 40
-            ey = off_h - 150 + math.cos(self.t * 1.2) * 20
+            ex = 225 + self.sin(self.t * 1.5) * 40
+            ey = off_h - 150 + self.cos(self.t * 1.2) * 20
             self.off.fill((100, 255, 100))
             self.off.ellipse(ex, ey, 200 * (0.8 + self.scale * 0.4), 200 * (0.8 + self.scale * 0.4), stroke_width=2)
 
@@ -93,8 +92,3 @@ class OffscreenExample(Sketch):
         # blit the offscreen surface onto the main canvas, centered with a margin
         w, h = 800, 600
         self.image(self.off, 10, 10, w - 20, h - 20)
-
-
-
-if __name__ == "__main__":
-    OffscreenExample().run()
