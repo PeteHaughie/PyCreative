@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from typing import Optional, Tuple
+from .types import ColorLike, ColorOrNone
 
 import pygame
 from typing import Any
 from contextlib import contextmanager
+from pycreative.pixels import get_pixels, set_pixels, get_pixel, set_pixel, pixels as pixels_ctx
 
 from .transforms import (
     identity_matrix,
@@ -17,6 +19,8 @@ from .transforms import (
     decompose_scale,
 )
 from .color import Color
+from pycreative.shape_math import flatten_cubic_bezier, bezier_point, bezier_tangent, curve_point, curve_tangent
+from pycreative import primitives as _primitives
 
 
 # NOTE: numpy support removed — pixel helpers use pure-Python nested lists.
@@ -24,46 +28,7 @@ _HAS_NUMPY = False
 _np = None
 
 
-class PixelView:
-    """Thin adapter around either a numpy array or a nested list that provides
-    uniform (h,w,c) indexing and a 'shape' attribute. This keeps sketches
-    from needing to import numpy directly while preserving fast paths.
-    """
-    def __init__(self, data: Any):
-        self._data = data
-
-    @property
-    def shape(self):
-        if hasattr(self._data, "shape"):
-            return self._data.shape
-        h = len(self._data)
-        w = len(self._data[0]) if h > 0 else 0
-        c = len(self._data[0][0]) if w > 0 else 0
-        return (h, w, c)
-
-    def __getitem__(self, idx):
-        # Support numpy-style multi-indexing like [y, x, c] when _data is nested lists
-        if isinstance(idx, tuple):
-            # drill down through nested lists
-            cur = self._data
-            for k in idx:
-                cur = cur[k]
-            return cur
-        return self._data[idx]
-
-    def __setitem__(self, idx, value):
-        # Support multi-index assignment arr[y, x, c] for nested-lists
-        if isinstance(idx, tuple):
-            cur = self._data
-            # traverse to last container
-            for k in idx[:-1]:
-                cur = cur[k]
-            cur[idx[-1]] = value
-            return
-        self._data[idx] = value
-
-    def raw(self):
-        return self._data
+# Pixel helpers delegated to `pycreative.pixels` (see pixels.py)
 
 
 class Surface:
@@ -92,8 +57,9 @@ class Surface:
     def __init__(self, surf: pygame.Surface) -> None:
         self._surf = surf
         # Drawing state
-        self._fill: Optional[Tuple[int, int, int]] = (255, 255, 255)
-        self._stroke: Optional[Tuple[int, int, int]] = None
+        # _fill/_stroke accept either 3- or 4-length tuples (RGB or RGBA)
+        self._fill: Optional[Tuple[int, ...]] = (255, 255, 255)
+        self._stroke: Optional[Tuple[int, ...]] = None
         self._stroke_weight: int = 1
         self._rect_mode: str = self.MODE_CORNER
         self._ellipse_mode: str = self.MODE_CENTER
@@ -226,7 +192,7 @@ class Surface:
             and m[1][2] == 0.0
         )
 
-    def _coerce_input_color(self, color_val):
+    def _coerce_input_color(self, color_val: ColorLike | None) -> ColorOrNone:
         """Coerce various color inputs into a pygame-friendly tuple.
 
         Accepts a Color instance, an HSB tuple when color mode is HSB, or an
@@ -235,6 +201,14 @@ class Surface:
         """
         if color_val is None:
             return None
+
+        # Accept numeric grayscale shorthand like 255
+        try:
+            if isinstance(color_val, (int, float)):
+                v = int(color_val) & 255
+                return (v, v, v)
+        except Exception:
+            pass
 
         # helper to clamp numeric channel values into 0..255 (don't wrap negatives)
         def _clamp_byte(v):
@@ -292,6 +266,19 @@ class Surface:
 
     def _transform_point(self, x: float, y: float) -> tuple[float, float]:
         return transform_point(self._current_matrix(), x, y)
+
+    def transform_points(self, pts: list[tuple[float, float]]) -> list[tuple[float, float]]:
+        """Apply the current transform to a list of (x,y) points and return transformed points.
+
+        This helper mirrors the standalone `transform_points` in `pycreative.transforms`
+        and is used by primitives which call `surface.transform_points(...)` when a
+        non-identity transform is active.
+        """
+        try:
+            return transform_points(self._current_matrix(), pts)
+        except Exception:
+            # Fallback: attempt per-point transform using _transform_point
+            return [self._transform_point(float(x), float(y)) for (x, y) in pts]
 
 
     # --- pixel view helpers ---
@@ -455,6 +442,15 @@ class Surface:
         except Exception:
             pass
 
+        # Accept numeric grayscale shorthand
+        try:
+            if isinstance(color, (int, float)):
+                v = int(color) & 255
+                self._surf.fill((v, v, v))
+                return
+        except Exception:
+            pass
+
         # If HSB color mode is active and a 3-tuple is provided interpret as HSB
         try:
             # support (mode, max1, max2, max3, max4)
@@ -499,139 +495,17 @@ class Surface:
         y: float,
         w: float,
         h: float,
-        fill: Optional[Tuple[int, int, int]] = None,
-        stroke: Optional[Tuple[int, int, int]] = None,
+        fill: Optional[Tuple[int, ...]] = None,
+        stroke: Optional[Tuple[int, ...]] = None,
         stroke_weight: Optional[int] = None,
         stroke_width: Optional[int] = None,
         cap: Optional[str] = None,
         join: Optional[str] = None,
     ) -> None:
         """Draw rectangle. Per-call fill/stroke/stroke_weight override global state when provided."""
-        # compute topleft depending on mode
-        if self._rect_mode == self.MODE_CENTER:
-            tlx = x - w / 2
-            tly = y - h / 2
-        else:
-            tlx = x
-            tly = y
-
-        # If no transform is active use the fast path with integers
-        if self._is_identity_transform():
-            # normalize negative widths/heights so pygame.Rect receives positive sizes
-            left = float(tlx)
-            top = float(tly)
-            width = float(w)
-            height = float(h)
-            if width < 0:
-                left = left + width
-                width = -width
-            if height < 0:
-                top = top + height
-                height = -height
-            rect = pygame.Rect(int(left), int(top), int(width), int(height))
-            draw_polygon = False
-        else:
-            # transform the four rectangle corners into a polygon
-            pts = [
-                (tlx, tly),
-                (tlx + w, tly),
-                (tlx + w, tly + h),
-                (tlx, tly + h),
-            ]
-            pts = transform_points(self._current_matrix(), pts)
-            draw_polygon = True
-
-        prev_cap = self._line_cap
-        prev_join = self._line_join
-        try:
-            if cap is not None:
-                self.set_line_cap(cap)
-            if join is not None:
-                self.set_line_join(join)
-
-            # prefer explicit stroke_width alias if provided
-            if stroke_width is not None:
-                sw = int(stroke_width)
-            elif stroke_weight is not None:
-                sw = int(stroke_weight)
-            else:
-                sw = int(self._stroke_weight)
-
-            fill_col = fill if fill is not None else self._fill
-            stroke_col = stroke if stroke is not None else self._stroke
-
-            # Only coerce per-call overrides or Color instances; do not
-            # re-interpret an already-coerced tuple stored in self._fill/_stroke
-            try:
-                if fill is not None or isinstance(fill_col, Color):
-                    fill_col = self._coerce_input_color(fill_col)
-            except Exception:
-                pass
-            try:
-                if stroke is not None or isinstance(stroke_col, Color):
-                    stroke_col = self._coerce_input_color(stroke_col)
-            except Exception:
-                pass
-
-            if fill_col is not None:
-                # If fill color includes alpha and destination surface does
-                # not support per-pixel alpha, draw into a temporary
-                # SRCALPHA surface and blit it to preserve translucency.
-                def _has_alpha(c):
-                    return isinstance(c, tuple) and len(c) == 4 and c[3] != 255
-
-                # If the fill color includes alpha, render it to a temporary
-                # SRCALPHA surface and blit it. This ensures correct
-                # compositing between multiple translucent shapes even when
-                # pygame.draw.* may not perform the expected source-over blend.
-                if _has_alpha(fill_col):
-                    if draw_polygon:
-                        # compute bounding box for polygon
-                        xs = [int(px) for px, _ in pts]
-                        ys = [int(py) for _, py in pts]
-                        minx, maxx = min(xs), max(xs)
-                        miny, maxy = min(ys), max(ys)
-                        w = max(1, maxx - minx)
-                        h = max(1, maxy - miny)
-                        temp = self._get_temp_surface(w, h)
-                        rel_pts = [(px - minx, py - miny) for px, py in pts]
-                        pygame.draw.polygon(temp, fill_col, [(int(px), int(py)) for px, py in rel_pts])
-                        self._surf.blit(temp, (minx, miny))
-                    else:
-                        temp = self._get_temp_surface(rect.width, rect.height)
-                        pygame.draw.rect(temp, fill_col, pygame.Rect(0, 0, rect.width, rect.height))
-                        self._surf.blit(temp, (rect.left, rect.top))
-                else:
-                    if draw_polygon:
-                        pygame.draw.polygon(self._surf, fill_col, [(int(px), int(py)) for px, py in pts])
-                    else:
-                        pygame.draw.rect(self._surf, fill_col, rect)
-            if stroke_col is not None and sw > 0:
-                if _has_alpha(stroke_col):
-                    # render stroke to temp surface similarly
-                    if draw_polygon:
-                        xs = [int(px) for px, _ in pts]
-                        ys = [int(py) for _, py in pts]
-                        minx, maxx = min(xs), max(xs)
-                        miny, maxy = min(ys), max(ys)
-                        w = max(1, maxx - minx)
-                        h = max(1, maxy - miny)
-                        temp = self._get_temp_surface(w, h)
-                        rel_pts = [(px - minx, py - miny) for px, py in pts]
-                        pygame.draw.polygon(temp, stroke_col, [(int(px), int(py)) for px, py in rel_pts], sw)
-                        self._surf.blit(temp, (minx, miny))
-                    else:
-                        temp = self._get_temp_surface(rect.width, rect.height)
-                        pygame.draw.rect(temp, stroke_col, pygame.Rect(0, 0, rect.width, rect.height), sw)
-                        self._surf.blit(temp, (rect.left, rect.top))
-                else:
-                    if draw_polygon:
-                        pygame.draw.polygon(self._surf, stroke_col, [(int(px), int(py)) for px, py in pts], sw)
-                    else:
-                        pygame.draw.rect(self._surf, stroke_col, rect, sw)
-        finally:
-            self._line_cap = prev_cap
-            self._line_join = prev_join
+        # Delegate rectangle drawing to primitives module which centralizes
+        # alpha-aware compositing and transform handling.
+        return _primitives.rect(self, x, y, w, h, fill=fill, stroke=stroke, stroke_weight=stroke_weight, stroke_width=stroke_width, cap=cap, join=join)
 
  
 
@@ -641,93 +515,15 @@ class Surface:
         y: float,
         w: float,
         h: float,
-        fill: Optional[Tuple[int, int, int]] = None,
-        stroke: Optional[Tuple[int, int, int]] = None,
+        fill: Optional[Tuple[int, ...]] = None,
+        stroke: Optional[Tuple[int, ...]] = None,
         stroke_weight: Optional[int] = None,
         stroke_width: Optional[int] = None,
         cap: Optional[str] = None,
         join: Optional[str] = None,
     ) -> None:
         """Draw ellipse with optional per-call fill/stroke/weight overrides."""
-        # ellipse mode: center or corner
-        if self._ellipse_mode == self.MODE_CENTER:
-            cx = x
-            cy = y
-            rx = w / 2.0
-            ry = h / 2.0
-        else:
-            cx = x + w / 2.0
-            cy = y + h / 2.0
-            rx = w / 2.0
-            ry = h / 2.0
-
-        prev_cap = self._line_cap
-        prev_join = self._line_join
-        try:
-            if cap is not None:
-                self.set_line_cap(cap)
-            if join is not None:
-                self.set_line_join(join)
-
-            # accept both stroke_weight and stroke_width for compatibility;
-            # prefer stroke_width if provided by caller.
-            if stroke_width is not None:
-                sw = int(stroke_width)
-            elif stroke_weight is not None:
-                sw = int(stroke_weight)
-            else:
-                sw = int(self._stroke_weight)
-
-            fill_col = fill if fill is not None else self._fill
-            stroke_col = stroke if stroke is not None else self._stroke
-
-            if self._is_identity_transform():
-                if self._ellipse_mode == self.MODE_CENTER:
-                    rect = pygame.Rect(int(cx - rx), int(cy - ry), int(rx * 2), int(ry * 2))
-                else:
-                    rect = pygame.Rect(int(x), int(y), int(w), int(h))
-
-                def _has_alpha(c):
-                    return isinstance(c, tuple) and len(c) == 4 and c[3] != 255
-
-                # Fill handling: render to temp SRCALPHA and blit if color has alpha,
-                # otherwise draw directly.
-                if _has_alpha(fill_col):
-                    temp = self._get_temp_surface(rect.width, rect.height)
-                    pygame.draw.ellipse(temp, fill_col, pygame.Rect(0, 0, rect.width, rect.height))
-                    self._surf.blit(temp, (rect.left, rect.top))
-                else:
-                    if fill_col is not None:
-                        pygame.draw.ellipse(self._surf, fill_col, rect)
-
-                # Stroke handling: similar logic for strokes with alpha
-                if _has_alpha(stroke_col) and sw > 0:
-                    temp = self._get_temp_surface(rect.width, rect.height)
-                    pygame.draw.ellipse(temp, stroke_col, pygame.Rect(0, 0, rect.width, rect.height), sw)
-                    self._surf.blit(temp, (rect.left, rect.top))
-                else:
-                    if stroke_col is not None and sw > 0:
-                        pygame.draw.ellipse(self._surf, stroke_col, rect, sw)
-            else:
-                # approximate transformed ellipse by sampling points on the ellipse
-                import math
-
-                samples = max(24, int(2 * math.pi * max(rx, ry) / 6))
-                pts = []
-                for i in range(samples):
-                    t = (i / samples) * 2 * math.pi
-                    px = cx + rx * math.cos(t)
-                    py = cy + ry * math.sin(t)
-                    pts.append((px, py))
-                pts = transform_points(self._current_matrix(), pts)
-                int_pts = [(int(px), int(py)) for px, py in pts]
-                if fill_col is not None:
-                    pygame.draw.polygon(self._surf, fill_col, int_pts)
-                if stroke_col is not None and sw > 0:
-                    pygame.draw.polygon(self._surf, stroke_col, int_pts, sw)
-        finally:
-            self._line_cap = prev_cap
-            self._line_join = prev_join
+        return _primitives.ellipse(self, x, y, w, h, fill=fill, stroke=stroke, stroke_weight=stroke_weight, stroke_width=stroke_width, cap=cap, join=join)
 
     def circle(
         self,
@@ -742,8 +538,8 @@ class Surface:
         join: Optional[str] = None,
     ) -> None:
         """Convenience wrapper to draw a circle with diameter `d`. Forwards to ellipse()."""
-        # diameter used as both width and height
-        self.ellipse(x, y, d, d, fill=fill, stroke=stroke, stroke_weight=stroke_weight, stroke_width=stroke_width, cap=cap, join=join)
+        # diameter used as both width and height — delegate to primitives
+        return _primitives.circle(self, x, y, d, fill=fill, stroke=stroke, stroke_weight=stroke_weight, stroke_width=stroke_width, cap=cap, join=join)
 
     # Backwards-compatible alias: `img` -> `image`
     def img(self, *args, **kwargs) -> None:
@@ -768,173 +564,20 @@ class Surface:
         current stroke and stroke_weight are used. Optional `cap` and `join`
         temporarily override line cap/join styles for this draw call.
         """
-        # prefer explicit alias arguments if provided
-        col = stroke if stroke is not None else (color if color is not None else self._stroke)
-        if stroke_width is not None:
-            w = int(stroke_width)
-        else:
-            w = int(width) if width is not None else int(self._stroke_weight)
-        if col is None or w <= 0:
-            # nothing to draw
-            return
-
-        prev_cap = self._line_cap
-        prev_join = self._line_join
-        try:
-            if cap is not None:
-                self.set_line_cap(cap)
-            if join is not None:
-                self.set_line_join(join)
-
-            # Coerce color if provided as Color or HSB tuple
-            try:
-                if isinstance(col, Color):
-                    col = self._coerce_input_color(col)
-                elif hasattr(col, '__iter__') and len(col) in (3,4):
-                    # leave as-is; assume already an RGB(A) tuple
-                    pass
-            except Exception:
-                pass
-
-            def _has_alpha(c):
-                return isinstance(c, tuple) and len(c) == 4 and c[3] != 255
-
-            if self._is_identity_transform():
-                if _has_alpha(col):
-                    # render onto temp SRCALPHA surface covering the bbox of the line
-                    minx = min(int(x1), int(x2))
-                    miny = min(int(y1), int(y2))
-                    maxx = max(int(x1), int(x2))
-                    maxy = max(int(y1), int(y2))
-                    w_box = max(1, maxx - minx + int(w) * 2)
-                    h_box = max(1, maxy - miny + int(w) * 2)
-                    temp = self._get_temp_surface(w_box, h_box)
-                    rel_p1 = (int(x1) - minx + int(w), int(y1) - miny + int(w))
-                    rel_p2 = (int(x2) - minx + int(w), int(y2) - miny + int(w))
-                    pygame.draw.line(temp, col, rel_p1, rel_p2, int(w))
-                    self._surf.blit(temp, (minx - int(w), miny - int(w)))
-                else:
-                    pygame.draw.line(self._surf, col, (int(x1), int(y1)), (int(x2), int(y2)), int(w))
-            else:
-                p1 = self._transform_point(x1, y1)
-                p2 = self._transform_point(x2, y2)
-                # transformed line: draw directly; alpha handling for transformed
-                # primitives is expensive and uncommon; fallback to direct draw.
-                pygame.draw.line(self._surf, col, (int(p1[0]), int(p1[1])), (int(p2[0]), int(p2[1])), int(w))
-
-            # emulate round caps if requested
-            if self._line_cap == "round":
-                radius = max(1, int(w / 2))
-                pygame.draw.circle(self._surf, col, (int(x1), int(y1)), radius)
-                pygame.draw.circle(self._surf, col, (int(x2), int(y2)), radius)
-
-        finally:
-            # restore
-            self._line_cap = prev_cap
-            self._line_join = prev_join
+        # Delegate line drawing to primitives which implements alpha-safe
+        # stroking and transform handling.
+        return _primitives.line(self, x1, y1, x2, y2, color=color, width=width, stroke=stroke, stroke_width=stroke_width, cap=cap, join=join)
 
     # Convenience shape helpers to mirror Sketch API on Surface so OffscreenSurface
     # supports triangle/quad directly.
     def triangle(self, x1, y1, x2, y2, x3, y3, fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
-        pts = [(x1, y1), (x2, y2), (x3, y3)]
-        # prefer stroke_width
-        sw = int(stroke_width) if stroke_width is not None else (int(stroke_weight) if stroke_weight is not None else None)
-        self.polygon_with_style(pts, fill=fill, stroke=stroke, stroke_weight=sw)
+        return _primitives.triangle(self, x1, y1, x2, y2, x3, y3, fill=fill, stroke=stroke, stroke_weight=stroke_weight, stroke_width=stroke_width)
 
     def quad(self, x1, y1, x2, y2, x3, y3, x4, y4, fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
-        pts = [(x1, y1), (x2, y2), (x3, y3), (x4, y4)]
-        sw = int(stroke_width) if stroke_width is not None else (int(stroke_weight) if stroke_weight is not None else None)
-        self.polygon_with_style(pts, fill=fill, stroke=stroke, stroke_weight=sw)
+        return _primitives.quad(self, x1, y1, x2, y2, x3, y3, x4, y4, fill=fill, stroke=stroke, stroke_weight=stroke_weight, stroke_width=stroke_width)
 
     def arc(self, x: float, y: float, w: float, h: float, start_rad: float, end_rad: float, mode: str = "open", fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None) -> None:
-        """Draw an arc; accepts per-call fill/stroke/stroke_weight (or stroke_width) like Sketch.arc."""
-        # save previous state
-        prev_fill = self._fill
-        prev_stroke = self._stroke
-        prev_sw = self._stroke_weight
-        try:
-            if fill is not None:
-                # Set temporary fill color without invoking public fill()
-                # which may perform a full-surface clear. Parse the color and
-                # assign to internal _fill so drawing uses the temporary value.
-                if fill is None:
-                    self._fill = None
-                elif isinstance(fill, Color):
-                    try:
-                        self._fill = fill.to_rgba_tuple()
-                    except Exception:
-                        self._fill = fill.to_tuple()
-                else:
-                    try:
-                        # _color_mode may include optional alpha max (5-tuple)
-                        mode = self._color_mode[0]
-                        m1 = int(self._color_mode[1])
-                        _m2 = int(self._color_mode[2])
-                        _m3 = int(self._color_mode[3])
-                    except Exception:
-                        mode, m1, _m2, _m3 = ("RGB", 255, 255, 255)
-                    try:
-                        if mode == "HSB" and hasattr(fill, "__iter__"):
-                            vals = list(fill)
-                            h, s, v = vals[0], vals[1], vals[2]
-                            ma = int(self._color_mode[4]) if len(self._color_mode) >= 5 else m1
-                            col = Color.from_hsb(h, s, v, max_h=m1, max_s=_m2, max_v=_m3, max_a=ma)
-                            if len(vals) >= 4:
-                                a = int(vals[3]) & 255
-                                self._fill = (col.r, col.g, col.b, a)
-                            else:
-                                self._fill = col.to_tuple()
-                        elif hasattr(fill, "__iter__"):
-                            vals = list(fill)
-                            r, g, b = vals[0], vals[1], vals[2]
-                            col = Color.from_rgb(r, g, b, max_value=m1)
-                            if len(vals) >= 4:
-                                a = int(vals[3]) & 255
-                                self._fill = (col.r, col.g, col.b, a)
-                            else:
-                                self._fill = col.to_tuple()
-                        else:
-                            self._fill = None
-                    except Exception:
-                        self._fill = None
-            if stroke is not None:
-                self.stroke(stroke)
-            # prefer stroke_width alias
-            if stroke_width is not None:
-                self.stroke_weight(int(stroke_width))
-            elif stroke_weight is not None:
-                self.stroke_weight(int(stroke_weight))
-            # delegate to existing implementation (which uses self._fill/_stroke/_stroke_weight)
-            # Note: reuse original arc implementation body by calling the internal arc logic
-            rect = pygame.Rect(int(x - w / 2), int(y - h / 2), int(w), int(h))
-            if mode == "open":
-                if self._stroke is not None:
-                    pygame.draw.arc(self._surf, self._stroke, rect, float(start_rad), float(end_rad), int(self._stroke_weight))
-            else:
-                import math
-
-                steps = max(6, int((end_rad - start_rad) * 10))
-                pts = []
-                cx = x
-                cy = y
-                rx = w / 2.0
-                ry = h / 2.0
-                for i in range(steps + 1):
-                    t = start_rad + (end_rad - start_rad) * (i / max(1, steps))
-                    px = cx + rx * math.cos(t)
-                    py = cy + ry * math.sin(t)
-                    pts.append((px, py))
-                if mode == "pie":
-                    poly = [(int(cx), int(cy))] + [(int(px), int(py)) for px, py in pts]
-                    # Use polygon_with_style to ensure alpha-aware compositing
-                    self.polygon_with_style(poly, fill=self._fill, stroke=self._stroke, stroke_weight=self._stroke_weight)
-                elif mode == "chord":
-                    poly = [(int(px), int(py)) for px, py in pts]
-                    self.polygon_with_style(poly, fill=self._fill, stroke=self._stroke, stroke_weight=self._stroke_weight)
-        finally:
-            self._fill = prev_fill
-            self._stroke = prev_stroke
-            self._stroke_weight = prev_sw
+        return _primitives.arc(self, x, y, w, h, start_rad, end_rad, mode=mode, fill=fill, stroke=stroke, stroke_weight=stroke_weight, stroke_width=stroke_width)
 
     def point(self, x: float, y: float, color: Tuple[int, int, int] | None = None, z: float | None = None) -> None:
         """Draw a point at (x,y).
@@ -944,40 +587,7 @@ class Surface:
         - Honors transforms. If `stroke_weight` > 1, draw a small filled circle/rect
           to approximate a thicker point.
         """
-        # choose color: explicit color overrides stroke
-        draw_color = color if color is not None else self._stroke
-        if draw_color is None:
-            # nothing to draw
-            return
-
-        # resolve transformed coordinates
-        if self._is_identity_transform():
-            tx = float(x)
-            ty = float(y)
-        else:
-            tx, ty = self._transform_point(x, y)
-
-        ix = int(round(tx))
-        iy = int(round(ty))
-
-        sw = max(1, int(self._stroke_weight))
-        try:
-            if sw <= 1:
-                # fastest path: set single pixel
-                self._surf.set_at((ix, iy), draw_color)
-            else:
-                # draw a small filled circle using a temp surface for alpha-safe compositing
-                size = sw
-                tmp = self._get_temp_surface(size, size)
-                # center point on tmp
-                cx = size // 2
-                cy = size // 2
-                pygame.draw.circle(tmp, draw_color, (cx, cy), size // 2)
-                # blit centered at the integer pixel position
-                self._surf.blit(tmp, (ix - cx, iy - cy))
-        except Exception:
-            # best-effort: ignore draw errors
-            return
+        return _primitives.point(self, x, y, color=color, z=z)
 
     def blit(self, other: pygame.Surface, x: int = 0, y: int = 0) -> None:
         self._surf.blit(other, (int(x), int(y)))
@@ -1004,155 +614,13 @@ class Surface:
         if img is None:
             return
         src = getattr(img, "raw", img)
-        # Helper to blit with optional tint applied
+        # Delegate tint + blend logic to dedicated module for testability and
+        # future optimization (blending.py). This mirrors the previous
+        # inlined `_blit_with_optional_tint` behavior.
+        from pycreative.blending import apply_blit_with_blend
+
         def _blit_with_optional_tint(surf_to_blit: pygame.Surface, bx: int, by: int):
-            """Blit surf_to_blit at (bx,by) applying optional tint and the
-            current blend mode.
-
-            For performance we map common modes to pygame.BLEND_RGBA_* flags.
-            For modes pygame doesn't support directly (SCREEN, DIFFERENCE,
-            EXCLUSION) fall back to a per-pixel loop. This helper uses only
-            safe try/except blocks so failures fall back to plain blit.
-            """
-            src_copy = surf_to_blit
-
-            # Apply tint if requested
-            if self._tint is not None:
-                try:
-                    src_size = surf_to_blit.get_size()
-                    src_copy = pygame.Surface(src_size, flags=pygame.SRCALPHA)
-                    src_copy.blit(surf_to_blit, (0, 0))
-                except Exception:
-                    try:
-                        src_copy = surf_to_blit.copy()
-                    except Exception:
-                        src_copy = surf_to_blit
-
-                try:
-                    tint_col = self._tint
-                    if isinstance(tint_col, tuple):
-                        if len(tint_col) == 3:
-                            r, g, b = tint_col
-                            a = 255
-                        else:
-                            r, g, b, a = tint_col[0], tint_col[1], tint_col[2], tint_col[3]
-                    else:
-                        raise ValueError("invalid tint")
-
-                    tw, th = src_copy.get_size()
-                    try:
-                        src_copy.lock()
-                        w_s, h_s = tw, th
-                        for yy in range(h_s):
-                            for xx in range(w_s):
-                                pr, pg, pb, pa = src_copy.get_at((xx, yy))
-                                nr = (pr * int(r)) // 255
-                                ng = (pg * int(g)) // 255
-                                nb = (pb * int(b)) // 255
-                                na = (pa * int(a)) // 255
-                                src_copy.set_at((xx, yy), (nr, ng, nb, na))
-                    except Exception:
-                        try:
-                            tint_surf = pygame.Surface((tw, th), flags=pygame.SRCALPHA)
-                            tint_surf.fill((int(r), int(g), int(b), int(a)))
-                            src_copy.blit(tint_surf, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-                        except Exception:
-                            # give up on tint
-                            src_copy = surf_to_blit
-                    finally:
-                        try:
-                            src_copy.unlock()
-                        except Exception:
-                            pass
-                except Exception:
-                    # If tint normalization failed, fall back to original
-                    src_copy = surf_to_blit
-
-            # Choose blend behavior
-            mode = (self._blend_mode or self.BLEND)
-
-            # Fast-path modes mapped to pygame blend flags
-            try:
-                if mode == self.ADD:
-                    self._surf.blit(src_copy, (bx, by), special_flags=pygame.BLEND_RGBA_ADD)
-                    return
-                if mode == self.SUBTRACT:
-                    self._surf.blit(src_copy, (bx, by), special_flags=pygame.BLEND_RGBA_SUB)
-                    return
-                if mode == self.MULTIPLY:
-                    self._surf.blit(src_copy, (bx, by), special_flags=pygame.BLEND_RGBA_MULT)
-                    return
-                if mode == self.DARKEST:
-                    self._surf.blit(src_copy, (bx, by), special_flags=pygame.BLEND_RGBA_MIN)
-                    return
-                if mode == self.LIGHTEST:
-                    self._surf.blit(src_copy, (bx, by), special_flags=pygame.BLEND_RGBA_MAX)
-                    return
-                if mode == self.REPLACE:
-                    # REPLACE: copy raw pixels (ignore alpha)
-                    try:
-                        tmp = pygame.Surface(src_copy.get_size())
-                        tmp.blit(src_copy, (0, 0))
-                        self._surf.blit(tmp, (bx, by))
-                        return
-                    except Exception:
-                        self._surf.blit(src_copy, (bx, by))
-                        return
-
-                # Per-pixel implementations for SCREEN, DIFFERENCE, EXCLUSION
-                if mode in (self.SCREEN, self.DIFFERENCE, self.EXCLUSION):
-                    try:
-                        w_s, h_s = src_copy.get_size()
-                    except Exception:
-                        return
-                    for yy in range(h_s):
-                        for xx in range(w_s):
-                            dx, dy = bx + xx, by + yy
-                            try:
-                                sr, sg, sb, sa = src_copy.get_at((xx, yy))
-                            except Exception:
-                                try:
-                                    val = src_copy.get_at((xx, yy))
-                                    sr, sg, sb, sa = (val[0], val[1], val[2], val[3] if len(val) > 3 else 255)
-                                except Exception:
-                                    continue
-                            try:
-                                dr, dg, db, da = self._surf.get_at((dx, dy))
-                            except Exception:
-                                continue
-
-                            if mode == self.SCREEN:
-                                rr = 255 - ((255 - sr) * (255 - dr) // 255)
-                                gg = 255 - ((255 - sg) * (255 - dg) // 255)
-                                bb = 255 - ((255 - sb) * (255 - db) // 255)
-                            elif mode == self.DIFFERENCE:
-                                rr = abs(dr - sr)
-                                gg = abs(dg - sg)
-                                bb = abs(db - sb)
-                            else:  # EXCLUSION
-                                rr = dr + sr - (2 * dr * sr // 255)
-                                gg = dg + sg - (2 * dg * sg // 255)
-                                bb = db + sb - (2 * db * sb // 255)
-
-                            na = max(sa, da)
-                            rr = max(0, min(255, int(rr)))
-                            gg = max(0, min(255, int(gg)))
-                            bb = max(0, min(255, int(bb)))
-                            na = max(0, min(255, int(na)))
-                            try:
-                                self._surf.set_at((dx, dy), (rr, gg, bb, na))
-                            except Exception:
-                                pass
-                    return
-
-                # Default: let pygame handle source-over alpha
-                self._surf.blit(src_copy, (bx, by))
-                return
-            except Exception:
-                try:
-                    self._surf.blit(surf_to_blit, (bx, by))
-                except Exception:
-                    pass
+            apply_blit_with_blend(self._surf, surf_to_blit, bx, by, self._blend_mode, tint=self._tint)
 
         if self._is_identity_transform():
             # Interpret x,y according to image_mode
@@ -1229,98 +697,10 @@ class Surface:
         
 
     def polygon(self, points: list[tuple[float, float]]) -> None:
-        self.polygon_with_style(points)
+        return _primitives.polygon(self, points)
 
     def polygon_with_style(self, points: list[tuple[float, float]], fill: Optional[Tuple[int, int, int]] = None, stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, cap: Optional[str] = None, join: Optional[str] = None) -> None:
-        if self._is_identity_transform():
-            pts = [(int(round(x)), int(round(y))) for (x, y) in points]
-        else:
-            ptsf = transform_points(self._current_matrix(), points)
-            pts = [(int(round(px)), int(round(py))) for px, py in ptsf]
-        prev_cap = self._line_cap
-        prev_join = self._line_join
-        try:
-            if cap is not None:
-                self.set_line_cap(cap)
-            if join is not None:
-                self.set_line_join(join)
-
-            fill_col = fill if fill is not None else self._fill
-            stroke_col = stroke if stroke is not None else self._stroke
-            # Only coerce per-call overrides or Color instances
-            try:
-                if fill is not None or isinstance(fill_col, Color):
-                    fill_col = self._coerce_input_color(fill_col)
-            except Exception:
-                pass
-            try:
-                if stroke is not None or isinstance(stroke_col, Color):
-                    stroke_col = self._coerce_input_color(stroke_col)
-            except Exception:
-                pass
-            sw = int(stroke_weight) if stroke_weight is not None else int(self._stroke_weight)
-
-            def _has_alpha(c):
-                return isinstance(c, tuple) and len(c) == 4 and c[3] != 255
-
-            # If the fill color includes alpha, render it to a temporary
-            # SRCALPHA surface and blit it. Doing this unconditionally when
-            # alpha is present produces consistent source-over compositing
-            # behavior (matching rect/ellipse implementations) even when the
-            # destination surface may or may not have per-pixel alpha.
-            if _has_alpha(fill_col):
-                xs = [p[0] for p in pts]
-                ys = [p[1] for p in pts]
-                minx, maxx = min(xs), max(xs)
-                miny, maxy = min(ys), max(ys)
-                w = max(1, maxx - minx)
-                h = max(1, maxy - miny)
-                temp = self._get_temp_surface(w, h)
-                rel_pts = [((px - minx), (py - miny)) for px, py in pts]
-                pygame.draw.polygon(temp, fill_col, [(int(round(px)), int(round(py))) for px, py in rel_pts])
-                self._surf.blit(temp, (minx, miny))
-            else:
-                if fill_col is not None:
-                    pygame.draw.polygon(self._surf, fill_col, pts)
-
-            if _has_alpha(stroke_col) and sw > 0:
-                xs = [p[0] for p in pts]
-                ys = [p[1] for p in pts]
-                minx0, maxx0 = min(xs), max(xs)
-                miny0, maxy0 = min(ys), max(ys)
-                # pad by stroke width to avoid clipping
-                pad = max(2, int(sw) + 2)
-                w = max(1, int(maxx0 - minx0) + pad * 2)
-                h = max(1, int(maxy0 - miny0) + pad * 2)
-                temp = self._get_temp_surface(w, h)
-                rel_pts = [((px - minx0) + pad, (py - miny0) + pad) for px, py in pts]
-                # draw each edge as a separate line to avoid gaps
-                n = len(rel_pts)
-                int_rel = [(int(round(p[0])), int(round(p[1]))) for p in rel_pts]
-                for i in range(n):
-                    a = int_rel[i]
-                    b = int_rel[(i + 1) % n]
-                    pygame.draw.line(temp, stroke_col, a, b, sw)
-                # stamp circles at vertices to close joins and avoid seams/clipping
-                radius = max(1, int(sw / 2))
-                for v in int_rel:
-                    pygame.draw.circle(temp, stroke_col, v, radius)
-                self._surf.blit(temp, (int(minx0 - pad), int(miny0 - pad)))
-            else:
-                if stroke_col is not None and sw > 0:
-                    # draw each edge individually to avoid polygon outline quirks
-                    n = len(pts)
-                    for i in range(n):
-                        a = pts[i]
-                        b = pts[(i + 1) % n]
-                        pygame.draw.line(self._surf, stroke_col, a, b, sw)
-                    # ensure joins are filled by stamping small circles at vertices
-                    radius = max(1, int(sw / 2))
-                    for v in pts:
-                        pygame.draw.circle(self._surf, stroke_col, (int(round(v[0])), int(round(v[1]))), radius)
-        finally:
-            self._line_cap = prev_cap
-            self._line_join = prev_join
+        return _primitives.polygon_with_style(self, points, fill=fill, stroke=stroke, stroke_weight=stroke_weight, cap=cap, join=join)
 
     # --- shape construction helpers (beginShape/vertex/endShape) ---
     def begin_shape(self, mode: str | None = None) -> None:
@@ -1469,23 +849,8 @@ class Surface:
         self._shape_points = []
 
     def _flatten_cubic_bezier(self, p0: tuple[float, float], p1: tuple[float, float], p2: tuple[float, float], p3: tuple[float, float], steps: int = 16) -> list[tuple[float, float]]:
-        """Sample a cubic Bezier curve and return a list of points including endpoints.
-
-        Uses uniform parameter sampling. For higher-quality tessellation an
-        adaptive subdivision could be used but uniform sampling is sufficient
-        for many UI and artistic purposes.
-        """
-        pts: list[tuple[float, float]] = []
-
-        steps = max(2, int(steps))
-        for i in range(steps + 1):
-            t = i / steps
-            # cubic bezier formula
-            mt = 1 - t
-            x = (mt ** 3) * p0[0] + 3 * (mt ** 2) * t * p1[0] + 3 * mt * (t ** 2) * p2[0] + (t ** 3) * p3[0]
-            y = (mt ** 3) * p0[1] + 3 * (mt ** 2) * t * p1[1] + 3 * mt * (t ** 2) * p2[1] + (t ** 3) * p3[1]
-            pts.append((x, y))
-        return pts
+        # Delegate to shape_math.flatten_cubic_bezier for the implementation.
+        return flatten_cubic_bezier(p0, p1, p2, p3, steps=steps)
 
     # --- bezier helpers (Processing-like) ---
     def bezier_detail(self, steps: int) -> None:
@@ -1509,29 +874,14 @@ class Surface:
         The function accepts scalar coordinates or 2D tuples. If scalars are
         passed it returns a scalar; if tuples are passed it returns a tuple.
         """
-        t = float(t)
-        mt = 1.0 - t
-        # scalar path
-        if not hasattr(p0, "__iter__"):
-            return (mt ** 3) * p0 + 3 * (mt ** 2) * t * p1 + 3 * mt * (t ** 2) * p2 + (t ** 3) * p3
-        # tuple path (assume 2D)
-        x = (mt ** 3) * p0[0] + 3 * (mt ** 2) * t * p1[0] + 3 * mt * (t ** 2) * p2[0] + (t ** 3) * p3[0]
-        y = (mt ** 3) * p0[1] + 3 * (mt ** 2) * t * p1[1] + 3 * mt * (t ** 2) * p2[1] + (t ** 3) * p3[1]
-        return (x, y)
+        return bezier_point(p0, p1, p2, p3, t)
 
     def bezier_tangent(self, p0, p1, p2, p3, t: float):
         """Compute the derivative (tangent) of the cubic bezier at parameter t.
 
         Returns a scalar for scalar inputs or a tuple (dx, dy) for 2D inputs.
         """
-        t = float(t)
-        mt = 1.0 - t
-        # derivative of cubic bezier: 3*( (p1-p0)*mt^2 + 2*(p2-p1)*mt*t + (p3-p2)*t^2 )
-        if not hasattr(p0, "__iter__"):
-            return 3 * ((p1 - p0) * (mt ** 2) + 2 * (p2 - p1) * mt * t + (p3 - p2) * (t ** 2))
-        dx = 3 * ((p1[0] - p0[0]) * (mt ** 2) + 2 * (p2[0] - p1[0]) * mt * t + (p3[0] - p2[0]) * (t ** 2))
-        dy = 3 * ((p1[1] - p0[1]) * (mt ** 2) + 2 * (p2[1] - p1[1]) * mt * t + (p3[1] - p2[1]) * (t ** 2))
-        return (dx, dy)
+        return bezier_tangent(p0, p1, p2, p3, t)
 
     # --- curve helpers (Catmull-Rom / Processing-style) ---
     def curve_detail(self, steps: int) -> None:
@@ -1551,51 +901,14 @@ class Surface:
         Accepts scalar coordinates or 2D tuples. Uses p1 and p2 as endpoints and
         constructs tangents from p0/p2 and p1/p3 scaled by (1 - tightness)/2.
         """
-        t = float(t)
-        # mt = 1.0 - t
-        # tangent scale
-        k = (1.0 - float(self._curve_tightness)) * 0.5
-
-        def _eval_scalar(a, b, c, d):
-            m1 = k * (c - a)
-            m2 = k * (d - b)
-            h00 = (2 * t ** 3) - (3 * t ** 2) + 1
-            h10 = (t ** 3) - (2 * t ** 2) + t
-            h01 = (-2 * t ** 3) + (3 * t ** 2)
-            h11 = (t ** 3) - (t ** 2)
-            return h00 * b + h10 * m1 + h01 * c + h11 * m2
-
-        # tuple (2D) vs scalar
-        if not hasattr(p0, "__iter__"):
-            return _eval_scalar(p0, p1, p2, p3)
-        x = _eval_scalar(p0[0], p1[0], p2[0], p3[0])
-        y = _eval_scalar(p0[1], p1[1], p2[1], p3[1])
-        return (x, y)
+        return curve_point(p0, p1, p2, p3, t, tightness=self._curve_tightness)
 
     def curve_tangent(self, p0, p1, p2, p3, t: float):
         """Compute tangent (derivative) of the curve at parameter t.
 
         Returns scalar or 2-tuple depending on input.
         """
-        t = float(t)
-        # tangent scale
-        k = (1.0 - float(self._curve_tightness)) * 0.5
-
-        def _eval_scalar_deriv(a, b, c, d):
-            m1 = k * (c - a)
-            m2 = k * (d - b)
-            # derivatives of Hermite basis
-            dh00 = 6 * t ** 2 - 6 * t
-            dh10 = 3 * t ** 2 - 4 * t + 1
-            dh01 = -6 * t ** 2 + 6 * t
-            dh11 = 3 * t ** 2 - 2 * t
-            return dh00 * b + dh10 * m1 + dh01 * c + dh11 * m2
-
-        if not hasattr(p0, "__iter__"):
-            return _eval_scalar_deriv(p0, p1, p2, p3)
-        dx = _eval_scalar_deriv(p0[0], p1[0], p2[0], p3[0])
-        dy = _eval_scalar_deriv(p0[1], p1[1], p2[1], p3[1])
-        return (dx, dy)
+        return curve_tangent(p0, p1, p2, p3, t, tightness=self._curve_tightness)
 
     def curve(self, x0: float, y0: float, x1: float, y1: float, x2: float, y2: float, x3: float, y3: float) -> None:
         """Draw a Catmull-Rom-like curve from (x1,y1) to (x2,y2) with (x0,y0) and (x3,y3) as neighboring points.
@@ -1613,8 +926,8 @@ class Surface:
         self.polyline(pts)
 
     def polyline(self, points: list[tuple[float, float]]) -> None:
-        # default simple wrapper uses the current stroke/weight
-        self.polyline_with_style(points)
+        # default simple wrapper uses the current stroke/weight — delegate
+        return _primitives.polyline(self, points)
 
     def polyline_with_style(self, points: list[tuple[float, float]], stroke: Optional[Tuple[int, int, int]] = None, stroke_weight: Optional[int] = None, cap: Optional[str] = None, join: Optional[str] = None) -> None:
         """Draw an open polyline connecting the sequence of points with optional per-call styling."""
@@ -1622,74 +935,33 @@ class Surface:
             return
         prev_cap = self._line_cap
         prev_join = self._line_join
+        prev_stroke = self._stroke
+        prev_sw = self._stroke_weight
         try:
             if cap is not None:
                 self.set_line_cap(cap)
             if join is not None:
                 self.set_line_join(join)
-
-            stroke_col = stroke if stroke is not None else self._stroke
-            sw = int(stroke_weight) if stroke_weight is not None else int(self._stroke_weight)
-            pts = [(int(x), int(y)) for (x, y) in points]
-
-            def _has_alpha(c):
-                return isinstance(c, tuple) and len(c) == 4 and c[3] != 255
-
-            # If stroke color includes alpha and dest surface may not support
-            # per-pixel alpha, draw into a temporary SRCALPHA surface and blit.
-            if stroke_col is not None and sw > 0:
-                if _has_alpha(stroke_col):
-                    xs = [p[0] for p in pts]
-                    ys = [p[1] for p in pts]
-                    minx0, maxx0 = min(xs), max(xs)
-                    miny0, maxy0 = min(ys), max(ys)
-                    # pad by stroke width to avoid clipping of caps/joins
-                    pad = max(2, int(sw) + 2)
-                    w = max(1, int(maxx0 - minx0) + pad * 2)
-                    h = max(1, int(maxy0 - miny0) + pad * 2)
-                    temp = self._get_temp_surface(w, h)
-                    rel_pts = [((px - minx0) + pad, (py - miny0) + pad) for px, py in pts]
-                    int_rel = [(int(round(px)), int(round(py))) for px, py in rel_pts]
-                    pygame.draw.lines(temp, stroke_col, False, int_rel, sw)
-
-                    # emulate round caps on temp (stamp circles at ends)
-                    radius = max(1, int(sw / 2))
-                    start = int_rel[0]
-                    end = int_rel[-1]
-                    if self._line_cap == "round":
-                        pygame.draw.circle(temp, stroke_col, start, radius)
-                        pygame.draw.circle(temp, stroke_col, end, radius)
-
-                    # stamp joins to avoid seams/clipping
-                    if self._line_join == "round":
-                        for v in int_rel[1:-1]:
-                            pygame.draw.circle(temp, stroke_col, v, radius)
+            if stroke is not None:
+                # coerce stroke color similarly to other helpers
+                try:
+                    if isinstance(stroke, Color):
+                        self._stroke = self._coerce_input_color(stroke)
                     else:
-                        # also stamp vertices for non-round joins to close tiny gaps
-                        for v in int_rel:
-                            pygame.draw.circle(temp, stroke_col, v, radius)
-
-                    self._surf.blit(temp, (int(minx0 - pad), int(miny0 - pad)))
-                else:
-                    # opaque stroke: draw directly
-                    pygame.draw.lines(self._surf, stroke_col, False, pts, sw)
-
-                    # emulate round caps by drawing circles at endpoints
-                    if self._line_cap == "round":
-                        radius = max(1, int(sw / 2))
-                        start = pts[0]
-                        end = pts[-1]
-                        pygame.draw.circle(self._surf, stroke_col, start, radius)
-                        pygame.draw.circle(self._surf, stroke_col, end, radius)
-
-                    # emulate round joins by drawing circles at internal vertices
-                    if self._line_join == "round":
-                        radius = max(1, int(sw / 2))
-                        for v in pts[1:-1]:
-                            pygame.draw.circle(self._surf, stroke_col, v, radius)
+                        self._stroke = self._coerce_input_color(stroke)
+                except Exception:
+                    self._stroke = stroke
+            if stroke_weight is not None:
+                try:
+                    self._stroke_weight = int(stroke_weight)
+                except Exception:
+                    pass
+            return _primitives.polyline(self, points)
         finally:
             self._line_cap = prev_cap
             self._line_join = prev_join
+            self._stroke = prev_stroke
+            self._stroke_weight = prev_sw
 
         # NOTE:
         # The cap and join handling here is intentionally lightweight and approximate.
@@ -1797,50 +1069,50 @@ class Surface:
         """Disable filling for subsequent shape draws."""
         self._fill = None
 
-    def stroke(self, color: Optional[tuple[int, ...]]) -> None:
-        """Set the stroke color. Use `None` to disable stroke (noStroke())."""
-        if color is None:
+    def stroke(self, *args) -> None:
+        """Set the stroke color. Accepts Processing-style arguments like
+        stroke(r, g, b), stroke((r,g,b)), stroke(None) to disable.
+        """
+        # Normalize incoming args into a single color-like value
+        if len(args) == 0:
+            return
+        if len(args) == 1:
+            color_in = args[0]
+        else:
+            color_in = tuple(args)
+
+        if color_in is None:
             self._stroke = None
             return
-        if isinstance(color, Color):
+
+        # Prefer the general coercion helper which understands Numbers, tuples,
+        # HSB/RGB modes and Color instances.
+        try:
+            coerced = self._coerce_input_color(color_in)
+            self._stroke = coerced
+            return
+        except Exception:
+            # Fallback: best-effort handling similar to prior behavior
             try:
-                self._stroke = color.to_rgba_tuple()
+                if isinstance(color_in, Color):
+                    try:
+                        self._stroke = color_in.to_rgba_tuple()
+                    except Exception:
+                        self._stroke = color_in.to_tuple()
+                    return
+                # last resort: try treating as iterable RGB(A)
+                if hasattr(color_in, "__iter__"):
+                    vals = list(color_in)
+                    r, g, b = vals[0], vals[1], vals[2]
+                    col = Color.from_rgb(r, g, b, max_value=self._color_mode[1] if isinstance(self._color_mode, tuple) else 255)
+                    if len(vals) >= 4:
+                        a = int(vals[3]) & 255
+                        self._stroke = (col.r, col.g, col.b, a)
+                    else:
+                        self._stroke = col.to_tuple()
+                    return
             except Exception:
-                self._stroke = color.to_tuple()
-            return
-
-        try:
-            mode, m1, _m2, _m3, *_rest = self._color_mode
-        except Exception:
-            mode, m1, _m2, _m3 = ("RGB", 255, 255, 255)
-
-        try:
-            if mode == "HSB" and hasattr(color, "__iter__"):
-                vals = list(color)
-                h, s, v = vals[0], vals[1], vals[2]
-                col = Color.from_hsb(h, s, v, max_h=m1, max_s=_m2, max_v=_m3)
-                if len(vals) >= 4:
-                    a = int(vals[3]) & 255
-                    self._stroke = (col.r, col.g, col.b, a)
-                else:
-                    self._stroke = col.to_tuple()
-                try:
-                    self._surf.fill(self._fill)
-                except Exception:
-                    pass
-                return
-            if hasattr(color, "__iter__"):
-                vals = list(color)
-                r, g, b = vals[0], vals[1], vals[2]
-                col = Color.from_rgb(r, g, b, max_value=m1)
-                if len(vals) >= 4:
-                    a = int(vals[3]) & 255
-                    self._stroke = (col.r, col.g, col.b, a)
-                else:
-                    self._stroke = col.to_tuple()
-                return
-        except Exception:
-            self._stroke = None
+                self._stroke = None
 
     def no_stroke(self) -> None:
         """Disable stroke for subsequent shape draws."""
@@ -1967,63 +1239,25 @@ class Surface:
     def get_pixels(self) -> Any:
         """Return a copy of the surface pixel array as (H, W, C) uint8.
 
-        - Prefers numpy + pygame.surfarray for speed. Falls back to per-pixel reads
-          using `Surface.get_at` when numpy/surfarray isn't available.
-        - Returns channels=3 (RGB) or 4 (RGBA) depending on surface alpha.
+        Delegates to `pycreative.pixels.get_pixels` for the implementation so
+        the pixel helpers can be optimized or replaced independently.
         """
-        w, h = self._surf.get_size()
-        has_alpha = bool(self._surf.get_flags() & pygame.SRCALPHA)
-        # Pure-Python per-pixel copy into nested lists (H x W x C)
-        try:
-            arr: list[list[tuple[int, ...]]] = []
-            for y in range(h):
-                row: list[list[int]] = []
-                for x in range(w):
-                    c = self._surf.get_at((x, y))
-                    if has_alpha:
-                        # use mutable lists for channel data so callers can assign
-                        row.append([c.r, c.g, c.b, c.a])
-                    else:
-                        row.append([c.r, c.g, c.b])
-                arr.append(row)
-            return PixelView(arr)
-        except Exception:
-            return PixelView([])
+        return get_pixels(self._surf)
 
     def set_pixels(self, arr: Any) -> None:
         """Write a (H,W,3) or (H,W,4) array into the surface.
 
-        Accepts numpy arrays, lists, or other array-like objects. Values are
-        clamped/coerced to uint8.
+        Delegates to `pycreative.pixels.set_pixels`.
         """
-        w, h = self._surf.get_size()
-        # unwrap PixelView if provided
-        if isinstance(arr, PixelView):
-            arr = arr.raw()
-
-        # Expect nested-list shape: arr[h][w] -> tuple
-        try:
-            for y in range(h):
-                row = arr[y]
-                for x in range(w):
-                    v = row[x]
-                    if len(v) == 4:
-                        self._surf.set_at((x, y), (int(v[0]) & 255, int(v[1]) & 255, int(v[2]) & 255, int(v[3]) & 255))
-                    else:
-                        self._surf.set_at((x, y), (int(v[0]) & 255, int(v[1]) & 255, int(v[2]) & 255))
-        except Exception as e:
-            raise ValueError(f"set_pixels: expected nested list with shape (h,w,c) matching surface {(h,w)}; error: {e}")
+        return set_pixels(self._surf, arr)
 
     def get_pixel(self, x: int, y: int) -> Tuple[int, ...]:
-        """Return a single pixel color tuple (RGB) or (RGBA)."""
-        c = self._surf.get_at((int(x), int(y)))
-        if bool(self._surf.get_flags() & pygame.SRCALPHA):
-            return (c.r, c.g, c.b, c.a)
-        return (c.r, c.g, c.b)
+        """Return a single pixel color tuple (RGB) or (RGBA). Delegates to `pixels.get_pixel`."""
+        return get_pixel(self._surf, x, y)
 
     def set_pixel(self, x: int, y: int, color: Tuple[int, ...]) -> None:
-        """Set a single pixel color. Accepts (r,g,b) or (r,g,b,a)."""
-        self._surf.set_at((int(x), int(y)), color)
+        """Set a single pixel color. Accepts (r,g,b) or (r,g,b,a). Delegates to `pixels.set_pixel`."""
+        return set_pixel(self._surf, x, y, color)
 
     # --- PImage-style pixel helpers ---
     @contextmanager
@@ -2035,12 +1269,10 @@ class Surface:
             with surface.pixels() as pv:
                 pv[y,x] = (r,g,b)
         """
-        pv = self.get_pixels()
-        try:
+        # Delegate to the pixels module context manager which performs a
+        # copy-on-enter and writes back on exit.
+        with pixels_ctx(self._surf) as pv:
             yield pv
-        finally:
-            # Always attempt to write back; let exceptions surface to the caller
-            self.set_pixels(pv)
 
     def load_pixels(self) -> Any:
         """Compatibility shim: returns a PixelView copy of the surface pixels."""

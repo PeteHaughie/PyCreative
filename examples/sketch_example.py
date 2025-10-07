@@ -20,7 +20,7 @@ class MySketch(Sketch):
             self.x = 0.0
 
     def draw(self):
-        self.clear((50, 50, 50))
+        self.background(50, 50, 50)
         self.ellipse(self.x, self.height / 2, 50, 50, fill=(200, 100, 100))
 
     def teardown(self):

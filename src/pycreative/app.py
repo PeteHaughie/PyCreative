@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional, Tuple, Callable, Any, cast
+from .types import ColorOrNone
 
 import time
 import os
@@ -59,32 +60,32 @@ class Sketch:
         self._cache_store = {}
         # Pending drawing state if user sets it before the Surface is created.
         # Use a sentinel to distinguish "no pending change" from an explicit
-        # `None` (which means disable fill/stroke). These are typed Any to
-        # keep static analysis tractable when a sentinel object is used.
-        self._pending_fill: Any = _PENDING_UNSET
-        self._pending_stroke: Any = _PENDING_UNSET
-        self._pending_stroke_weight: Any = _PENDING_UNSET
+        # `None` (which means disable fill/stroke). Narrow types where possible
+        # using the shared ColorLike alias.
+        self._pending_fill: ColorOrNone | Any = _PENDING_UNSET
+        self._pending_stroke: ColorOrNone | Any = _PENDING_UNSET
+        self._pending_stroke_weight: int | Any = _PENDING_UNSET
         # Pending cursor visibility state: use sentinel to distinguish
         # "no pending change" from an explicit show/hide request.
-        self._pending_cursor: Any = _PENDING_UNSET
+        self._pending_cursor: bool | Any = _PENDING_UNSET
         # By default, pressing Escape closes the sketch; this can be disabled
         # by calling `self.set_escape_closes(False)` in the sketch.
         self._escape_closes = True
         # Pending shape mode state for rect/ellipse - allow setting in setup()
-        self._pending_rect_mode: Any = _PENDING_UNSET
-        self._pending_ellipse_mode: Any = _PENDING_UNSET
+        self._pending_rect_mode: Optional[str] | Any = _PENDING_UNSET
+        self._pending_ellipse_mode: Optional[str] | Any = _PENDING_UNSET
         # Pending color mode (e.g., set in setup before surface exists)
-        self._pending_color_mode: Any = _PENDING_UNSET
+        self._pending_color_mode: tuple | Any = _PENDING_UNSET
         # Pending image mode/tint recorded before surface exists
-        self._pending_image_mode: Any = _PENDING_UNSET
-        self._pending_tint: Any = _PENDING_UNSET
+        self._pending_image_mode: Optional[str] | Any = _PENDING_UNSET
+        self._pending_tint: tuple | Any = _PENDING_UNSET
         # Pending blend mode
-        self._pending_blend: Any = _PENDING_UNSET
+        self._pending_blend: Optional[str] | Any = _PENDING_UNSET
         # Pending line cap / join style (butt, round, square) / (miter, round, bevel)
-        self._pending_line_cap: Any = _PENDING_UNSET
-        self._pending_line_join: Any = _PENDING_UNSET
+        self._pending_line_cap: Optional[str] | Any = _PENDING_UNSET
+        self._pending_line_join: Optional[str] | Any = _PENDING_UNSET
         # Pending background/clear color set in setup() before surface exists
-        self._pending_background: Any = _PENDING_UNSET
+        self._pending_background: ColorOrNone | Any = _PENDING_UNSET
 
         # Runtime no-loop control (if True, draw() runs once then is suppressed)
         self._no_loop_mode = False
@@ -395,25 +396,43 @@ class Sketch:
 
         self._pending_cursor = bool(visible)
 
-    def background(self, color) -> None:
-        """Fill the entire canvas with `color`. Behaves like Processing.background().
+    def background(self, *args) -> None:
+        """Fill the entire canvas with a color. Accepts the same flexible
+        forms as `fill()` and Processing.background():
 
-        If called before a Surface exists the color is recorded and applied when
-        the display is created. Accepts Color instances or RGB(A)/HSB tuples.
+          - background(r, g, b)
+          - background(r, g, b, a)
+          - background((r, g, b))
+          - background((r, g, b, a))
+          - background(ColorInstance)
+
+        When called before a Surface exists the normalized value is recorded
+        as pending and applied when the display is created.
         """
+        # normalize into a single color-like object or None
+        if len(args) == 0:
+            # no-op when called without args (preserve prior behavior)
+            return None
+
+        if len(args) == 1:
+            color_in = args[0]
+        else:
+            color_in = tuple(args)
+
+        # If a Surface exists, try to apply immediately using surface.clear
         if self.surface is not None:
             try:
                 # prefer surface.clear which understands color modes/alpha
-                self.surface.clear(color)
-                # clear any pending sentinel
+                self.surface.clear(color_in)
                 self._pending_background = _PENDING_UNSET
-                return
+                return None
             except Exception:
-                # fall through to record pending value
+                # fall through to record pending raw value
                 pass
 
         # record pending background to apply later in run()
-        self._pending_background = color
+        self._pending_background = color_in
+        return None
 
     # --- Transform helpers (delegate to active Surface when available) ---
     def push(self) -> None:
@@ -612,18 +631,56 @@ class Sketch:
         else:
             self._pending_fill = None
 
-    def stroke(self, color: Optional[tuple[int, ...]]):
+    def stroke(self, *args):
+        """Set the sketch stroke color. Accepts the same flexible forms as fill():
+
+          - stroke(r, g, b)
+          - stroke(r, g, b, a)
+          - stroke((r, g, b))
+          - stroke((r, g, b, a))
+          - stroke(None)  # disable stroke
+        """
+        # Normalize incoming args into a single color object or None
+        if len(args) == 0:
+            # no-op / getter not supported on Sketch wrapper
+            return None
+
+        if len(args) == 1:
+            color_in = args[0]
+        else:
+            color_in = tuple(args)
+
+        # If explicit None provided, treat as no_stroke()
+        if color_in is None:
+            if self.surface is not None:
+                try:
+                    self.surface.no_stroke()
+                    return None
+                except Exception:
+                    self._pending_stroke = None
+                    return None
+            else:
+                self._pending_stroke = None
+                return None
+
+        # If a surface exists, attempt to coerce & apply immediately
         if self.surface is not None:
             try:
-                coerced = self.surface._coerce_input_color(color)
+                coerced = self.surface._coerce_input_color(color_in)
                 self.surface._stroke = coerced
+                return None
             except Exception:
+                # fallback: try calling surface.stroke directly
                 try:
-                    self.surface.stroke(color)
+                    self.surface.stroke(color_in)
+                    return None
                 except Exception:
-                    self._pending_stroke = color
-        else:
-            self._pending_stroke = color
+                    self._pending_stroke = color_in
+                    return None
+
+        # Surface not yet available: record pending raw value
+        self._pending_stroke = color_in
+        return None
 
     def no_stroke(self) -> None:
         if self.surface is not None:
@@ -1532,9 +1589,29 @@ class Sketch:
         return int(p[1]) if p is not None else None
 
     # --- Basic drawing primitives ---
-    def clear(self, color: Tuple[int, int, int]) -> None:
+    def clear(self, *args) -> None:
+        """Clear the canvas with a color. Accepts the same flexible forms as
+        background()/fill():
+          - clear(r, g, b)
+          - clear(r, g, b, a)
+          - clear((r,g,b))
+          - clear(ColorInstance)
+        If called when a surface exists this delegates to `Surface.clear()`.
+        When no surface exists this is a no-op.
+        """
+        if len(args) == 0:
+            return None
+        if len(args) == 1:
+            color_in = args[0]
+        else:
+            color_in = tuple(args)
         if self.surface is not None:
-            self.surface.clear(color)
+            try:
+                self.surface.clear(color_in)
+            except Exception:
+                # best-effort: ignore
+                pass
+        return None
 
     def ellipse(
         self,
@@ -1662,6 +1739,11 @@ class Sketch:
             if debug:
                 print("[pycreative.initialize] debug: set_mode with vsync kwarg failed, falling back to positional call")
             self._surface = pygame.display.set_mode((self.width, self.height), flags)
+        # record that initialize created the display so run() won't recreate it
+        try:
+            self._display_created_by_initialize = True
+        except Exception:
+            pass
 
         pygame.display.set_caption(self._title)
         self.surface = GraphicsSurface(self._surface)
@@ -1717,7 +1799,25 @@ class Sketch:
                 try:
                     bg = self._pending_background
                     if bg is not _PENDING_UNSET:
-                        self.surface.clear(bg)
+                        # Debug: log pending background application so external
+                        # runs (non-headless or display-backed) can confirm
+                        # whether initialize() applied the value.
+                        try:
+                            print(f"[pycreative.initialize] applying pending_background={bg!r}")
+                        except Exception:
+                            # best-effort logging; never fail initialize for debug
+                            pass
+                        # Try to apply pending background directly; accept numbers,
+                        # Color instances, and tuples/lists. Fall back to tuple()
+                        # when necessary. This avoids silently dropping pending
+                        # background values when their Python type isn't a tuple.
+                        try:
+                            self.surface.clear(bg)  # type: ignore[arg-type]
+                        except Exception:
+                            try:
+                                self.surface.clear(tuple(bg))  # type: ignore[arg-type]
+                            except Exception:
+                                pass
                         self._pending_background = _PENDING_UNSET
                 except Exception:
                     pass
@@ -1805,16 +1905,24 @@ class Sketch:
                 pass
 
         # Attempt to pass vsync where supported (pygame 2.0+ may accept a vsync kwarg)
-        try:
-            # some pygame builds accept vsync as keyword argument
+        # If initialize() already created the display surface, reuse it rather
+        # than re-creating a new display surface which would clobber any
+        # previously-applied pending background/state.
+        if getattr(self, "_display_created_by_initialize", False):
             if debug:
-                print(f"[pycreative.run] debug: creating display mode w={self.width} h={self.height} flags={flags} vsync={self._vsync}")
-            self._surface = pygame.display.set_mode((self.width, self.height), flags, vsync=self._vsync)
-        except TypeError:
-            # fallback to positional set_mode without vsync
-            if debug:
-                print("[pycreative.run] debug: set_mode with vsync kwarg failed, falling back to positional call")
-            self._surface = pygame.display.set_mode((self.width, self.height), flags)
+                print("[pycreative.run] debug: initialize() created display; reusing existing surface")
+            self._surface = pygame.display.get_surface()
+        else:
+            try:
+                # some pygame builds accept vsync as keyword argument
+                if debug:
+                    print(f"[pycreative.run] debug: creating display mode w={self.width} h={self.height} flags={flags} vsync={self._vsync}")
+                self._surface = pygame.display.set_mode((self.width, self.height), flags, vsync=self._vsync)
+            except TypeError:
+                # fallback to positional set_mode without vsync
+                if debug:
+                    print("[pycreative.run] debug: set_mode with vsync kwarg failed, falling back to positional call")
+                self._surface = pygame.display.set_mode((self.width, self.height), flags)
         if debug:
             try:
                 ds = pygame.display.get_surface()
@@ -1893,7 +2001,8 @@ class Sketch:
                 try:
                     bg = self._pending_background
                     if bg is not _PENDING_UNSET:
-                        self.surface.clear(bg)
+                        # cast to satisfy static checkers; runtime accepts Color/tuple
+                        self.surface.clear(cast(tuple, bg))  # type: ignore[arg-type]
                         self._pending_background = _PENDING_UNSET
                 except Exception:
                     pass
@@ -2140,9 +2249,11 @@ class Sketch:
                     if getattr(self, "_pending_stroke_weight", _PENDING_UNSET) is not _PENDING_UNSET:
                         off._stroke_weight = int(self._pending_stroke_weight)
                     if getattr(self, "_pending_rect_mode", _PENDING_UNSET) is not _PENDING_UNSET:
-                        off._rect_mode = self._pending_rect_mode
+                        if isinstance(self._pending_rect_mode, str):
+                            off._rect_mode = self._pending_rect_mode
                     if getattr(self, "_pending_ellipse_mode", _PENDING_UNSET) is not _PENDING_UNSET:
-                        off._ellipse_mode = self._pending_ellipse_mode
+                        if isinstance(self._pending_ellipse_mode, str):
+                            off._ellipse_mode = self._pending_ellipse_mode
                     # copy pending cap/join into offscreen when present
                     if getattr(self, "_pending_line_cap", _PENDING_UNSET) is not _PENDING_UNSET:
                         try:

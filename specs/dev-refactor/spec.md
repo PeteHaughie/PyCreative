@@ -73,6 +73,68 @@ An artist, educator, or developer wants to quickly prototype a visual, audio, or
 
 ---
 
+## Graphics module split and migration plan (developer-facing)
+
+Rationale
+- The current `src/pycreative/graphics.py` is monolithic: it mixes the `Surface`
+   façade, drawing primitives, pixel helpers, blend algorithms, shape math,
+   and utility helpers. This makes reviews, optimizations (numpy/fast paths), and
+   targeted testing harder. The project will incrementally split this file into a
+   small package of focused modules while preserving the public API
+   (`from pycreative.graphics import Surface`).
+
+Decision notes
+- Module name containing pixel helpers: `pixels.py` (explicit decision: not `pixel_helpers.py`).
+- Keep the `Surface` class as the public façade and re-export it from the package root so external imports remain stable.
+
+Target package layout (final state)
+- `src/pycreative/graphics/`
+   - `__init__.py`        # re-export public API (`Surface`) for backwards-compat
+   - `surface.py`         # Surface class core, state + orchestration
+   - `primitives.py`      # rect, ellipse, line, polygon, etc.
+   - `image.py`           # image(), img(), image_mode(), tint() orchestration
+   - `blending.py`        # blend algorithms and `apply_blit_with_blend()`
+   - `pixels.py`          # get_pixels, set_pixels, get_pixel, set_pixel, pixels(), PixelView
+   - `shape_math.py`      # bezier flattening, curve helpers, begin/vertex/end helpers
+   - `utils.py`           # `_get_temp_surface` cache & small utilities
+   - `text.py`            # text rendering convenience wrapper (optional)
+
+API contracts (short)
+- `blending.apply_blit_with_blend(dst: pygame.Surface, src: pygame.Surface, bx:int, by:int, mode:str, tint:tuple|None=None) -> None`
+   - Apply tint (if present) and blend `src` into `dst` at `(bx,by)` using Processing-style modes. Fast-paths should use `pygame.BLEND_RGBA_*`; SCREEN/DIFFERENCE/EXCLUSION must have deterministic per-pixel fallbacks.
+- `pixels.get_pixel(surface, x, y) -> tuple[int,...]` returns (r,g,b) or (r,g,b,a) depending on destination surface.
+- `pixels.get_pixels(surface) -> PixelView` and `pixels.set_pixels(surface, arr)` mirror current semantics and allow future surfarray/numpy fast-paths.
+
+Staged migration plan (incremental, test-driven)
+1. Stage 0 — Baseline: add/expand tests for blending/pixels and record `pixels.py` decision in this spec. Run full test suite and capture baseline.
+2. Stage 1 — Extract `blending.py`: move blending/tint math into `blending.py`, expose `apply_blit_with_blend`, keep a delegating call in the existing `graphics.py` to minimize changes. Run blend tests.
+3. Stage 2 — Extract `pixels.py`: move pixel helpers and `PixelView` into `pixels.py`. Replace direct pixel-access usages with calls into this module (or small delegators on `Surface`). Run pixel-related tests.
+4. Stage 3 — Extract `primitives.py` and `shape_math.py`: move primitive drawing and shape-building math into focused modules; have `Surface` delegate to them.
+5. Stage 4 — Extract `image.py` and wire `apply_blit_with_blend` for image drawing (scale/rotozoom/image_mode handled here); run image/offscreen examples headlessly.
+6. Stage 5 — Finalize: move the `Surface` class into `surface.py`, add `__init__.py` to re-export `Surface`, and remove the old monolith after tests are green.
+
+Quality gates at each stage
+- Run unit tests relevant to the changed module (e.g., `tests/test_blend_modes.py` after Stage 1).
+- Run the full test suite (`pytest -q`) before and after Stage 5.
+- Smoke-run representative examples headless (e.g., `pycreative examples/offscreen_example.py --headless --max-frames 3`).
+- Run linter (`ruff src/ tests/`) and address new issues introduced by imports.
+
+Tests to add or expand (priority)
+- Per-mode blending unit tests (opaque and semi-transparent sources) — `tests/test_blend_modes.py` already added; expand to include alpha and tint+blend cases.
+- Pixel round-trip tests: `get_pixels`/`set_pixels` and `pixels()` context manager.
+- Bezier/curve flattening tests for `shape_math` (accuracy and deterministic sampling).
+
+Risks & mitigations
+- Risk: circular imports when splitting. Mitigation: keep `blending.py` and `pixels.py` dependent only on plain `pygame.Surface` and low-level data; `Surface` remains the orchestrator that imports helpers.
+- Risk: behavior change during movement. Mitigation: keep delegating stubs in the original module until tests pass; move in small commits.
+
+Developer guidance
+- Keep each commit small and run the tests frequently.
+- Document any public API signature changes in `docs/api-mapping.md` and update examples that rely on internals (examples should not rely on private helpers).
+
+
+---
+
 ## Review & Acceptance Checklist
 *GATE: Automated checks run during main() execution*
 

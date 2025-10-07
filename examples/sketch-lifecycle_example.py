@@ -1,4 +1,4 @@
-from pycreative import Sketch
+from pycreative.app import Sketch
 
 
 class SketchLifecycle(Sketch):
@@ -11,7 +11,7 @@ class SketchLifecycle(Sketch):
         pass
 
     def draw(self):
-        self.clear((30, 30, 30))
+        self.clear(30, 30, 30)
 
     def teardown(self):
         # no-op cleanup for example
