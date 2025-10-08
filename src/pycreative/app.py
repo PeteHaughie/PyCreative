@@ -2375,15 +2375,19 @@ class Sketch:
         except Exception:
             return 0.0
 
-    def noise(self, x: float) -> float:
-        """Return 1D Perlin noise in range [0,1].
+    def noise(self, x: float, y: float | None = None) -> float:
+        """Return 1D or 2D Perlin noise in range [0,1].
 
-        Delegates to the pure-Python Perlin implementation in `pycreative.noise`.
+        Usage:
+          self.noise(x)
+          self.noise(x, y)
         """
         try:
             from .noise import noise as _noise
 
-            return float(_noise(float(x)))
+            if y is None:
+                return float(_noise(float(x)))
+            return float(_noise(float(x), float(y)))
         except Exception:
             return 0.0
 

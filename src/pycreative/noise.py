@@ -61,14 +61,74 @@ class PerlinNoise:
         # Perlin output is typically in -1..1; normalize to 0..1
         return (val + 1.0) * 0.5
 
+    def _grad2(self, hashval: int, x: float, y: float) -> float:
+        # 2D gradient selection: use low 3 bits to pick one of 8 unit vectors
+        h = hashval & 7
+        if h == 0:
+            gx, gy = 1, 1
+        elif h == 1:
+            gx, gy = -1, 1
+        elif h == 2:
+            gx, gy = 1, -1
+        elif h == 3:
+            gx, gy = -1, -1
+        elif h == 4:
+            gx, gy = 1, 0
+        elif h == 5:
+            gx, gy = -1, 0
+        elif h == 6:
+            gx, gy = 0, 1
+        else:
+            gx, gy = 0, -1
+        return gx * x + gy * y
+
+    def noise2d(self, x: float, y: float) -> float:
+        """Compute 2D Perlin noise for coordinates (x,y). Returns value in [0,1]."""
+        xi = math.floor(x) & 255
+        yi = math.floor(y) & 255
+        xf = x - math.floor(x)
+        yf = y - math.floor(y)
+
+        u = self._fade(xf)
+        v = self._fade(yf)
+
+        aa = self.perm[self.perm[xi] + yi]
+        ab = self.perm[self.perm[xi] + yi + 1]
+        ba = self.perm[self.perm[xi + 1] + yi]
+        bb = self.perm[self.perm[xi + 1] + yi + 1]
+
+        # Grad contributions from corners
+        ga = self._grad2(aa, xf, yf)
+        gb = self._grad2(ba, xf - 1, yf)
+        gc = self._grad2(ab, xf, yf - 1)
+        gd = self._grad2(bb, xf - 1, yf - 1)
+
+        x1 = self._lerp(ga, gb, u)
+        x2 = self._lerp(gc, gd, u)
+        val = self._lerp(x1, x2, v)
+
+        return (val + 1.0) * 0.5
+
 
 # Module-level default generator
 _default = PerlinNoise()
 
 
-def noise(x: float) -> float:
-    """Convenience function: compute 1D noise using the module default."""
-    return _default.noise1d(float(x))
+def noise(*args) -> float:
+    """Convenience function: compute 1D or 2D noise using the module default.
+
+    Usage:
+      noise(x)
+      noise(x, y)
+    """
+    try:
+        if len(args) == 1:
+            return _default.noise1d(float(args[0]))
+        elif len(args) == 2:
+            return _default.noise2d(float(args[0]), float(args[1]))
+    except Exception:
+        pass
+    return 0.0
 
 
 def seed(s: Optional[int]) -> None:
