@@ -177,10 +177,28 @@ class PVector:
 
     # Convenience creators
     @classmethod
-    def from_angle(cls, theta: float) -> "PVector":
-        return cls(math.cos(theta), math.sin(theta))
+    def from_angle(cls, theta: float, target: "PVector | None" = None) -> "PVector":
+        """Create a unit PVector from an angle (radians).
+
+        If `target` is provided it will be mutated and returned (mirrors
+        Processing's `PVector.fromAngle(angle, target)` convenience).
+        """
+        x = math.cos(theta)
+        y = math.sin(theta)
+        if target is None:
+            return cls(x, y)
+        target.x = float(x)
+        target.y = float(y)
+        return target
+
+    # CamelCase alias for Processing-style API
+    # Note: prefer snake_case API in this project; do not expose camelCase aliases.
 
     @classmethod
-    def random2D(cls) -> "PVector":
+    def random2d(cls) -> "PVector":
+        """Return a new unit PVector pointing in a random 2D direction.
+
+        Use snake_case `random2d` per project convention.
+        """
         a = random.random() * 2 * math.pi
         return cls(math.cos(a), math.sin(a))

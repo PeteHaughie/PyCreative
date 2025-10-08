@@ -241,13 +241,21 @@ class Sketch:
                     raise TypeError("pvector.add requires two arguments")
 
                 @staticmethod
-                def random2D() -> "PVector":
+                def random2d() -> "PVector":
                     """Return a new unit PVector pointing in a random 2D direction.
 
-                    Delegates to `PVector.random2D()` so callers can use
-                    `self.pvector.random2D()` like Processing.
+                    Delegates to `PVector.random2d()` so callers can use
+                    `self.pvector.random2d()`.
                     """
-                    return PVector.random2D()
+                    return PVector.random2d()
+
+                @staticmethod
+                def from_angle(theta: float, target=None) -> "PVector":
+                    """Create a PVector from an angle; forwards to PVector.from_angle.
+
+                    Prefer snake_case API (project convention).
+                    """
+                    return PVector.from_angle(theta, target)
 
                 @staticmethod
                 def mult(v, scalar: float):
@@ -270,7 +278,7 @@ class Sketch:
                     return ax * bx + ay * by
 
                 @staticmethod
-                def angleBetween(a, b):
+                def angle_between(a, b):
                     ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
                     bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
                     mag_a = math.hypot(ax, ay)
