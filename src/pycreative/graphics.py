@@ -721,6 +721,86 @@ class Surface:
     def polygon_with_style(self, points: list[tuple[float, float]], fill: ColorTupleOrNone = None, stroke: ColorTupleOrNone = None, stroke_weight: Optional[int] = None, cap: Optional[str] = None, join: Optional[str] = None) -> None:
         return _primitives.polygon_with_style(self, points, fill=fill, stroke=stroke, stroke_weight=stroke_weight, cap=cap, join=join)
 
+    def set_shape_mode(self, mode: str | None) -> None:
+        """Set the current shape drawing mode used by `shape()`.
+
+        Accepted values: None (default, CORNER), 'CORNER', 'CORNERS', 'CENTER'.
+        """
+        try:
+            if mode is None:
+                self._shape_mode = None
+            else:
+                self._shape_mode = str(mode).upper()
+        except Exception:
+            self._shape_mode = None
+
+    def shape(self, shp, x: float, y: float, w: Optional[float] = None, h: Optional[float] = None) -> None:
+        """Draw a PShape-like object respecting the current shape_mode.
+
+        `shp` is expected to implement `draw(surface, x, y, w=None, h=None)`.
+        The meaning of x,y,w,h depends on the active shape_mode:
+          - CORNER (default): x,y specify top-left; w/h are width/height
+          - CORNERS: x,y and w,h specify opposite corners
+          - CENTER: x,y specify center; w/h are width/height
+        """
+        if shp is None:
+            return
+        mode = getattr(self, "_shape_mode", None)
+        # Normalize common aliases
+        if mode is None or str(mode).upper() == "CORNER":
+            tx = x
+            ty = y
+            tw = w
+            th = h
+        elif str(mode).upper() == "CORNERS":
+            # w,h are the opposite corner coordinates in this variant
+            try:
+                ox = float(w) if w is not None else x
+                oy = float(h) if h is not None else y
+                left = min(x, ox)
+                top = min(y, oy)
+                tw = abs(ox - x)
+                th = abs(oy - y)
+                tx = left
+                ty = top
+            except Exception:
+                tx = x
+                ty = y
+                tw = None
+                th = None
+        elif str(mode).upper() == "CENTER":
+            # x,y is center; convert to top-left origin for draw
+            try:
+                if w is None or h is None:
+                    tx = x
+                    ty = y
+                    tw = w
+                    th = h
+                else:
+                    tw = float(w)
+                    th = float(h)
+                    tx = float(x) - tw / 2.0
+                    ty = float(y) - th / 2.0
+            except Exception:
+                tx = x
+                ty = y
+                tw = w
+                th = h
+        else:
+            # unknown mode: fallback to CORNER semantics
+            tx = x
+            ty = y
+            tw = w
+            th = h
+
+        # Delegate to the shape's draw implementation which will apply any
+        # requested scaling based on the provided w/h values.
+        try:
+            shp.draw(self, tx, ty, tw, th)
+        except Exception:
+            # best-effort: if shape.draw fails, ignore
+            pass
+
     # --- shape construction helpers (beginShape/vertex/endShape) ---
     def begin_shape(self, mode: str | None = None) -> None:
         """Start collecting vertices for a custom shape (beginShape in Processing).

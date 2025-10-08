@@ -60,6 +60,7 @@ For more details, see the example sketches and module READMEs.
 - Shape construction (begin/vertex/end): `shapes.md`
 - Pixel object: `pixels.md`
 - Pixels Image object: `pixels_image.md`
+ - Package-style module design: `package-style.md`
 
 ## Contributing
 

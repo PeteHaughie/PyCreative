@@ -1011,6 +1011,30 @@ class Sketch:
             print(f"Failed to load image: {path}")
             return None
 
+    def load_shape(self, path: str):
+        """Load a vector shape (SVG/OBJ) via the Assets manager or by resolving path.
+
+        Returns a PShape-like object or None on failure.
+        """
+        # Prefer the instantiated assets manager when available
+        try:
+            if hasattr(self, "assets") and self.assets:
+                shp = self.assets.load_shape(path)
+                if shp is not None:
+                    return shp
+        except Exception:
+            # best-effort: continue to fallback loaders
+            pass
+
+        # Fallback: attempt to resolve relative to sketch path (no assets manager)
+        try:
+            base = os.path.dirname(self.sketch_path) if self.sketch_path else os.getcwd()
+            tmp = Assets(base)
+            shp = tmp.load_shape(path)
+            return shp
+        except Exception:
+            return None
+
     def blit_image(self, img: object, x: int = 0, y: int = 0) -> None:
         if self.surface is not None and img is not None:
             self.surface.blit_image(img, x=x, y=y)
@@ -1112,6 +1136,47 @@ class Sketch:
         # scale image using the underlying surface
         scaled = pygame.transform.smoothscale(src, (int(w), int(h)))
         self.surface.blit_image(scaled, int(x), int(y))
+
+    def shape_mode(self, mode: str | None) -> None:
+        """Set the current shape drawing mode used by `shape()`.
+
+        mode may be one of: None (default, CORNER), 'CORNER', 'CORNERS', 'CENTER'.
+        """
+        # If a surface exists, set directly, otherwise record pending value
+        if self.surface is not None:
+            try:
+                setter = getattr(self.surface, "set_shape_mode", None)
+                if callable(setter):
+                    setter(mode)
+                    return
+            except Exception:
+                pass
+        # record pending for when surface is created
+        self._pending_shape_mode = mode
+
+    def shape(self, shp, x: float, y: float, w: Optional[float] = None, h: Optional[float] = None) -> None:
+        """Draw a loaded PShape-like object at the requested location/size.
+
+        This delegates to the active Surface.shape implementation and respects
+        the current `shape_mode` set via `shape_mode()`.
+        """
+        if self.surface is None or shp is None:
+            return
+        # ensure surface has the pending shape mode applied
+        if getattr(self, "_pending_shape_mode", None) is not None:
+            try:
+                setter = getattr(self.surface, "set_shape_mode", None)
+                if callable(setter):
+                    setter(self._pending_shape_mode)
+            except Exception:
+                pass
+            self._pending_shape_mode = None
+        try:
+            drawer = getattr(self.surface, "shape", None)
+            if callable(drawer):
+                drawer(shp, x, y, w, h)
+        except Exception:
+            pass
 
     def style(self, *args, **kwargs):
         """Return a context manager that temporarily overrides drawing style on the active surface.

@@ -3,7 +3,7 @@ pycreative.assets: Asset manager for sketches (images, audio, video, etc.)
 """
 
 import os
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 
 import pygame
 
@@ -13,9 +13,9 @@ class Assets:
         self.sketch_dir = sketch_dir
         # enable verbose debug printing when True
         self.debug = bool(debug)
-        # cache maps resolved absolute path -> pygame.Surface
+        # cache maps resolved absolute path -> asset (pygame.Surface or PShape or filepath)
         # Store as an instance attribute so static analyzers understand `self.cache`
-        self.cache: Dict[str, pygame.Surface] = {}
+        self.cache: Dict[str, Any] = {}
 
     def _resolve_path(self, path: str) -> Optional[str]:
         parts = path.replace("\\", "/").split("/")
@@ -63,6 +63,35 @@ class Assets:
             return img
         except Exception as e:
             print(f"[Assets] Error loading image '{resolved}': {e}")
+            return None
+
+    def load_shape(self, path: str):
+        """Load a vector shape (SVG/OBJ) and return a PShape-like object or None."""
+        if self.debug:
+            print(f"[Assets] Debug: load_shape called with path={path}")
+        resolved = self._resolve_path(path)
+        if not resolved:
+            print(f"[Assets] Error: '{path}' not found in 'data/' or sketch directory: {self.sketch_dir}")
+            return None
+        if resolved in self.cache:
+            if self.debug:
+                print("[Assets] Debug: Returning cached shape")
+            return self.cache[resolved]
+        try:
+            # Import here to avoid a hard dependency if unused
+            from .shape import load_shape_from_file
+
+            shp = load_shape_from_file(resolved)
+            if shp is None:
+                if self.debug:
+                    print(f"[Assets] Debug: load_shape returned None for {resolved}")
+                return None
+            self.cache[resolved] = shp
+            if self.debug:
+                print("[Assets] Debug: Shape loaded successfully")
+            return shp
+        except Exception as e:
+            print(f"[Assets] Error loading shape '{resolved}': {e}")
             return None
 
     def load_media(self, path: str) -> Optional[str]:

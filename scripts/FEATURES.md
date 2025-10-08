@@ -34,3 +34,5 @@ Editor hints / VS Code inlay hints (LOW)
 	* Add `pyrightconfig.json` pointing `src/` so Pylance resolves imports and the package layout consistently.
 	* Add a short README note in `docs/` describing how to enable/adjust hints locally.
 	* Add a tiny docstring to one or two core APIs (`Sketch.point`, `Surface.clear`) to demonstrate hover/signature help.
+
+Note: prefer package-style layout for new features; see `docs/package-style.md` for guidance on splitting large modules into packages and creating compatibility shims.
