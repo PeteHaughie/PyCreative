@@ -202,3 +202,43 @@ class PVector:
         """
         a = random.random() * 2 * math.pi
         return cls(math.cos(a), math.sin(a))
+
+    def dot(self, *args) -> float:
+        """Dot product.
+
+        Usage:
+          v.dot(other)        # other is PVector or 2-length iterable
+          v.dot(x, y)         # numeric components
+
+        Examples
+        --------
+        >>> from pycreative.vector import PVector
+        >>> v = PVector(10, 20)
+        >>> v.dot(60, 80)
+        2200.0
+        >>> v.dot(PVector(60, 80))
+        2200.0
+        >>> # Callable as an unbound function (PVector.dot(a, b)) is supported
+        >>> PVector.dot(v, PVector(60, 80))
+        2200.0
+        """
+        if len(args) == 1:
+            other = args[0]
+            if isinstance(other, PVector):
+                return float(self.x * other.x + self.y * other.y)
+            if hasattr(other, "__iter__"):
+                vals = list(other)
+                if len(vals) >= 2:
+                    return float(self.x * float(vals[0]) + self.y * float(vals[1]))
+                raise TypeError("dot() requires a 2-length iterable when a single iterable is provided")
+            raise TypeError("dot() requires a PVector or two numeric arguments")
+        if len(args) == 2:
+            x = float(args[0])
+            y = float(args[1])
+            return float(self.x * x + self.y * y)
+        raise TypeError("dot() requires either one vector/iterable argument or two numeric components")
+
+    # Note: keep a single flexible `dot(self, *args)` implementation above.
+    # It can be called either as an instance method `v.dot(other)` or as
+    # an unbound function via `PVector.dot(a, b)` (Python will pass `a` as
+    # the first parameter when called that way).
