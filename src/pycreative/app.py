@@ -278,6 +278,13 @@ class Sketch:
                     return ax * bx + ay * by
 
                 @staticmethod
+                def dist(a, b):
+                    """Euclidean distance between two PVectors or 2-length iterables."""
+                    ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
+                    bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
+                    return math.hypot(ax - bx, ay - by)
+
+                @staticmethod
                 def angle_between(a, b):
                     ax, ay = (a.x, a.y) if isinstance(a, PVector) else (float(a[0]), float(a[1]))
                     bx, by = (b.x, b.y) if isinstance(b, PVector) else (float(b[0]), float(b[1]))
