@@ -100,6 +100,11 @@ class Surface:
         # allocating many small surfaces each frame. This is a small, short-
         # lived cache and not intended for long-term memory growth.
         self._temp_surface_cache: dict[tuple[int, int], pygame.Surface] = {}
+        # Active font stored on the Surface; may be a pygame.font.Font or None
+        # Stored on the instance to make assignments type-checkable from
+        # external modules (e.g., Sketch.apply pending state). Use a generic
+        # object annotation at runtime to avoid import-time pygame requirements.
+        self._active_font: object | None = None
 
     def _get_temp_surface(self, w: int, h: int) -> pygame.Surface:
         """Return a cached SRCALPHA temporary surface for the given size.
@@ -424,15 +429,226 @@ class Surface:
         """Convenience property returning (width, height) of the surface."""
         return self.get_size()
 
-    def text(self, txt: str, x: int, y: int, font_name: Optional[str] = None, size: int = 24, color: Tuple[int, int, int] = (0, 0, 0)) -> None:
+    def text(self, txt: str, x: int, y: int, font_name: Optional[object] = None, size: int = 24, color: Optional[Tuple[int, int, int]] = None) -> None:
         """Render text onto the surface. Provided on Surface for convenience so
         sketches can call `self.surface.text(...)` regardless of whether the
         surface is on- or off-screen.
         """
         try:
-            font = pygame.font.SysFont(font_name, int(size))
-            surf = font.render(str(txt), True, color)
-            self._surf.blit(surf, (int(x), int(y)))
+            # Accept either a pygame.font.Font object or a font name.
+            font_obj = None
+            # If user provided an explicit Font instance, use it.
+            try:
+                import pygame as _pygame
+
+                if font_name is not None and isinstance(font_name, _pygame.font.Font):
+                    font_obj = font_name
+            except Exception:
+                pass
+
+            # Prefer an explicitly set active font on the Surface if present
+            if font_obj is None and getattr(self, "_active_font", None) is not None:
+                font_obj = self._active_font  # type: ignore[assignment]
+
+            if font_obj is None:
+                font_obj = pygame.font.SysFont(font_name if isinstance(font_name, str) else None, int(size))
+
+            # Determine color: prefer explicit argument, otherwise use surface fill
+            col_arg: ColorTuple = (0, 0, 0)
+            try:
+                if color is not None:
+                    coerced = self._coerce_input_color(color)
+                else:
+                    coerced = self._fill
+                # _coerce_input_color may return a 3- or 4-tuple; preserve values when possible
+                if coerced is None:
+                    col_arg = (0, 0, 0)
+                else:
+                    try:
+                        if len(coerced) >= 4:
+                            col_arg = (int(coerced[0]), int(coerced[1]), int(coerced[2]), int(coerced[3]))
+                        else:
+                            col_arg = (int(coerced[0]), int(coerced[1]), int(coerced[2]))
+                    except Exception:
+                        col_arg = (0, 0, 0)
+            except Exception:
+                col_arg = (0, 0, 0)
+
+            # Help static type checkers: treat font_obj as a pygame Font here
+            # single declaration to satisfy static checkers
+            from typing import Any as _Any
+
+            font_real: _Any = None
+            try:
+                font_real = cast(pygame.font.Font, font_obj)
+            except Exception:
+                font_real = font_obj
+
+            # font.render expects an RGB tuple; if we were given an RGBA
+            # preserve the alpha by rendering RGB then applying per-surface
+            # alpha to the resulting Surface.
+            try:
+                if isinstance(col_arg, tuple) and len(col_arg) >= 4:
+                    render_color = (int(col_arg[0]), int(col_arg[1]), int(col_arg[2]))
+                    render_alpha = int(col_arg[3])
+                else:
+                    render_color = (int(col_arg[0]), int(col_arg[1]), int(col_arg[2]))
+                    render_alpha = None
+            except Exception:
+                render_color = (0, 0, 0)
+                render_alpha = None
+
+            surf = font_real.render(str(txt), True, render_color)
+            try:
+                if render_alpha is not None:
+                    surf = surf.convert_alpha()
+                    surf.set_alpha(render_alpha)
+            except Exception:
+                # best-effort: ignore set_alpha failures
+                pass
+
+            # Prepare stroke if present
+            stroke_arg: ColorTuple = (0, 0, 0)
+            stroke_present = False
+            try:
+                if getattr(self, "_stroke", None) is not None:
+                    coerced_stroke = self._coerce_input_color(self._stroke)
+                    if coerced_stroke is not None:
+                        if len(coerced_stroke) >= 4:
+                            stroke_arg = (int(coerced_stroke[0]), int(coerced_stroke[1]), int(coerced_stroke[2]), int(coerced_stroke[3]))
+                        else:
+                            stroke_arg = (int(coerced_stroke[0]), int(coerced_stroke[1]), int(coerced_stroke[2]))
+                        stroke_present = True
+                stroke_w = int(self._stroke_weight) if getattr(self, "_stroke_weight", 0) else 0
+            except Exception:
+                stroke_present = False
+                stroke_w = 0
+
+            # If stroke is requested, build a composite surface containing
+            # stroked outlines (by blitting the stroke color multiple times)
+            # and then the fill on top. This composite is then blitted or
+            # transformed similarly to the non-stroked path.
+            # Ensure pad has a default so later code can reference it safely.
+            pad = 0
+            if stroke_present and stroke_w > 0:
+                try:
+                    # Create stroke surface (same glyph rendered in stroke color)
+                    try:
+                        if isinstance(stroke_arg, tuple) and len(stroke_arg) >= 4:
+                            s_render_color = (int(stroke_arg[0]), int(stroke_arg[1]), int(stroke_arg[2]))
+                            s_render_alpha = int(stroke_arg[3])
+                        else:
+                            s_render_color = (int(stroke_arg[0]), int(stroke_arg[1]), int(stroke_arg[2]))
+                            s_render_alpha = None
+                    except Exception:
+                        s_render_color = (0, 0, 0)
+                        s_render_alpha = None
+
+                    stroke_surf = font_real.render(str(txt), True, s_render_color)
+                    try:
+                        if s_render_alpha is not None:
+                            stroke_surf = stroke_surf.convert_alpha()
+                            stroke_surf.set_alpha(s_render_alpha)
+                    except Exception:
+                        pass
+                    sw = stroke_surf.get_width()
+                    sh = stroke_surf.get_height()
+                    pad = stroke_w
+                    comp_w = sw + pad * 2
+                    comp_h = sh + pad * 2
+                    # Build an expanded stroke mask by blitting the stroke glyph
+                    # around the offsets; then subtract the original fill mask so
+                    # the interior of the glyph doesn't contain stroke pixels.
+                    comp = pygame.Surface((comp_w, comp_h), flags=pygame.SRCALPHA)
+                    comp.fill((0, 0, 0, 0))
+
+                    offsets = [(dx, dy) for dx in range(-pad, pad + 1) for dy in range(-pad, pad + 1) if not (dx == 0 and dy == 0)]
+                    for dx, dy in offsets:
+                        try:
+                            comp.blit(stroke_surf, (pad + dx, pad + dy))
+                        except Exception:
+                            pass
+
+                    try:
+                        # Create masks from the expanded stroke and the fill glyph
+                        stroke_mask = pygame.mask.from_surface(comp)
+                        fill_mask = pygame.mask.from_surface(surf)
+                        # Erase the fill area from the stroke mask so the
+                        # resulting mask represents only the outline region.
+                        stroke_mask.erase(fill_mask, (pad, pad))
+                        # Convert mask back to a surface preserving alpha
+                        if isinstance(stroke_arg, tuple) and len(stroke_arg) >= 4:
+                            sc = (int(stroke_arg[0]), int(stroke_arg[1]), int(stroke_arg[2]), int(stroke_arg[3]))
+                        else:
+                            sc = (int(stroke_arg[0]), int(stroke_arg[1]), int(stroke_arg[2]), 255)
+                        outline = stroke_mask.to_surface(setcolor=sc, unsetcolor=(0, 0, 0, 0))
+                        outline = outline.convert_alpha()
+                        out_surf = pygame.Surface((comp_w, comp_h), flags=pygame.SRCALPHA)
+                        out_surf.fill((0, 0, 0, 0))
+                        out_surf.blit(outline, (0, 0))
+                        # Finally blit the fill glyph centered at pad so final
+                        # composite contains outline then fill on top.
+                        out_surf.blit(surf, (pad, pad))
+                    except Exception:
+                        # Fallback to earlier behavior if masks aren't available
+                        try:
+                            comp.blit(surf, (pad, pad))
+                        except Exception:
+                            pass
+                        out_surf = comp
+                except Exception:
+                    out_surf = surf
+            else:
+                out_surf = surf
+
+            # If no transform is active, blit directly.
+            if self._is_identity_transform():
+                try:
+                    # If we created a composite with padding, align so that the
+                    # logical origin (x,y) matches the top-left of the fill region.
+                    if out_surf is not surf:
+                        # comp had pad pixels inset; offset by -pad
+                        self._surf.blit(out_surf, (int(x) - pad, int(y) - pad))
+                    else:
+                        self._surf.blit(out_surf, (int(x), int(y)))
+                except Exception:
+                    pass
+            else:
+                try:
+                    # Transform the requested origin
+                    tx, ty = self._transform_point(x, y)
+                    # Estimate uniform scale and rotation angle from matrix
+                    sx, sy = decompose_scale(self._current_matrix())
+                    avg_scale = (sx + sy) / 2.0 if sx > 0 and sy > 0 else 1.0
+                    import math
+
+                    a = self._current_matrix()[0][0]
+                    b = self._current_matrix()[1][0]
+                    angle = math.degrees(math.atan2(b, a))
+
+                    # Apply rotation+scale via rotozoom; rotozoom rotates around the
+                    # surface center so we will blit the transformed surf centered at
+                    # the transformed origin (consistent with image behaviour).
+                    try:
+                        transformed = pygame.transform.rotozoom(out_surf, -angle, avg_scale)
+                    except Exception:
+                        try:
+                            transformed = pygame.transform.smoothscale(out_surf, (int(out_surf.get_width() * avg_scale), int(out_surf.get_height() * avg_scale)))
+                        except Exception:
+                            transformed = out_surf
+
+                    # Blit the transformed text at the transformed origin
+                    # (treat tx,ty as the top-left of the text in transformed space).
+                    # If we used a composite with padding, adjust the blit origin
+                    if out_surf is not surf:
+                        self._surf.blit(transformed, (int(tx) - int(pad * avg_scale), int(ty) - int(pad * avg_scale)))
+                    else:
+                        self._surf.blit(transformed, (int(tx), int(ty)))
+                except Exception:
+                    try:
+                        self._surf.blit(surf, (int(x), int(y)))
+                    except Exception:
+                        pass
         except Exception:
             # best-effort; don't crash sketches if font rendering isn't available
             return
@@ -1030,7 +1246,7 @@ class Surface:
         for i in range(steps + 1):
             t = i / steps
             p = self.curve_point((x0, y0), (x1, y1), (x2, y2), (x3, y3), t)
-            pts.append(p)
+            pts.append(cast(tuple[float, float], p))
         # draw as open polyline
         self.polyline(pts)
 
@@ -1574,9 +1790,63 @@ class OffscreenSurface(Surface):
 
 
     # --- text/image helpers ---
-    def text(self, txt: str, x: int, y: int, font_name: Optional[str] = None, size: int = 24, color: Tuple[int, int, int] = (0, 0, 0)) -> None:
-        font = pygame.font.SysFont(font_name, int(size))
-        surf = font.render(str(txt), True, color)
+    def text(self, txt: str, x: int, y: int, font_name: Optional[object] = None, size: int = 24, color: Optional[Tuple[int, int, int]] = None) -> None:
+        # Accept either an object Font instance or a font name; mirror Surface.text behavior
+        try:
+            font_obj = None
+            if font_name is not None:
+                try:
+                    import pygame as _pygame
+                    if isinstance(font_name, _pygame.font.Font):
+                        font_obj = font_name
+                except Exception:
+                    pass
+            if font_obj is None:
+                font_obj = pygame.font.SysFont(font_name if isinstance(font_name, str) else None, int(size))
+            font = font_obj
+        except Exception:
+            font = pygame.font.SysFont(None, int(size))
+
+        # Determine color: prefer explicit argument, otherwise use surface fill
+        col_arg: ColorTuple = (0, 0, 0)
+        try:
+            if color is not None:
+                coerced = self._coerce_input_color(color)
+            else:
+                coerced = self._fill
+            if coerced is None:
+                col_arg = (0, 0, 0)
+            else:
+                try:
+                    if len(coerced) >= 4:
+                        col_arg = (int(coerced[0]), int(coerced[1]), int(coerced[2]), int(coerced[3]))
+                    else:
+                        col_arg = (int(coerced[0]), int(coerced[1]), int(coerced[2]))
+                except Exception:
+                    col_arg = (0, 0, 0)
+        except Exception:
+            col_arg = (0, 0, 0)
+
+        # Render with RGB and apply alpha if provided
+        try:
+            if isinstance(col_arg, tuple) and len(col_arg) >= 4:
+                render_color = (int(col_arg[0]), int(col_arg[1]), int(col_arg[2]))
+                render_alpha = int(col_arg[3])
+            else:
+                render_color = (int(col_arg[0]), int(col_arg[1]), int(col_arg[2]))
+                render_alpha = None
+        except Exception:
+            render_color = (0, 0, 0)
+            render_alpha = None
+
+        surf = font.render(str(txt), True, render_color)
+        try:
+            if render_alpha is not None:
+                surf = surf.convert_alpha()
+                surf.set_alpha(render_alpha)
+        except Exception:
+            pass
+
         self._surf.blit(surf, (int(x), int(y)))
 
     def load_image(self, path: str) -> pygame.Surface:

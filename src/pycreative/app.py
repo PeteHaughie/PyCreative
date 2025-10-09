@@ -82,6 +82,9 @@ class Sketch:
         self._pending_tint: tuple | Any = _PENDING_UNSET
         # Pending blend mode
         self._pending_blend: Optional[str] | Any = _PENDING_UNSET
+        # Pending font and text size state (applied when surface exists)
+        self._pending_font: object | Any = _PENDING_UNSET
+        self._pending_text_size: int | Any = _PENDING_UNSET
         # Pending line cap / join style (butt, round, square) / (miter, round, bevel)
         self._pending_line_cap: Optional[str] | Any = _PENDING_UNSET
         self._pending_line_join: Optional[str] | Any = _PENDING_UNSET
@@ -869,9 +872,170 @@ class Sketch:
             pass
         return None
 
-    def text(self, txt: str, x: int, y: int, font_name: Optional[str] = None, size: int = 24, color: Tuple[int, int, int] = (0, 0, 0)) -> None:
+    def text(self, txt: str, x: int, y: int, font_name: Optional[str] = None, size: int = 24, color: Optional[Tuple[int, int, int]] = None) -> None:
         if self.surface is not None:
             self.surface.text(txt, x, y, font_name=font_name, size=size, color=color)
+
+    def load_font(self, path: str, size: int = 24):
+        """Load a font from the sketch's data folder via the Assets manager.
+
+        Returns a pygame.font.Font instance or None.
+        """
+        if self.assets is None:
+            # Assets exist only when the sketch is running; create an Assets
+            # instance relative to the sketch file if sketch_path is known.
+            sketch_dir = os.path.dirname(self.sketch_path) if self.sketch_path else os.getcwd()
+            try:
+                self.assets = Assets(sketch_dir)
+            except Exception:
+                return None
+        return self.assets.load_font(path, size=size)
+
+    def create_font(self, path: str, size: int = 24):
+        """Alias for load_font() for Processing-style API parity."""
+        return self.load_font(path, size=size)
+
+    def list_fonts(self, include_paths: bool = False) -> list:
+        """Return available fonts, preferring bundled fonts in the sketch `data/`
+        directory followed by system-installed font family names.
+
+        This is a thin convenience wrapper around `Assets.list_fonts()` so
+        sketches can call `self.list_fonts()` without importing pygame.
+        """
+        if self.assets is None:
+            sketch_dir = os.path.dirname(self.sketch_path) if self.sketch_path else os.getcwd()
+            try:
+                self.assets = Assets(sketch_dir)
+            except Exception:
+                return []
+        try:
+            return self.assets.list_fonts(include_paths=include_paths)
+        except Exception:
+            return []
+
+    def text_size(self, size: int | None = None):
+        """Get or set the default text size for subsequent text() calls.
+
+        When called before a Surface exists the value is stored as pending and
+        applied when the surface is created.
+        """
+        if size is None:
+            v = self._pending_text_size
+            if v is _PENDING_UNSET:
+                return None
+            return int(v)
+        try:
+            self._pending_text_size = int(size)
+        except Exception:
+            pass
+        return None
+
+    def text_font(self, font: object | None = None, size: int | None = None):
+        """Set the active font for subsequent text() calls.
+
+        `font` may be a pygame.font.Font instance or a font-name string.
+        When called before a Surface exists this records the choice as pending.
+        """
+        if self.surface is not None:
+            # If a size is provided, prefer creating/loading a Font instance.
+            if isinstance(font, str) and size is not None and self.assets is not None:
+                loaded = self.assets.load_font(font, size=size)
+                try:
+                    self.surface._active_font = loaded
+                except Exception:
+                    pass
+                return None
+            try:
+                self.surface._active_font = font
+            except Exception:
+                pass
+            return None
+        # record pending choices
+        self._pending_font = font
+        if size is not None:
+            try:
+                self._pending_text_size = int(size)
+            except Exception:
+                pass
+        return None
+
+    def use_font(self, font: str | object, size: int | None = None):
+        """Convenience: load (if needed) and set the active font for the sketch.
+
+        `font` may be a pygame.font.Font instance or a family/name string.
+        If a string is provided this will attempt to load a concrete Font
+        instance (preferring TTF/OTF) and set it as the active font for
+        subsequent draw calls. Returns the pygame.font.Font instance when
+        available or None on failure.
+        """
+        # If caller provided an already-created Font instance, assign it
+        if not isinstance(font, str):
+            if self.surface is not None:
+                try:
+                    self.surface._active_font = font
+                except Exception:
+                    pass
+            else:
+                # keep as pending so initialize/run will apply it
+                self._pending_font = font
+            if size is not None:
+                try:
+                    self._pending_text_size = int(size)
+                except Exception:
+                    pass
+            return font
+
+        # If the surface isn't ready yet, try to eagerly resolve the font via
+        # Assets so use_font() can return a concrete pygame.font.Font when
+        # possible (this matches common expectations in setup()). If that
+        # fails, fall back to recording a pending font name/size to be
+        # resolved later during initialize/run.
+        if self.surface is None:
+            try:
+                # Attempt to load via Assets/load_font which will create an
+                # Assets instance if needed. This may succeed even before the
+                # display exists (pygame.font.match_font and Font creation
+                # usually work without an active display).
+                f = self.load_font(font, size=size) if size is not None else self.load_font(font)
+            except Exception:
+                f = None
+            if f is not None:
+                try:
+                    # store both concrete and pending so initialize/run will
+                    # see a concrete Font instance and examples can use it
+                    self._loaded_font = f
+                    self._pending_font = f
+                    return f
+                except Exception:
+                    pass
+            # Eager resolution failed: record the requested name for later
+            try:
+                self._pending_font = font
+                if size is not None:
+                    self._pending_text_size = int(size)
+            except Exception:
+                pass
+            return None
+
+        # surface exists: load immediately and set active font
+        try:
+            f = self.load_font(font, size=size) if size is not None else self.load_font(font)
+        except Exception:
+            f = None
+        if f is not None:
+            try:
+                self.surface._active_font = f
+            except Exception:
+                pass
+            return f
+        # if loading failed, record pending name/size as a fallback
+        try:
+            self._pending_font = font
+            if size is not None:
+                self._pending_text_size = int(size)
+        except Exception:
+            pass
+        return None
 
     def point(self, x: float, y: float, color: Optional[Tuple[int, int, int]] = None, z: float | None = None) -> None:
         """Draw a point on the sketch surface. Delegates to Surface.point.
@@ -1899,6 +2063,9 @@ class Sketch:
         try:
             if debug:
                 print("[pycreative.initialize] debug: applying pending state to Surface")
+            # surface must exist here; assert to help static checkers narrow
+            assert self.surface is not None
+
             # apply pending color mode first so pending fill/stroke are interpreted correctly
             if getattr(self, "_pending_color_mode", _PENDING_UNSET) is not _PENDING_UNSET:
                 try:
@@ -1943,9 +2110,108 @@ class Sketch:
                 if debug:
                     print(f"[pycreative.initialize] debug: applying pending stroke={col}")
                 self.surface.stroke(col)
+
+            # Apply pending font and text size if present. We attempt to honor
+            # both a pending text size and a pending font value regardless of
+            # which one was set last. `self._pending_font` may be a string path
+            # (loadable via Assets) or an already-created Font instance.
+            try:
+                pf = getattr(self, "_pending_font", _PENDING_UNSET)
+                pts = getattr(self, "_pending_text_size", _PENDING_UNSET)
+
+                # First, if a pending text size is present, store/consider it.
+                if pts is not _PENDING_UNSET:
+                    try:
+                        # no direct Surface API to set default size, but we
+                        # prefer to honor size when creating/loading a font.
+                        # Clear any existing active font first; we'll set below.
+                        self.surface._active_font = None
+                    except Exception:
+                        pass
+
+                # If a pending font was provided as a path string and we have
+                # assets, try to load it, preferring to use pending size when
+                # available.
+                try:
+                    if pf is not _PENDING_UNSET and isinstance(pf, str) and self.assets is not None:
+                        if pts is not _PENDING_UNSET:
+                            try:
+                                from typing import cast as _cast
+
+                                pts_i = int(_cast(int, pts))
+                            except Exception:
+                                pts_i = 24
+                            f = self.assets.load_font(pf, size=pts_i)
+                        else:
+                            f = self.assets.load_font(pf)
+                        if f is not None:
+                            self.surface._active_font = f
+                            try:
+                                # expose the concrete pygame.font.Font on the
+                                # Sketch for convenience so examples can
+                                # reference it directly (e.g., self._loaded_font)
+                                self._loaded_font = f
+                            except Exception:
+                                pass
+                    elif pf is not _PENDING_UNSET:
+                        # pf is likely an already-created Font instance; assign it.
+                        try:
+                            self.surface._active_font = pf
+                            try:
+                                self._loaded_font = pf
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            except Exception:
+                pass
             if self._pending_stroke_weight is not _PENDING_UNSET:
                 if isinstance(self._pending_stroke_weight, int):
                     self.surface.stroke_weight(self._pending_stroke_weight)
+            # Apply pending font and text size as in initialize(); ensure
+            # fonts/text size requested in setup() before display creation
+            # are honored when run() creates the display surface.
+            try:
+                pf = getattr(self, "_pending_font", _PENDING_UNSET)
+                pts = getattr(self, "_pending_text_size", _PENDING_UNSET)
+                if pts is not _PENDING_UNSET:
+                    try:
+                        self.surface._active_font = None
+                    except Exception:
+                        pass
+                try:
+                    if pf is not _PENDING_UNSET and isinstance(pf, str) and self.assets is not None:
+                        if pts is not _PENDING_UNSET:
+                            try:
+                                from typing import cast as _cast
+
+                                pts_i = int(_cast(int, pts))
+                            except Exception:
+                                pts_i = 24
+                            f = self.assets.load_font(pf, size=pts_i)
+                        else:
+                            f = self.assets.load_font(pf)
+                        if f is not None:
+                            self.surface._active_font = f
+                            try:
+                                self._loaded_font = f
+                            except Exception:
+                                pass
+                    elif pf is not _PENDING_UNSET:
+                        try:
+                            self.surface._active_font = pf
+                            try:
+                                self._loaded_font = pf
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
             if getattr(self, "_pending_line_cap", _PENDING_UNSET) is not _PENDING_UNSET:
                 try:
@@ -2161,21 +2427,35 @@ class Sketch:
                 pass
         pygame.display.set_caption(self._title)
         # Same cast as earlier: ensure the typechecker knows this is a pygame.Surface.
-        self.surface = GraphicsSurface(cast(pygame.Surface, self._surface))
+        # If initialize() already created a GraphicsSurface wrapper and it
+        # references the same underlying pygame.Surface, reuse that wrapper
+        # so we don't lose surface-local state (for example, _active_font).
+        try:
+            existing = getattr(self, "surface", None)
+            if existing is not None and getattr(existing, "_surf", None) is self._surface:
+                # reuse the existing GraphicsSurface instance
+                pass
+            else:
+                self.surface = GraphicsSurface(cast(pygame.Surface, self._surface))
+        except Exception:
+            # On any failure, fall back to creating a fresh wrapper.
+            self.surface = GraphicsSurface(cast(pygame.Surface, self._surface))
         # Apply any drawing state set earlier in setup() before the Surface existed
         try:
             if debug:
                 print("[pycreative.run] debug: applying pending state to Surface")
             # apply pending color mode first so pending fill/stroke are interpreted correctly
+            assert self.surface is not None
+            surf = self.surface
             if getattr(self, "_pending_color_mode", _PENDING_UNSET) is not _PENDING_UNSET:
                 try:
                     cm = self._pending_color_mode
                     # cm may be (mode, max1, max2, max3) or include a 5th alpha max
                     if isinstance(cm, tuple) and len(cm) >= 4:
                         if len(cm) >= 5:
-                            self.surface.color_mode(cm[0], cm[1], cm[2], cm[3], cm[4])
+                            surf.color_mode(cm[0], cm[1], cm[2], cm[3], cm[4])
                         else:
-                            self.surface.color_mode(cm[0], cm[1], cm[2], cm[3])
+                            surf.color_mode(cm[0], cm[1], cm[2], cm[3])
                 except Exception:
                     pass
 
@@ -2194,7 +2474,7 @@ class Sketch:
                 val = _to_color_tuple(self._pending_fill)
                 if debug:
                     print(f"[pycreative.run] debug: applying pending fill={val}")
-                self.surface.fill(val)
+                surf.fill(val)
             if self._pending_stroke is not _PENDING_UNSET:
                 def _to_color_tuple(v: object) -> ColorTupleOrNone:
                     if v is None:
@@ -2209,27 +2489,27 @@ class Sketch:
                 col = _to_color_tuple(self._pending_stroke)
                 if debug:
                     print(f"[pycreative.run] debug: applying pending stroke={col}")
-                self.surface.stroke(col)
+                surf.stroke(col)
             if self._pending_stroke_weight is not _PENDING_UNSET:
                 if isinstance(self._pending_stroke_weight, int):
-                    self.surface.stroke_weight(self._pending_stroke_weight)
+                    surf.stroke_weight(self._pending_stroke_weight)
             # apply pending line cap/join if present
             if getattr(self, "_pending_line_cap", _PENDING_UNSET) is not _PENDING_UNSET:
                 try:
                     v = self._pending_line_cap
                     if v is None:
-                        self.surface.set_line_cap("butt")
+                        surf.set_line_cap("butt")
                     else:
-                        self.surface.set_line_cap(v)
+                        surf.set_line_cap(v)
                 except Exception:
                     pass
             if getattr(self, "_pending_line_join", _PENDING_UNSET) is not _PENDING_UNSET:
                 try:
                     v = self._pending_line_join
                     if v is None:
-                        self.surface.set_line_join("miter")
+                        surf.set_line_join("miter")
                     else:
-                        self.surface.set_line_join(v)
+                        surf.set_line_join(v)
                 except Exception:
                     pass
             # apply pending background if present
@@ -2253,7 +2533,7 @@ class Sketch:
                         coerced_bg = _to_color_tuple_local(bg)
                         if coerced_bg is not None:
                             try:
-                                self.surface.clear(coerced_bg)
+                                surf.clear(coerced_bg)
                             except Exception:
                                 pass
                         else:
@@ -2262,33 +2542,33 @@ class Sketch:
 
                                 if isinstance(bg, _Color):
                                     try:
-                                        self.surface.clear(bg)
+                                        surf.clear(bg)
                                     except Exception:
                                         pass
                                 elif isinstance(bg, (int, float)):
                                     try:
-                                        self.surface.clear(int(bg) & 255)
+                                        surf.clear(int(bg) & 255)
                                     except Exception:
                                         pass
                                 elif isinstance(bg, tuple):
                                     try:
                                         if len(bg) in (3, 4):
                                             t3 = tuple(int(x) for x in bg)
-                                            self.surface.clear(cast(ColorInput, t3))
+                                            surf.clear(cast(ColorInput, t3))
                                     except Exception:
                                         pass
                             except Exception:
                                 # Last-resort guarded handling without importing Color
                                 if isinstance(bg, (int, float)):
                                     try:
-                                        self.surface.clear(int(bg) & 255)
+                                        surf.clear(int(bg) & 255)
                                     except Exception:
                                         pass
                                 elif isinstance(bg, tuple):
                                     try:
                                         if len(bg) in (3, 4):
                                             t3 = tuple(int(x) for x in bg)
-                                            self.surface.clear(cast(ColorInput, t3))
+                                            surf.clear(cast(ColorInput, t3))
                                     except Exception:
                                         pass
                         self._pending_background = _PENDING_UNSET
@@ -2299,14 +2579,14 @@ class Sketch:
                 try:
                     rm = self._pending_rect_mode
                     if isinstance(rm, str) or rm is None:
-                        self.surface.rect_mode(rm)
+                        surf.rect_mode(rm)
                 except Exception:
                     pass
             if getattr(self, "_pending_ellipse_mode", _PENDING_UNSET) is not _PENDING_UNSET:
                 try:
                     em = self._pending_ellipse_mode
                     if isinstance(em, str) or em is None:
-                        self.surface.ellipse_mode(em)
+                        surf.ellipse_mode(em)
                 except Exception:
                     pass
         except Exception:
@@ -2426,8 +2706,8 @@ class Sketch:
             pygame.display.flip()
             if debug:
                 try:
-                    surf = pygame.display.get_surface()
-                    print(f"[pycreative.run] debug: pygame.display.get_surface() exists={surf is not None}")
+                    ds = pygame.display.get_surface()
+                    print(f"[pycreative.run] debug: pygame.display.get_surface() exists={ds is not None}")
                 except Exception:
                     pass
             self.frame_count += 1
