@@ -1060,6 +1060,16 @@ class Sketch:
         # forward per-call styles to Surface.rect
         self.surface.rect(x, y, w, h, fill=fill, stroke=stroke, stroke_weight=stroke_width)
 
+    def square(self, x, y, s, fill=None, stroke=None, stroke_width=None):
+        """Compatibility wrapper: draw a square with side s at (x,y).
+
+        Forwards to `Surface.square` so behavior matches the Surface API and
+        existing examples that call `square(...)`.
+        """
+        if self.surface is None:
+            return
+        self.surface.square(x, y, s, fill=fill, stroke=stroke, stroke_weight=stroke_width)
+
     def triangle(self, x1, y1, x2, y2, x3, y3, fill: ColorTupleOrNone = None, stroke: ColorTupleOrNone = None, stroke_width: Optional[int] = None):
         if self.surface is None:
             return

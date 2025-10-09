@@ -162,6 +162,38 @@ def rect(surface, x: float, y: float, w: float, h: float, fill: Optional[Tuple[i
         surface._line_join = prev_join
 
 
+def square(
+    surface,
+    x: float,
+    y: float,
+    s: float,
+    fill: Optional[Tuple[int, ...]] = None,
+    stroke: Optional[Tuple[int, ...]] = None,
+    stroke_weight: Optional[int] = None,
+    stroke_width: Optional[int] = None,
+    cap: Optional[str] = None,
+    join: Optional[str] = None,
+) -> None:
+    """Draw a square with side length `s`.
+
+    This is a thin wrapper that forwards to `rect()` using `w = h = s` so
+    behavior (modes, transforms, alpha handling) is shared with rectangles.
+    """
+    return rect(
+        surface,
+        x,
+        y,
+        s,
+        s,
+        fill=fill,
+        stroke=stroke,
+        stroke_weight=stroke_weight,
+        stroke_width=stroke_width,
+        cap=cap,
+        join=join,
+    )
+
+
 def ellipse(surface, x: float, y: float, w: float, h: float, fill: Optional[Tuple[int, ...]] = None, stroke: Optional[Tuple[int, ...]] = None, stroke_weight: Optional[int] = None, stroke_width: Optional[int] = None, cap: Optional[str] = None, join: Optional[str] = None) -> None:
     if surface._ellipse_mode == surface.MODE_CENTER:
         cx = x
