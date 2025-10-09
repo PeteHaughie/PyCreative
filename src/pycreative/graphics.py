@@ -523,6 +523,21 @@ class Surface:
         # alpha-aware compositing and transform handling.
         return _primitives.rect(self, x, y, w, h, fill=fill, stroke=stroke, stroke_weight=stroke_weight, stroke_width=stroke_width, cap=cap, join=join)
 
+    def square(
+        self,
+        x: float,
+        y: float,
+        s: float,
+        fill: Optional[Tuple[int, ...]] = None,
+        stroke: Optional[Tuple[int, ...]] = None,
+        stroke_weight: Optional[int] = None,
+        stroke_width: Optional[int] = None,
+        cap: Optional[str] = None,
+        join: Optional[str] = None,
+    ) -> None:
+        """Draw a square (convenience wrapper): forwards to primitives.square()."""
+        return _primitives.square(self, x, y, s, fill=fill, stroke=stroke, stroke_weight=stroke_weight, stroke_width=stroke_width, cap=cap, join=join)
+
  
 
     def ellipse(
