@@ -85,3 +85,84 @@ def parse_style(elem: ET.Element, shape) -> None:
                 shape.stroke_weight = int(float(v))
             except Exception:
                 pass
+
+    # Also consider direct attributes (fill, stroke, stroke-width)
+    # SVG default fill is black when not specified and not 'none'
+    fattr = elem.get('fill')
+    if fattr is not None:
+        fv = fattr.strip()
+        if fv != 'none':
+            # hex
+            if fv.startswith('#') and len(fv) >= 7:
+                try:
+                    shape.fill = (int(fv[1:3], 16), int(fv[3:5], 16), int(fv[5:7], 16))
+                except Exception:
+                    pass
+            # rgb(r,g,b)
+            elif fv.startswith('rgb'):
+                nums = [int(x) for x in re.findall(r"\d+", fv)]
+                if len(nums) >= 3:
+                    shape.fill = (nums[0], nums[1], nums[2])
+    else:
+        # if no explicit fill attr or style, SVG default is black. Only set if shape.fill not already set
+        if getattr(shape, 'fill', None) is None:
+            shape.fill = (0, 0, 0)
+
+    sattr = elem.get('stroke')
+    if sattr is not None:
+        sv = sattr.strip()
+        if sv != 'none':
+            if sv.startswith('#') and len(sv) >= 7:
+                try:
+                    shape.stroke = (int(sv[1:3], 16), int(sv[3:5], 16), int(sv[5:7], 16))
+                except Exception:
+                    pass
+            elif sv.startswith('rgb'):
+                nums = [int(x) for x in re.findall(r"\d+", sv)]
+                if len(nums) >= 3:
+                    shape.stroke = (nums[0], nums[1], nums[2])
+
+    sw = elem.get('stroke-width')
+    if sw is not None:
+        try:
+            shape.stroke_weight = int(float(sw))
+        except Exception:
+            pass
+
+    # stroke-linecap, stroke-linejoin, stroke-miterlimit, stroke-dasharray
+    slc = elem.get('stroke-linecap')
+    if slc is not None:
+        try:
+            shape.stroke_linecap = slc.strip()
+        except Exception:
+            pass
+
+    slj = elem.get('stroke-linejoin')
+    if slj is not None:
+        try:
+            shape.stroke_linejoin = slj.strip()
+        except Exception:
+            pass
+
+    sm = elem.get('stroke-miterlimit')
+    if sm is not None:
+        try:
+            shape.stroke_miterlimit = float(sm)
+        except Exception:
+            pass
+
+    sda = elem.get('stroke-dasharray')
+    if sda is not None:
+        try:
+            # numbers separated by commas or spaces
+            nums = [float(x) for x in re.findall(r"[+-]?(?:\d*\.\d+|\d+)(?:[eE][+-]?\d+)?", sda)]
+            shape.stroke_dasharray = nums if nums else None
+        except Exception:
+            pass
+
+    fr = elem.get('fill-rule')
+    if fr is not None:
+        try:
+            shape.fill_rule = fr.strip()
+        except Exception:
+            pass

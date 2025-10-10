@@ -3,15 +3,14 @@ from __future__ import annotations
 from typing import List, Tuple, Union
 
 
-def flatten_cubic_bezier(p0: Tuple[float, float], p1: Tuple[float, float], p2: Tuple[float, float], p3: Tuple[float, float], steps: int = 16) -> List[Tuple[float, float]]:
+def flatten_cubic_bezier(p0: Tuple[float, float], p1: Tuple[float, float], p2: Tuple[float, float], p3: Tuple[float, float], steps: int = 16, tol: float = 0.5) -> List[Tuple[float, float]]:
     """Flatten a cubic Bezier adaptively using recursive subdivision.
 
     Returns a list of points including endpoints. The `steps` parameter is
-    interpreted as a hint for maximum recursion depth when needed.
+    interpreted as a hint for maximum recursion depth when needed. `tol` is
+    the flatness tolerance in pixels — smaller values produce denser output.
     """
     import math
-
-    tol = 0.5  # flatness tolerance in pixels (pragmatic default)
 
     def _dist_point_line(px, py, x0, y0, x1, y1):
         # distance from point to line segment (x0,y0)-(x1,y1)
@@ -29,7 +28,7 @@ def flatten_cubic_bezier(p0: Tuple[float, float], p1: Tuple[float, float], p2: T
         # estimate flatness by distance of control points to chord p0-p3
         d1 = _dist_point_line(p1[0], p1[1], p0[0], p0[1], p3[0], p3[1])
         d2 = _dist_point_line(p2[0], p2[1], p0[0], p0[1], p3[0], p3[1])
-        return max(d1, d2) <= tol
+        return max(d1, d2) <= float(tol)
 
     def _subdivide(p0, p1, p2, p3, depth):
         if depth <= 0 or _is_flat(p0, p1, p2, p3):
@@ -51,11 +50,12 @@ def flatten_cubic_bezier(p0: Tuple[float, float], p1: Tuple[float, float], p2: T
     return pts
 
 
-def flatten_quadratic_bezier(p0: Tuple[float, float], p1: Tuple[float, float], p2: Tuple[float, float], steps: int = 16) -> List[Tuple[float, float]]:
-    """Flatten a quadratic Bezier using adaptive subdivision."""
-    import math
+def flatten_quadratic_bezier(p0: Tuple[float, float], p1: Tuple[float, float], p2: Tuple[float, float], steps: int = 16, tol: float = 0.5) -> List[Tuple[float, float]]:
+    """Flatten a quadratic Bezier using adaptive subdivision.
 
-    tol = 0.5
+    `tol` is the flatness tolerance in pixels — smaller values produce denser output.
+    """
+    import math
 
     def _dist_point_line(px, py, x0, y0, x1, y1):
         dx = x1 - x0
@@ -69,7 +69,7 @@ def flatten_quadratic_bezier(p0: Tuple[float, float], p1: Tuple[float, float], p
 
     def _is_flat(p0, p1, p2):
         d = _dist_point_line(p1[0], p1[1], p0[0], p0[1], p2[0], p2[1])
-        return d <= tol
+        return d <= float(tol)
 
     def _subdivide(p0, p1, p2, depth):
         if depth <= 0 or _is_flat(p0, p1, p2):

@@ -22,6 +22,24 @@ def _parse_points_attr(s: str) -> List[Tuple[float, float]]:
 
 
 def load_svg(path: str) -> Optional[PShape]:
+    # Prefer Skia-backed extraction when available for vector fidelity
+    try:
+        from .skia_loader import skia_svg_to_pshape, skia_available
+
+        if skia_available():
+            try:
+                shp = skia_svg_to_pshape(path)
+                # If skia extraction yields a usable shape return it.
+                if shp is not None and getattr(shp, 'subpaths', None):
+                    return shp
+                # otherwise fallthrough to builtin loader
+            except Exception:
+                # fall through to builtin loader on any skia extraction error
+                pass
+    except Exception:
+        # skia_loader not present or failed import; continue with pure-Python loader
+        pass
+
     try:
         tree = ET.parse(path)
         root = tree.getroot()
@@ -46,6 +64,19 @@ def load_svg(path: str) -> Optional[PShape]:
                     pass
     except Exception:
         pass
+
+    # Determine a user-space tolerance for flatteners so when shapes are
+    # mapped to a 400x400 container the flatness is approximately 0.5px.
+    try:
+        container_w = 400.0
+        if shape.view_box is not None:
+            vb_x, vb_y, vb_w, vb_h = shape.view_box
+            scale_for_tol = (container_w / vb_w) if vb_w != 0 else 1.0
+        else:
+            scale_for_tol = 1.0
+        user_tol = 0.5 / float(scale_for_tol)
+    except Exception:
+        user_tol = 0.5
 
     def process_element(elem: ET.Element, cur_mat) -> None:
         tag = elem.tag
@@ -111,13 +142,32 @@ def load_svg(path: str) -> Optional[PShape]:
             cur_x = 0.0
             cur_y = 0.0
             start_x = None
+            start_y = None
             prev_cx = None
             prev_cy = None
+            iter_count = 0
+            max_iters = max(100000, len(tokens) * 10)
             while i < len(tokens):
+                iter_count += 1
+                if iter_count > max_iters:
+                    # abort parsing this path if it becomes pathological
+                    break
                 tk = tokens[i]
                 if tk.isalpha():
                     cmd = tk
                     i += 1
+                    # Handle explicit close commands immediately so we
+                    # record closed contours (append start point) which
+                    # allows downstream drawing to treat them as filled
+                    # polygons instead of open polylines.
+                    if cmd in ('Z', 'z'):
+                        if start_x is not None and path_pts:
+                            # ensure exact closure
+                            if path_pts[0] != path_pts[-1]:
+                                path_pts.append((start_x, start_y))
+                            cur_x, cur_y = start_x, start_y
+                        # continue parsing after handling close
+                        continue
                     continue
                 if cmd is None:
                     i += 1
@@ -130,6 +180,7 @@ def load_svg(path: str) -> Optional[PShape]:
                         cur_x, cur_y = x, y
                         if start_x is None:
                             start_x = cur_x
+                            start_y = cur_y
                         path_pts.append((cur_x, cur_y))
                         i += 2
                     except Exception:
@@ -143,43 +194,69 @@ def load_svg(path: str) -> Optional[PShape]:
                         cur_y += dy
                         if start_x is None:
                             start_x = cur_x
+                            start_y = cur_y
                         path_pts.append((cur_x, cur_y))
                         i += 2
                     except Exception:
                         i += 1
                         continue
-                elif cmd in ('C', 'c', 'S', 's'):
+                elif cmd in ('C', 'c'):
                     try:
                         while i + 5 < len(tokens) and not tokens[i].isalpha():
-                            if cmd in ('C', 'S'):
-                                cx1 = float(tokens[i])
-                                cy1 = float(tokens[i + 1])
-                                cx2 = float(tokens[i + 2])
-                                cy2 = float(tokens[i + 3])
-                                x = float(tokens[i + 4])
-                                y = float(tokens[i + 5])
-                            else:
-                                rc1x = float(tokens[i])
-                                rc1y = float(tokens[i + 1])
-                                rc2x = float(tokens[i + 2])
-                                rc2y = float(tokens[i + 3])
-                                rx = float(tokens[i + 4])
-                                ry = float(tokens[i + 5])
-                                cx1 = cur_x + rc1x
-                                cy1 = cur_y + rc1y
-                                cx2 = cur_x + rc2x
-                                cy2 = cur_y + rc2y
-                                x = cur_x + rx
-                                y = cur_y + ry
+                            cx1 = float(tokens[i])
+                            cy1 = float(tokens[i + 1])
+                            cx2 = float(tokens[i + 2])
+                            cy2 = float(tokens[i + 3])
+                            x = float(tokens[i + 4])
+                            y = float(tokens[i + 5])
                             from ..shape_math import flatten_cubic_bezier
 
-                            seg = flatten_cubic_bezier((cur_x, cur_y), (cx1, cy1), (cx2, cy2), (x, y), steps=20)
+                            seg = flatten_cubic_bezier((cur_x, cur_y), (cx1, cy1), (cx2, cy2), (x, y), steps=128, tol=user_tol)
                             if seg:
                                 for p in seg[1:]:
                                     path_pts.append(p)
                             prev_cx, prev_cy = cx2, cy2
                             cur_x, cur_y = x, y
                             i += 6
+                    except Exception:
+                        i += 1
+                        continue
+                elif cmd in ('S', 's'):
+                    try:
+                        # smooth cubic: shorthand uses 4 parameters per segment
+                        while i + 3 < len(tokens) and not tokens[i].isalpha():
+                            if cmd == 'S':
+                                cx2 = float(tokens[i])
+                                cy2 = float(tokens[i + 1])
+                                x = float(tokens[i + 2])
+                                y = float(tokens[i + 3])
+                            else:
+                                rc2x = float(tokens[i])
+                                rc2y = float(tokens[i + 1])
+                                rx = float(tokens[i + 2])
+                                ry = float(tokens[i + 3])
+                                cx2 = cur_x + rc2x
+                                cy2 = cur_y + rc2y
+                                x = cur_x + rx
+                                y = cur_y + ry
+
+                            # first control point is reflection of previous control point
+                            if prev_cx is not None and prev_cy is not None:
+                                cx1 = 2 * cur_x - prev_cx
+                                cy1 = 2 * cur_y - prev_cy
+                            else:
+                                cx1 = cur_x
+                                cy1 = cur_y
+
+                            from ..shape_math import flatten_cubic_bezier
+
+                            seg = flatten_cubic_bezier((cur_x, cur_y), (cx1, cy1), (cx2, cy2), (x, y), steps=128, tol=user_tol)
+                            if seg:
+                                for p in seg[1:]:
+                                    path_pts.append(p)
+                            prev_cx, prev_cy = cx2, cy2
+                            cur_x, cur_y = x, y
+                            i += 4
                     except Exception:
                         i += 1
                         continue
@@ -217,7 +294,7 @@ def load_svg(path: str) -> Optional[PShape]:
                                 i_step = 2
                             from ..shape_math import flatten_quadratic_bezier
 
-                            seg = flatten_quadratic_bezier((cur_x, cur_y), (qx1, qy1), (x, y), steps=16)
+                            seg = flatten_quadratic_bezier((cur_x, cur_y), (qx1, qy1), (x, y), steps=64, tol=user_tol)
                             if seg:
                                 for p in seg[1:]:
                                     path_pts.append(p)
@@ -243,7 +320,7 @@ def load_svg(path: str) -> Optional[PShape]:
                                 y = cur_y + float(tokens[i + 6])
                             from ..shape_math import flatten_arc
 
-                            seg = flatten_arc((cur_x, cur_y), (x, y), rx, ry, xar, laf, sf)
+                            seg = flatten_arc((cur_x, cur_y), (x, y), rx, ry, xar, laf, sf, steps=96)
                             if seg:
                                 for p in seg[1:]:
                                     path_pts.append(p)
@@ -257,6 +334,13 @@ def load_svg(path: str) -> Optional[PShape]:
                     i += 1
 
             if path_pts:
+                # If the original 'd' string contains an explicit close command
+                # ensure we close the contour exactly by appending the start
+                # coordinate. This is a defensive measure for tokenization
+                # edge-cases where the 'Z' may not be parsed as a separate
+                # token.
+                if ('z' in d or 'Z' in d) and path_pts[0] != path_pts[-1]:
+                    path_pts.append((path_pts[0][0], path_pts[0][1]))
                 path_pts = [apply_matrix_point(cur_mat, px, py) for px, py in path_pts]
                 shape.add_subpath(path_pts)
 
