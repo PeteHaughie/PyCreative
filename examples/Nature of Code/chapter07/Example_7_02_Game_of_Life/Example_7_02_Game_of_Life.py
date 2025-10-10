@@ -30,9 +30,9 @@ class Example_7_02_Game_of_Life(Sketch):
         for i in range(1, self.columns - 1):
             for j in range(1, self.rows - 1):
                 neighbor_sum = 0
-                for k in range(-1, 2):
-                    for l in range(-1, 2):
-                        neighbor_sum += self.board[i + k][j + l]
+                for dx in range(-1, 2):
+                    for dy in range(-1, 2):
+                        neighbor_sum += self.board[i + dx][j + dy]
                 neighbor_sum -= self.board[i][j]
 
                 if self.board[i][j] == 1 and neighbor_sum < 2:
