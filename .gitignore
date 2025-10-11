@@ -26,10 +26,10 @@ dist/
 *.egg-info/
 
 # Test Files
-examples/tmp.py
-debug/
 
 # Work in progress
 examples/Generative Gestaltung
 sketches/
 specs/
+.github/copilot-instructions.md
+src_old/

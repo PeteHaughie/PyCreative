@@ -8,8 +8,8 @@ PyCreative is a creative coding framework for Python 3.11+ built atop PyGame. It
 
 1. **Create a virtual environment:**
    ```sh
-   python3 -m venv .venv
-   source .venv/bin/activate
+   python3 -m venv venv
+   source venv/bin/activate
    ```
 2. **Install dependencies:**
    ```sh
@@ -23,16 +23,15 @@ PyCreative is a creative coding framework for Python 3.11+ built atop PyGame. It
 
 To run a sketch:
 ```sh
-python examples/hello_sketch.py
-```
-Or using the CLI:
-```sh
 pycreative examples/hello_sketch.py
 ```
 
 ### Project Structure
 - `src/pycreative/`: Framework source code
 - `examples/`: Example sketches
+- `docs/`: Documentation
+- `docs/api/`: API Documentation
+- `docs/developer/`: Developer Documentation
 - `sketches/`: User sketches
 - `tests/`: Test suite
 
@@ -42,7 +41,7 @@ pycreative examples/hello_sketch.py
 ### Testing
 Run all tests with:
 ```sh
-pytest tests/
+pytest tests/ && ruff check . && mypy src
 ```
 
 ### Conventions
@@ -53,14 +52,6 @@ pytest tests/
 
 ---
 For more details, see the example sketches and module READMEs.
-
-## Guides
-
-- Offscreen surfaces and caching: `offscreen.md`
-- Shape construction (begin/vertex/end): `shapes.md`
-- Pixel object: `pixels.md`
-- Pixels Image object: `pixels_image.md`
- - Package-style module design: `package-style.md`
 
 ## Contributing
 
@@ -77,7 +68,7 @@ We value community feedback and collaboration to improve PyCreative.
 Below is a minimal sketch that follows best practices and the format expected by `app.py`:
 
 ```python
-from pycreative import Sketch
+from pycreative.app import Sketch
 
 class MySketch(Sketch):
    def setup(self):
@@ -91,12 +82,7 @@ class MySketch(Sketch):
       self.clear(self.bg)
       self.ellipse(self.width/2, self.height/2, 200, 200)
 
+# optional if you intend to run the app through PyCreative
 if __name__ == '__main__':
    MySketch().run()
 ```
-
-**Best practices:**
-- Inherit from `Sketch` and implement `setup`, `update`, and `draw` methods.
-- Use `self.size()` to set window size.
-- Use `self.clear()` to set background color.
-- Place the run logic under `if __name__ == '__main__':`.
