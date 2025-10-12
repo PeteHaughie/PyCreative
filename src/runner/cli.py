@@ -25,25 +25,71 @@ def parse_args(argv: Optional[list[str]] = None):
 	parser.add_argument('--max-frames', '-m', type=int, default=None,
 						help='Stop after N frames (for testing/headless runs)')
 	parser.add_argument('--headless', action='store_true', help='Run without opening a window')
+	parser.add_argument('--use-opengl', action='store_true', help='Request an OpenGL-backed display/context')
 	return parser.parse_args(argv)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
 	args = parse_args(argv or None)
-
-	# Import Engine via the package import path so tests can monkeypatch it
+	# Ensure the repository `src` directory is on sys.path when running from
+	# the development layout. This allows the CLI to be invoked via the
+	# installed console script (or `python -m pycreative.cli`) without
+	# requiring the user to set PYTHONPATH manually.
 	try:
-		from pycreative.core.engine import Engine
+		import os
+		import sys as _sys
+		# Calculate the src directory relative to this file
+		this_dir = os.path.dirname(__file__)
+		src_dir = os.path.abspath(os.path.join(this_dir, '..'))
+		repo_root = os.path.abspath(os.path.join(src_dir, '..'))
+		# Add src and repo root so both package modules and example modules
+		# can be imported without requiring PYTHONPATH.
+		if os.path.isdir(src_dir) and src_dir not in _sys.path:
+			_sys.path.insert(0, src_dir)
+		if os.path.isdir(repo_root) and repo_root not in _sys.path:
+			_sys.path.insert(0, repo_root)
 	except Exception:
-		# Fallback to local import path used in development
+		pass
+
+	# Import Engine preferring the local dev copy so tests can monkeypatch it.
+	try:
 		from src.core.engine import Engine  # type: ignore
+	except Exception:
+		try:
+			from pycreative.core.engine import Engine
+		except Exception:
+			# As a last resort let the import fail normally
+			from src.core.engine import Engine  # type: ignore
 
 	# Import the sketch module by filename
 	sketch_module_name = args.sketch
 	if sketch_module_name.endswith('.py'):
+		# Strip the .py suffix and convert filesystem separators to module dots
 		sketch_module_name = sketch_module_name[:-3]
+		# Normalize separators (handle both '/' and os.sep)
+		import os as _os
+		sketch_module_name = sketch_module_name.replace('/', '.')
+		if _os.path.sep != '/':
+			sketch_module_name = sketch_module_name.replace(_os.path.sep, '.')
 
-	sketch_mod = importlib.import_module(sketch_module_name)
+		# Try to import as a module first. If that fails, try to load the file
+		# directly using importlib utilities (so paths like './examples/foo.py'
+		# also work).
+		try:
+			sketch_mod = importlib.import_module(sketch_module_name)
+		except Exception:
+			# Fallback: try to load by filesystem path
+			try:
+				from importlib.util import spec_from_file_location, module_from_spec
+				_spec = spec_from_file_location("__sketch__", args.sketch)
+				if _spec and _spec.loader:
+					_sk_mod = module_from_spec(_spec)
+					_spec.loader.exec_module(_sk_mod)
+					sketch_mod = _sk_mod
+				else:
+					raise
+			except Exception:
+				raise
 
 	# Sketch API contract: the module exposes a Sketch class
 	Sketch = getattr(sketch_mod, 'Sketch', None)
@@ -66,7 +112,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 		# try package path for installed layout
 		from pycreative.core.bootstrap import build_engine  # type: ignore
 
-	engine = build_engine()
+	engine = build_engine(use_opengl=args.use_opengl)
 
 	# Allow the sketch module to register APIs via a module-level hook
 	if hasattr(sketch_mod, 'register_api'):
@@ -76,7 +122,13 @@ def main(argv: Optional[list[str]] = None) -> int:
 			pass
 
 	# Start engine with flags
-	engine.start(max_frames=args.max_frames, headless=args.headless)
+	# Call engine.start, but remain backward-compatible with older Engine
+	# implementations used in tests that may not accept the `use_opengl` kwarg.
+	try:
+		engine.start(max_frames=args.max_frames, headless=args.headless, use_opengl=args.use_opengl)
+	except TypeError:
+		# Fallback for engines that don't accept use_opengl
+		engine.start(max_frames=args.max_frames, headless=args.headless)
 	return 0
 
 

@@ -8,6 +8,9 @@ extend.
 """
 
 from typing import Any, List
+import threading
+from src.core.debug import debug
+import time
 
 class Engine:
 	"""Minimal Engine used by tests and examples.
@@ -22,7 +25,7 @@ class Engine:
 		self._running: bool = False
 		self._apis: List[Any] = []
 
-	def start(self, max_frames: int | None = None, headless: bool = False) -> None:
+	def start(self, max_frames: int | None = None, headless: bool = False, background: bool = False, use_opengl: bool = False) -> None:
 		"""Start the engine. Stub: sets running flag.
 
 		Parameters:
@@ -57,11 +60,61 @@ class Engine:
 		except Exception:
 			renderer = None
 
-		# Delegate to run() when a frame limit is specified; otherwise return
-		# immediately so start() is non-blocking by default.
-		if max_frames is not None:
-			self.run(max_frames=max_frames, headless=headless)
+		# If a background run was requested, spawn a thread to execute run().
+		if background:
+			# Start run() in background; pass max_frames (may be None for indefinite run)
+			self._thread = threading.Thread(target=self.run, args=(max_frames, headless), daemon=True)
+			self._thread.start()
 			return
+
+		# If running headful (not headless) and a display adapter is registered,
+		# create a real display surface and attach a skia surface if possible.
+		if not headless:
+			display_adapter = getattr(self, '_display_adapter', None)
+			graphics_adapter = getattr(self, '_graphics_adapter', None)
+			debug(f"Engine.start: display_adapter={display_adapter}, graphics_adapter={graphics_adapter}, use_opengl={use_opengl}")
+			if display_adapter is not None:
+				try:
+					# Create the display surface, optionally requesting an OpenGL
+					# context so GPU-backed Skia surfaces can attach to it.
+					surface = display_adapter.create_display_surface(use_opengl=use_opengl)
+					self._display_surface = surface
+					dbg_size = getattr(surface, 'get_size', lambda: (None, None))()
+					debug(f"Display surface created: type={type(surface)} size={dbg_size}")
+					# If we have a graphics adapter (skia) and it exposes a GPU
+					# creation helper, ask it to create a GPU-backed surface. This
+					# must happen after the display/GL context exists.
+					if graphics_adapter is not None:
+						create_gpu = getattr(graphics_adapter, 'create_gpu_surface', None)
+						# Only attempt GPU-backed creation if the caller explicitly
+						# requested an OpenGL context; creating a GPU context when no
+						# GL context exists can block or fail on some platforms.
+						if callable(create_gpu) and use_opengl:
+							try:
+								# Use the display surface size when possible
+								w, h = getattr(surface, 'get_size', lambda: (None, None))()
+								# Fall back to default sizes if unavailable
+								if w is None or h is None:
+									w, h = 640, 480
+								self._skia_surface = create_gpu(w, h)
+								debug(f"After create_gpu_surface: _skia_surface={self._skia_surface}")
+							except Exception:
+								self._skia_surface = None
+						else:
+							# Either no GPU helper is present or OpenGL wasn't requested;
+							# attach a CPU-backed skia surface via the graphics helper.
+							try:
+								from src.core import graphics
+								self._skia_surface = graphics.attach_skia_to_pygame(surface, adapter=graphics_adapter)
+							except Exception:
+								self._skia_surface = None
+				except Exception:
+					# ignore display creation errors
+					pass
+
+		# Otherwise run synchronously; if max_frames is None this will run until stop()
+		self.run(max_frames=max_frames, headless=headless)
+		return
 
 
 	def run(self, max_frames: int, headless: bool = False) -> None:
@@ -82,23 +135,75 @@ class Engine:
 			renderer = None
 
 		frames = 0
-		while frames < max_frames:
-			# Call sketch draw if attached
-			sketch = getattr(self, "_sketch", None)
-			if sketch is not None and hasattr(sketch, 'draw'):
+		try:
+			while (max_frames is None and self._running) or (max_frames is not None and frames < max_frames):
+				# Loop iteration debug
+				debug(f"Engine.run loop iteration frames={frames} running={self._running}")
+
+				# Pump events (best-effort)
 				try:
-					descriptors = sketch.draw()
-					if descriptors and renderer is not None:
-						renderer.render(descriptors)
+					import pygame as _pg  # type: ignore
+					try:
+						events = _pg.event.get()
+					except Exception:
+						try:
+							_pg.event.pump()
+							events = []
+						except Exception:
+							events = []
+					for ev in events:
+						if getattr(ev, 'type', None) == _pg.QUIT:
+							self.stop()
+							break
+						if getattr(ev, 'type', None) == _pg.KEYDOWN and getattr(ev, 'key', None) == _pg.K_ESCAPE:
+							self.stop()
 				except Exception:
-					# Ignore sketch draw errors in this minimal stub
+					# pygame not available or event pump failed
 					pass
 
-			frames += 1
+				# Call sketch draw if attached
+				sketch = getattr(self, "_sketch", None)
+				if sketch is not None and hasattr(sketch, 'draw'):
+					try:
+						descriptors = sketch.draw()
+						if descriptors and renderer is not None:
+							renderer.render(descriptors)
+						# After rendering a frame, present if we have adapters available
+						graphics_adapter = getattr(self, '_graphics_adapter', None)
+						display_adapter = getattr(self, '_display_adapter', None)
+						if graphics_adapter is not None and display_adapter is not None and getattr(self, '_skia_surface', None) is not None:
+							try:
+								graphics_adapter.present(self._skia_surface, getattr(self, '_display_surface', None))
+							except Exception:
+								# ignore present errors
+								pass
+					except Exception:
+						# Ignore sketch draw errors in this minimal stub
+						pass
+
+				frames += 1
+				# Avoid a tight busy loop; sleep briefly
+				time.sleep(0.01)
+		except Exception:
+			# Ensure we clear running on unexpected errors too
+			pass
+		finally:
+			self._running = False
+			thr = getattr(self, '_thread', None)
+			if thr is not None and not thr.is_alive():
+				try:
+					delattr(self, '_thread')
+				except Exception:
+					pass
+
 
 	def stop(self) -> None:
 		"""Stop the engine. Stub: clears running flag."""
 		self._running = False
+		# If a background thread exists, join it to ensure a clean stop.
+		thr = getattr(self, '_thread', None)
+		if thr is not None and thr.is_alive():
+			thr.join(timeout=1.0)
 
 	def register_api(self, api: Any) -> None:
 		"""Register an API object (stored for later wiring)."""
