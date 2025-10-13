@@ -10,6 +10,8 @@ An image can also be used as the background for a sketch, although the image's w
 
 It is not possible to use the transparency alpha parameter with background colors on the main drawing surface. It can only be used along with a `PCGraphics` object and `create_graphics()`.
 
+If the background color is not set, the default is light gray (RGB value of 200).
+
 ## Examples
 
 ```py
