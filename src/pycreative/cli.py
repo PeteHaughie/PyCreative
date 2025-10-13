@@ -29,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
 	parser = argparse.ArgumentParser(prog='pycreative', description='Run a pycreative sketch')
 	parser.add_argument('sketch', type=str, help='Path to sketch .py file to run')
 	parser.add_argument('--headless', action='store_true', help='Run in headless mode (no GPU/window)')
+	parser.add_argument('--max-frames', type=int, default=None, help='Run the sketch for N frames and exit (omit for interactive window)')
 	args = parser.parse_args(argv)
 
 	sketch_path = Path(args.sketch)
@@ -51,8 +52,17 @@ def main(argv: list[str] | None = None) -> int:
 		return 3
 
 	eng = Engine(sketch_module=sketch_mod, headless=args.headless)
-	eng.run_frames(1)
-	print('Ran sketch for 1 frame; recorded commands:', len(eng.graphics.commands))
+	if args.headless:
+		# headless default: if user didn't supply max-frames, run a single frame
+		frames = 1 if args.max_frames is None else int(args.max_frames)
+		eng.run_frames(frames)
+		print(f'Ran sketch for {frames} frame(s); recorded commands: {len(eng.graphics.commands)}')
+	else:
+		# windowed mode: start() will block until the frames complete; omit
+		# max_frames for an interactive session that stays open until closed.
+		mf = None if args.max_frames is None else int(args.max_frames)
+		eng.start(max_frames=mf)
+		print('Windowed run complete')
 	return 0
 
 
