@@ -3,7 +3,7 @@
 [![CI](https://github.com/PeteHaughie/PyCreative/actions/workflows/ci.yml/badge.svg)](https://github.com/PeteHaughie/PyCreative/actions/workflows/ci.yml)
 
 
-PyCreative is a batteries-included creative-coding framework that makes it trivial to build visual, audio, and interactive projects in Python while staying lightweight and extensible. It uses PyGame for low-level drawing, input, and window/context management, but provides higher-level conveniences: a component-driven app loop, scene & state management, easy shader support, multimedia I/O, asset management, utilities for math & noise, tight integration for live-coding, and idiomatic Python APIs inspired by Processing and openFrameworks.
+PyCreative is a batteries-included creative-coding framework that makes it trivial to build visual, audio, and interactive projects in Python while staying lightweight and extensible. It uses Pyglet for low-level drawing, input, and window/context management, but provides higher-level conveniences: a component-driven app loop, scene & state management, easy shader support, multimedia I/O, asset management, utilities for math & noise, tight integration for live-coding, and idiomatic Python APIs inspired by Processing and openFrameworks.
 
 ## Features
 - Modular architecture for easy extension
@@ -31,7 +31,7 @@ Processing and openFrameworks are both fantastic tools for creative coding—so 
 
 Processing is lightweight and fast to launch, but it isn’t well-suited for building hardware-driven projects like video synths. openFrameworks, on the other hand, is powerful and close to the metal, but it relies on complex toolchains (CMake, Make) or heavy IDEs (Xcode, Visual Studio) along with C++ addons, which can be a barrier for rapid experimentation.
 
-After years of building projects with both frameworks, I wanted a middle ground: something with Processing’s simplicity, openFrameworks’ hardware potential, and Python’s flexibility. PyGame provides a fast, battle-tested engine for moving pixels around, but its quirks (like blitting) make it cumbersome for quick creative prototyping.
+After years of building projects with both frameworks, I wanted a middle ground: something with Processing’s simplicity, openFrameworks’ hardware potential, and Python’s flexibility. Pyglet provides a fast, battle-tested engine for moving pixels around, but its quirks (like blitting) make it cumbersome for quick creative prototyping.
 
 PyCreative hides those complexities behind a Processing-style API, while leveraging Python’s huge ecosystem. It runs out of the box on macOS, Windows, Linux, and even low-power devices like the Raspberry Pi—no complicated toolchain required. Add MIDI, OSC, GPIO, or whatever else you need through Python’s libraries, and you’ve got a powerful, extensible framework for creative coding and rapid prototyping.
 

@@ -1,28 +1,38 @@
 [project]
 name = "pycreative"
 version = "0.1.0"
-description = "Batteries-included creative coding framework for Python, built atop PyGame."
+description = "Batteries-included creative coding framework for Python, built atop Pyglet."
 authors = [{name = "Pete Haughie", email = "pete@example.com"}]
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.11"
 
 dependencies = [
-    "pygame",
+    "pyglet",
     "skia-python",
     "pillow",
-    "PyOpenGL",
     "numpy",
-    "opencv-python",
-    "pytest",
-    "pytest-timeout",
-    "ruff",`
-    "mypy",
 ]
 
 [optional-dependencies]
 audio = ["sounddevice"]
-video = ["ffmpeg-python", "opencv-python"]
+video = ["gstreamer"]
+
+# Development and optional / heavy runtime extras have been moved out of the
+# main dependency list to keep installs minimal for end-users. Use the `dev`
+# extra for development tooling, and `extras` for heavy optional runtime
+# packages (e.g., OpenGL helpers, computer-vision integrations).
+dev = [
+    "pytest",
+    "pytest-timeout",
+    "ruff",
+    "mypy",
+]
+
+extras = [
+    "PyOpenGL",
+    "opencv-python",
+]
 
 [build-system]
 requires = ["setuptools", "wheel"]

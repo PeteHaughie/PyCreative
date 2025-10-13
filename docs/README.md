@@ -2,7 +2,7 @@
 
 ## Getting Started
 
-PyCreative is a creative coding framework for Python 3.11+ built atop PyGame. It is designed for rapid prototyping of visual, audio, and interactive projects.
+PyCreative is a creative coding framework for Python 3.11+ built atop Pyglet. It is designed for rapid prototyping of visual, audio, and interactive projects.
 
 ### Installation
 
@@ -17,7 +17,7 @@ PyCreative is a creative coding framework for Python 3.11+ built atop PyGame. It
    # Or, for development:
    pip install -e '.[test]'
    ```
-   PyGame is required and will be installed automatically.
+   Pyglet is required and will be installed automatically.
 
 ### Running Examples
 
