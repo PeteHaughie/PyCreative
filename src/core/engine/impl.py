@@ -10,14 +10,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
-from .graphics import GraphicsBuffer
-from .color import hsb_to_rgb
-
-
+from core.graphics import GraphicsBuffer
+from core.color import hsb_to_rgb
 from .api_registry import APIRegistry
-
-
-# GraphicsBuffer moved to src/core/engine/graphics.py
 
 
 class Engine:
@@ -57,16 +52,51 @@ class Engine:
         self.color_mode = 'RGB'
         # pluggable snapshot backend: callable(path, width, height, engine)
         # default is None (the engine will attempt a Pillow-based write)
-        self.snapshot_backend: Optional[Callable[[str, int, int, "Engine"], None]] = None
+        self.snapshot_backend: Optional[Callable[[
+            str, int, int, "Engine"], None]] = None
 
         # Normalize sketch: if a module contains a `Sketch` class, instantiate it
         self._normalize_sketch()
 
         self._running = False
 
-        # register a minimal drawing API for sketches to call
-        self.api.register('rect', lambda x, y, w, h, **kwargs: self.graphics.record('rect', x=x, y=y, w=w, h=h, **kwargs))
-        self.api.register('line', lambda x1, y1, x2, y2, **kwargs: self.graphics.record('line', x1=x1, y1=y1, x2=x2, y2=y2, **kwargs))
+        # register a minimal drawing API for sketches to call (delegates to core.shape)
+        try:
+            import core.shape as _shape
+            self.api.register('rect', lambda x, y, w, h, **kwargs: _shape.rect(self, x, y, w, h, **kwargs))
+            self.api.register('line', lambda x1, y1, x2, y2, **kwargs: _shape.line(self, x1, y1, x2, y2, **kwargs))
+            self.api.register('square', lambda x, y, size, **kwargs: _shape.square(self, x, y, size, **kwargs))
+            self.api.register('stroke_weight', lambda w: _shape.stroke_weight(self, w))
+        except Exception:
+            # In constrained/test environments the shape module may be unavailable;
+            # fallback to simple inline recorders.
+            self.api.register('rect', lambda x, y, w, h, **kwargs: self.graphics.record('rect', x=x, y=y, w=w, h=h, **kwargs))
+            self.api.register('line', lambda x1, y1, x2, y2, **kwargs: self.graphics.record('line', x1=x1, y1=y1, x2=x2, y2=y2, **kwargs))
+
+        # register environment helpers (size, frame_rate, etc.) from core.environment
+        try:
+            import core.environment as _env
+            # register getters/setters and functions under their spec names
+            self.api.register('size', lambda w, h: _env.size(self, w, h))
+            self.api.register('frame_rate', lambda fps=None: _env.frame_rate(self, fps))
+            self.api.register('frame_count', lambda: _env.frame_count(self))
+            self.api.register('delay', lambda ms: _env.delay(self, ms))
+            self.api.register('pixel_density', lambda d=None: _env.pixel_density(self, d))
+            self.api.register('pixel_width', lambda: _env.pixel_width(self))
+            self.api.register('pixel_height', lambda: _env.pixel_height(self))
+            self.api.register('display_width', lambda: _env.display_width(self))
+            self.api.register('display_height', lambda: _env.display_height(self))
+            self.api.register('fullscreen', lambda display=None: _env.fullscreen(self, display))
+            self.api.register('cursor', lambda *a, **k: _env.cursor(self, *a, **k))
+            self.api.register('no_cursor', lambda: _env.no_cursor(self))
+            self.api.register('window_move', lambda x, y: _env.window_move(self, x, y))
+            self.api.register('window_ratio', lambda w, h: _env.window_ratio(self, w, h))
+            self.api.register('window_resizeable', lambda r: _env.window_resizeable(self, r))
+            self.api.register('window_title', lambda t: _env.window_title(self, t))
+        except Exception:
+            # If the environment module is unavailable in a constrained test
+            # environment, skip registration silently.
+            pass
 
     def register_api(self, registrant: Callable[["Engine"], None]):
         """Call a module's register_api(engine) hook to wire API functions.
@@ -138,16 +168,12 @@ class Engine:
         if not should_draw:
             return
 
-        # ensure a background is recorded for this frame. Allow setup() to
-        # set size/background first; if no background op exists after setup,
-        # record the default/background set on the engine.
+        # Note: do not auto-insert a default background here. If a sketch
+        # wants a background it should call `this.background()` in setup()
+        # or draw(). This keeps recorded command order intuitive for tests
+        # and user code (drawn shapes appear in the same order they were
+        # emitted).
         this = SimpleSketchAPI(self)
-        # if user code called background() during setup it will have added an op
-        has_background = any(c.get('op') == 'background' for c in self.graphics.commands)
-        if not has_background:
-            # record the current background color
-            r, g, b = self.background_color
-            self.graphics.record('background', r=r, g=g, b=b)
 
         draw = getattr(self.sketch, 'draw', None)
         if callable(draw):
@@ -215,16 +241,19 @@ class Engine:
             raise RuntimeError('pyglet is required for windowed mode') from exc
 
         # create window
-        self._window = pyglet.window.Window(width=self.width, height=self.height, vsync=True)
+        self._window = pyglet.window.Window(
+            width=self.width, height=self.height, vsync=True)
         try:
-            print(f'Engine: created window {self._window} size=({self.width},{self.height})')
+            print(
+                f'Engine: created window {self._window} size=({self.width},{self.height})')
         except Exception:
             pass
 
         # internal frame counter to stop after max_frames. When max_frames is
         # None we set it to a very large number so the scheduled update keeps
         # running until the user explicitly closes the window.
-        self._frames_left = float('inf') if max_frames is None else int(max_frames)
+        self._frames_left = float(
+            'inf') if max_frames is None else int(max_frames)
 
         # set clear color from current background
         r, g, b = self.background_color
@@ -247,7 +276,8 @@ class Engine:
                     fill = args.get('fill')
                     stroke = args.get('stroke')
                     color = fill if fill is not None else (255, 255, 255)
-                    shapes.Rectangle(x, y, w, h, color=color, batch=local_batch)
+                    shapes.Rectangle(x, y, w, h, color=color,
+                                     batch=local_batch)
                 elif op == 'line':
                     x1 = args.get('x1', 0)
                     y1 = args.get('y1', 0)
@@ -255,12 +285,14 @@ class Engine:
                     y2 = args.get('y2', 0)
                     lw = args.get('stroke_weight', 1)
                     color = args.get('stroke', (0, 0, 0))
-                    shapes.Line(x1, y1, x2, y2, width=lw, color=color, batch=local_batch)
+                    shapes.Line(x1, y1, x2, y2, width=lw,
+                                color=color, batch=local_batch)
             local_batch.draw()
 
         def update(dt):
             try:
-                print(f'Engine:update called dt={dt} frames_left={self._frames_left}')
+                print(
+                    f'Engine:update called dt={dt} frames_left={self._frames_left}')
             except Exception:
                 pass
             # step the sketch to populate graphics.commands
@@ -281,7 +313,8 @@ class Engine:
                     pyglet.app.exit()
 
         # schedule updates at frame_rate if set, otherwise use default clock tick
-        interval = None if self.frame_rate < 1 else 1.0 / float(self.frame_rate)
+        interval = None if self.frame_rate < 1 else 1.0 / \
+            float(self.frame_rate)
         if interval is None:
             pyglet.clock.schedule(update)
             try:
@@ -352,193 +385,15 @@ class Engine:
         """Save a placeholder snapshot for headless mode. If Pillow is
         available, write a simple PNG. Otherwise, record the request.
         """
-        # If a custom snapshot backend is provided, prefer it
-        if self.snapshot_backend is not None:
+        try:
+            from core.io.snapshot import save_frame as _save
+            return _save(path, self)
+        except Exception:
+            # As a very last resort, record the request without writing
             try:
-                self.snapshot_backend(path, self.width, self.height, self)
-                self.graphics.record('save_frame', path=path, backend='custom')
-                return
+                self.graphics.record('save_frame', path=path, backend='none')
             except Exception:
-                # fall through to default behaviour
                 pass
 
-        try:
-            from PIL import Image
-            img = Image.new('RGBA', (self.width, self.height), (255, 255, 255, 255))
-            img.save(path)
-            self.graphics.record('save_frame', path=path, backend='pillow')
-        except Exception:
-            # fallback: just record the request (no file written)
-            self.graphics.record('save_frame', path=path, backend='none')
 
-
-def _hsb_to_rgb(h: float, s: float, b: float):
-    """Convert HSB/HSV values in range 0-255 (or 0-1) to an (r,g,b) tuple 0-255.
-
-    Accepts either 0-1 floats or 0-255 ints; returns three ints 0-255.
-    """
-    # normalize inputs to 0-1
-    def norm(v):
-        return v / 255.0 if v > 1 else float(v)
-
-    H = norm(h)
-    S = norm(s)
-    V = norm(b)
-
-    if S == 0:
-        r = g = b = int(round(V * 255))
-        return (r, g, b)
-
-    i = int(H * 6)  # sector 0..5
-    f = (H * 6) - i
-    p = V * (1 - S)
-    q = V * (1 - S * f)
-    t = V * (1 - S * (1 - f))
-
-    i = i % 6
-    if i == 0:
-        r_, g_, b_ = V, t, p
-    elif i == 1:
-        r_, g_, b_ = q, V, p
-    elif i == 2:
-        r_, g_, b_ = p, V, t
-    elif i == 3:
-        r_, g_, b_ = p, q, V
-    elif i == 4:
-        r_, g_, b_ = t, p, V
-    else:
-        r_, g_, b_ = V, p, q
-
-    return (int(round(r_ * 255)), int(round(g_ * 255)), int(round(b_ * 255)))
-
-
-class SimpleSketchAPI:
-    """Lightweight object passed to sketches as `this`.
-
-    It offers convenience methods that delegate to the Engine's API registry
-    and control lifecycle behaviour (size/no_loop/loop/redraw/save_frame).
-    """
-
-    def __init__(self, engine: Engine):
-        self._engine = engine
-
-    def rect(self, x, y, w, h, **kwargs):
-        fn = self._engine.api.get('rect')
-        if fn:
-            return fn(x, y, w, h, **kwargs)
-
-    # lifecycle and environment helpers exposed to sketches
-    def size(self, w: int, h: int):
-        """Set sketch size (should be called in setup())."""
-        self._engine._set_size(w, h)
-
-    def frame_rate(self, n: int):
-        """Set frame rate. Use -1 for unrestricted."""
-        try:
-            self._engine.frame_rate = int(n)
-        except Exception:
-            raise TypeError('frame_rate expects an integer')
-
-    def background(self, *args):
-        """Set background color. Accepts single grayscale, RGB (3) or HSB depending on color_mode.
-
-        In 'RGB' mode inputs are treated as 0-255 RGB. In 'HSB' mode inputs are
-        treated as H,S,B either 0-1 or 0-255 and converted to RGB.
-        """
-        mode = getattr(self._engine, 'color_mode', 'RGB')
-
-        if len(args) == 1:
-            v = args[0]
-            if isinstance(v, (tuple, list)) and len(v) == 3:
-                vals = v
-            else:
-                vals = (int(v), int(v), int(v))
-        elif len(args) == 3:
-            vals = args
-        else:
-            raise TypeError('background() expects 1 or 3 arguments')
-
-        if str(mode).upper() == 'HSB':
-            r, g, b = hsb_to_rgb(*vals)
-        else:
-            r, g, b = (int(vals[0]), int(vals[1]), int(vals[2]))
-
-        # update engine background color and record op
-        self._engine.background_color = (int(r), int(g), int(b))
-        self._engine.graphics.record('background', r=int(r), g=int(g), b=int(b))
-
-    def no_loop(self):
-        self._engine._no_loop()
-
-    def loop(self):
-        self._engine._loop()
-
-    def redraw(self):
-        self._engine._redraw()
-
-    def save_frame(self, path: str):
-        self._engine._save_frame(path)
-
-    def line(self, x1, y1, x2, y2, **kwargs):
-        fn = self._engine.api.get('line')
-        if fn:
-            return fn(x1, y1, x2, y2, **kwargs)
-
-    # new drawing state helpers
-    def fill(self, *args):
-        """Set fill color respecting color_mode (RGB or HSB)."""
-        mode = getattr(self._engine, 'color_mode', 'RGB')
-        if len(args) == 1:
-            v = args[0]
-            if isinstance(v, (tuple, list)) and len(v) == 3:
-                vals = v
-            else:
-                vals = (int(v), int(v), int(v))
-        elif len(args) == 3:
-            vals = args
-        else:
-            raise TypeError('fill() expects 1 or 3 args')
-
-        if str(mode).upper() == 'HSB':
-            self._engine.fill_color = hsb_to_rgb(*vals)
-        else:
-            self._engine.fill_color = (int(vals[0]), int(vals[1]), int(vals[2]))
-
-    def stroke(self, *args):
-        """Set stroke color respecting color_mode (RGB or HSB)."""
-        mode = getattr(self._engine, 'color_mode', 'RGB')
-        if len(args) == 1:
-            v = args[0]
-            if isinstance(v, (tuple, list)) and len(v) == 3:
-                vals = v
-            else:
-                vals = (int(v), int(v), int(v))
-        elif len(args) == 3:
-            vals = args
-        else:
-            raise TypeError('stroke() expects 1 or 3 args')
-
-        if str(mode).upper() == 'HSB':
-            self._engine.stroke_color = hsb_to_rgb(*vals)
-        else:
-            self._engine.stroke_color = (int(vals[0]), int(vals[1]), int(vals[2]))
-
-    def stroke_weight(self, w: int):
-        self._engine.stroke_weight = int(w)
-
-    def square(self, x, y, size, **kwargs):
-        # delegate to rect with equal width/height; also forward drawing state
-        fill = kwargs.pop('fill', None)
-        stroke = kwargs.pop('stroke', None)
-        sw = kwargs.pop('stroke_weight', None)
-        # prefer explicit args, otherwise use engine state
-        if fill is None:
-            fill = self._engine.fill_color
-        if stroke is None:
-            stroke = self._engine.stroke_color
-        if sw is None:
-            sw = self._engine.stroke_weight
-        fn = self._engine.api.get('rect')
-        if fn:
-            return fn(x, y, size, size, fill=fill, stroke=stroke, stroke_weight=sw)
-
+from .api import SimpleSketchAPI

@@ -1,3 +1,9 @@
+"""Core graphics helpers and lightweight headless recording buffer.
+
+This package will eventually host the GPU-backed adapters and surfaces.
+For now it exposes `GraphicsBuffer` which records drawing commands in
+memory for headless tests.
+"""
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 

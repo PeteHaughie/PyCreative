@@ -1,6 +1,7 @@
-"""Color helpers for the engine (HSB/HSV <-> RGB conversion).
+"""Color utilities used across core packages.
 
-Pure functions with no side effects so they can be tested independently.
+Keep pure, side-effect-free conversion helpers here so tests can import
+them without pulling in engine internals.
 """
 from typing import Tuple
 
