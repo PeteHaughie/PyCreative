@@ -17,9 +17,29 @@ class SimpleSketchAPI:
         # expose PCVector constructor to sketches as `this.pcvector`
         try:
             from core.math import PCVector  # local import to avoid top-level cost
-
             # provide a small factory so sketches can do `v = this.pcvector()`
             self.pcvector = PCVector
+            # Expose common math helpers at the sketch-level as documented
+            # (e.g., this.lerp, this.map, this.dist, etc.). We expose a
+            # conservative set matching docs/api/math/calculation.
+            try:
+                import core.math as _math
+                # Only export math helpers that have API docs under
+                # docs/api/math/calculation/ — keep the public surface limited to
+                # documented functions.
+                for _name in (
+                    'abs', 'ceil', 'floor', 'constrain', 'dist', 'lerp', 'mag', 'map',
+                    'sq', 'sqrt', 'pow', 'max', 'min', 'round', 'exp', 'log', 'norm'
+                ):
+                    if hasattr(_math, _name):
+                        try:
+                            setattr(self, _name, getattr(_math, _name))
+                        except Exception:
+                            pass
+            except Exception:
+                # If math module cannot be imported, silently continue; tests
+                # will skip or fail intentionally.
+                pass
         except Exception:
             # if math isn't available for some reason, expose a minimal fallback
             class _FallbackVec:
@@ -99,6 +119,11 @@ class SimpleSketchAPI:
         if fn:
             return fn(x, y, r, **kwargs)
 
+    def point(self, x, y, **kwargs):
+        fn = self._engine.api.get('point')
+        if fn:
+            return fn(x, y, **kwargs)
+
     # new drawing state helpers
     def fill(self, *args):
         """Set fill color respecting color_mode (RGB or HSB). Delegates to core.color.fill."""
@@ -109,6 +134,33 @@ class SimpleSketchAPI:
         """Set stroke color respecting color_mode (RGB or HSB). Delegates to core.color.stroke."""
         from core.color.stroke import set_stroke
         return set_stroke(self._engine, *args)
+
+    def no_fill(self):
+        """Disable filling geometry."""
+        try:
+            fn = self._engine.api.get('no_fill')
+            if fn:
+                return fn()
+        except Exception:
+            pass
+        # Fallback: set engine state
+        try:
+            self._engine.fill_color = None
+        except Exception:
+            pass
+
+    def no_stroke(self):
+        """Disable drawing of stroke (outline)."""
+        try:
+            fn = self._engine.api.get('no_stroke')
+            if fn:
+                return fn()
+        except Exception:
+            pass
+        try:
+            self._engine.stroke_color = None
+        except Exception:
+            pass
 
     def stroke_weight(self, w: int):
         self._engine.stroke_weight = int(w)
@@ -122,6 +174,16 @@ class SimpleSketchAPI:
         except Exception:
             pass
         raise RuntimeError('random() API not available')
+
+    def random_gaussian(self):
+        """Return a Gaussian-distributed value using the engine RNG."""
+        try:
+            fn = self._engine.api.get('random_gaussian')
+            if fn:
+                return fn()
+        except Exception:
+            pass
+        raise RuntimeError('random_gaussian() API not available')
 
     def random_seed(self, seed):
         """Seed the engine's RNG for deterministic sequences."""

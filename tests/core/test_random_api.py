@@ -44,3 +44,18 @@ def test_random_seed_determinism():
     api.random_seed(12345)
     seq2 = [api.random(0, 100) for _ in range(5)]
     assert seq1 == seq2
+
+
+def test_random_zero_arg_and_indexing():
+    eng = Engine(headless=True)
+    api = SimpleSketchAPI(eng)
+    # zero-arg random should return values in [0,1)
+    for _ in range(100):
+        v = api.random()
+        assert 0.0 <= v < 1.0
+
+    # int(random(n)) should return a valid index for a sequence of length n
+    words = ['a', 'b', 'c', 'd']
+    for _ in range(100):
+        idx = int(api.random(len(words)))
+        assert 0 <= idx < len(words)

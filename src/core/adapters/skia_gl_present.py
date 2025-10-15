@@ -544,8 +544,14 @@ class SkiaGLPresenter:
             if op == 'fill':
                 fill = tuple(int(x) for x in args.get('color', fill))
 
+            elif op == 'no_fill':
+                fill = None
+
             elif op == 'stroke':
                 stroke = tuple(int(x) for x in args.get('color', stroke))
+
+            elif op == 'no_stroke':
+                stroke = None
 
             elif op == 'stroke_weight':
                 stroke_weight = int(args.get('weight', args.get('w', stroke_weight)))
@@ -606,6 +612,32 @@ class SkiaGLPresenter:
                         canvas.drawCircle(cx, cy, r, paint)
                     except Exception:
                         pass
+
+            elif op == 'point':
+                # Draw a tiny filled/stroked rectangle centered at (x,y)
+                px = float(args.get('x', 0))
+                py = float(args.get('y', 0))
+                # local_fill = args.get('fill', fill)
+                local_stroke = args.get('stroke', stroke)
+                local_sw = int(args.get('stroke_weight', args.get('strokeWeight', args.get('w', stroke_weight))))
+                # one-pixel square centered at the point
+                half = 0.5
+                try:
+                    # Prefer stroke color to match Processing docs (point() uses stroke())
+                    if local_stroke is not None and local_sw > 0:
+                        paint = _make_paint(local_stroke, style=skia.Paint.kStroke_Style, width=local_sw)
+                        try:
+                            canvas.drawRect(skia.Rect(px - half, py - half, px + half, py + half), paint)
+                        except Exception:
+                            pass
+                    # elif local_fill is not None:
+                    #     paint = _make_paint(local_fill, style=skia.Paint.kFill_Style)
+                    #     try:
+                    #         canvas.drawRect(skia.Rect(px - half, py - half, px + half, py + half), paint)
+                    #     except Exception:
+                    #         pass
+                except Exception:
+                    pass
 
     def teardown(self):
         from pyglet import gl

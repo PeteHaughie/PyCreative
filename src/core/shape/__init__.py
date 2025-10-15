@@ -46,3 +46,19 @@ def circle(engine: Any, x: float, y: float, r: float, **kwargs):
 
 def stroke_weight(engine: Any, w: int):
     engine.stroke_weight = int(w)
+
+
+def point(engine: Any, x: float, y: float, **kwargs):
+    """Record a point (as a zero-radius circle) to the engine graphics buffer.
+
+    This forwards drawing state similar to `circle` but uses a tiny
+    r=0 representation so presenters can treat it efficiently.
+    """
+    # forward drawing state if not specified
+    if 'fill' not in kwargs:
+        kwargs['fill'] = getattr(engine, 'fill_color', None)
+    if 'stroke' not in kwargs:
+        kwargs['stroke'] = getattr(engine, 'stroke_color', None)
+    if 'stroke_weight' not in kwargs:
+        kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
+    return engine.graphics.record('point', x=x, y=y, **kwargs)

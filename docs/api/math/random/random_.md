@@ -13,6 +13,13 @@ If two parameters are specified, the function will return a float with a value b
 
 ```py
 for i in range(100):
+  r = self.random()
+  self.stroke(r * 255)
+  self.line(50, i, 50 + r * 100, i)
+```
+
+```py
+for i in range(100):
   r = self.random(50)
   self.stroke(r * 5)
   self.line(50, i, 50 + r, i)
@@ -32,6 +39,8 @@ print(words[index])  # Prints one of the four words
 
 ## Syntax
 
+random()
+
 random(high)
 
 random(low, high)
@@ -40,6 +49,7 @@ random(low, high)
 
 | Input | Description |
 |-------|-------------|
+| none | If no parameters are given, returns a float from 0 (inclusive) to 1 (exclusive) |
 | low (float) | The lower limit (inclusive) of the random number to be generated |
 | high (float) | The upper limit (exclusive) of the random number to be generated |
 

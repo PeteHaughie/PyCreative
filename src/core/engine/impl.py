@@ -70,11 +70,12 @@ class Engine:
 
         # Register default API functions so SimpleSketchAPI delegates work
         try:
-            from core.shape import rect as _rect, line as _line
+            from core.shape import rect as _rect, line as _line, point as _point
             # Register shape drawing functions that already record into
             # engine.graphics via core.shape.
             self.api.register('rect', lambda *a, **k: _rect(self, *a, **k))
             self.api.register('line', lambda *a, **k: _line(self, *a, **k))
+            self.api.register('point', lambda *a, **k: _point(self, *a, **k))
             # circle helper is optional; register if present
             try:
                 from core.shape import circle as _circle
@@ -87,10 +88,14 @@ class Engine:
 
         # Register math/random APIs if available (moved to core.random)
         try:
-            from core.random import random as _rand, random_seed as _rand_seed
+            from core.random import random as _rand, random_seed as _rand_seed, random_gaussian as _rand_gauss
             try:
                 self.api.register('random', lambda *a, **k: _rand(self, *a, **k))
                 self.api.register('random_seed', lambda *a, **k: _rand_seed(self, *a, **k))
+                try:
+                    self.api.register('random_gaussian', lambda *a, **k: _rand_gauss(self, *a, **k))
+                except Exception:
+                    pass
             except Exception:
                 pass
         except Exception:
@@ -106,6 +111,20 @@ class Engine:
             self.stroke_color = tuple(int(x) for x in rgba)
             return self.graphics.record('stroke', color=self.stroke_color)
 
+        def _rec_no_fill():
+            self.fill_color = None
+            try:
+                return self.graphics.record('no_fill')
+            except Exception:
+                return None
+
+        def _rec_no_stroke():
+            self.stroke_color = None
+            try:
+                return self.graphics.record('no_stroke')
+            except Exception:
+                return None
+
         def _rec_stroke_weight(w):
             self.stroke_weight = int(w)
             return self.graphics.record('stroke_weight', weight=int(w))
@@ -114,6 +133,12 @@ class Engine:
             self.api.register('fill', _rec_fill)
             self.api.register('stroke', _rec_stroke)
             self.api.register('stroke_weight', _rec_stroke_weight)
+            # register no_fill/no_stroke so sketches can disable fills/strokes
+            try:
+                self.api.register('no_fill', lambda *a, **k: _rec_no_fill())
+                self.api.register('no_stroke', lambda *a, **k: _rec_no_stroke())
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -180,19 +205,110 @@ class Engine:
                             pass
                 except Exception:
                     pass
-                # expose a broader set of convenience methods to Sketch instances
-                for name in (
-                    'size', 'background', 'window_title', 'no_loop', 'loop', 'redraw', 'save_frame',
-                    'rect', 'line', 'circle', 'square', 'frame_rate',
-                    'fill', 'stroke', 'stroke_weight',
-                    # random APIs (exposed so class-based sketches can call self.random())
-                    'random', 'random_seed'
-                ):
-                    if not hasattr(inst, name):
+                # Load the canonical binding list from the engine bindings
+                # module. Fall back to an inline list if the import fails so
+                # early boot or tests without the module still work.
+                try:
+                    from core.engine.bindings import SKETCH_CONVENIENCE_METHODS
+                except Exception:
+                    SKETCH_CONVENIENCE_METHODS = (
+                        'size', 'background', 'window_title', 'no_loop', 'loop', 'redraw', 'save_frame',
+                        'rect', 'line', 'circle', 'square', 'frame_rate',
+                        'fill', 'stroke', 'stroke_weight',
+                    )
+
+                for name in SKETCH_CONVENIENCE_METHODS:
+                    if hasattr(inst, name):
+                        continue
+                    # Prefer the API-provided implementation when available
+                    fn = None
+                    try:
+                        fn = getattr(api, name)
+                    except Exception:
+                        fn = None
+
+                    if fn is not None:
                         try:
-                            setattr(inst, name, getattr(api, name))
+                            setattr(inst, name, fn)
+                            continue
                         except Exception:
+                            # fall through to attempt a fallback
                             pass
+
+                    # Provide tiny, well-scoped fallbacks for essential
+                    # helpers so sketches remain usable even if the API
+                    # registration or bindings import failed.
+                    try:
+                        if name == 'size':
+                            setattr(inst, 'size', lambda w, h: inst._engine._set_size(int(w), int(h)))
+                            continue
+                        if name == 'background':
+                            def _fb_background(*args, **kwargs):
+                                # Try to delegate to core.color if available;
+                                # otherwise record a background op with parsed RGB.
+                                try:
+                                    from core.color.background import set_background
+                                    return set_background(inst._engine, *args, **kwargs)
+                                except Exception:
+                                    try:
+                                        # Expect either a single grayscale, or r,g,b
+                                        if len(args) == 1:
+                                            v = int(args[0])
+                                            inst._engine.graphics.record('background', r=v, g=v, b=v)
+                                        else:
+                                            r = int(args[0]); g = int(args[1]); b = int(args[2])
+                                            inst._engine.graphics.record('background', r=r, g=g, b=b)
+                                    except Exception:
+                                        # Best-effort only
+                                        pass
+                            setattr(inst, 'background', _fb_background)
+                            continue
+                        if name == 'constrain':
+                            def _fb_constrain(v, low, high):
+                                try:
+                                    v_f = float(v)
+                                    low_f = float(low)
+                                    high_f = float(high)
+                                    return max(min(v_f, high_f), low_f)
+                                except Exception:
+                                    return v
+                            setattr(inst, 'constrain', _fb_constrain)
+                            continue
+                        if name == 'random':
+                            def _fb_random(*a, **k):
+                                try:
+                                    from core.random import random as _rand
+                                    return _rand(inst._engine, *a)
+                                except Exception:
+                                    # Last resort: use Python's global random
+                                    import random as _r
+                                    if len(a) == 0:
+                                        return _r.random()
+                                    if len(a) == 1:
+                                        return _r.random() * float(a[0])
+                                    if len(a) == 2:
+                                        return float(a[0]) + _r.random() * (float(a[1]) - float(a[0]))
+                                    raise TypeError('random() expects 0,1 or 2 args')
+                            setattr(inst, 'random', _fb_random)
+                            continue
+                        if name == 'random_seed':
+                            def _fb_random_seed(s):
+                                try:
+                                    from core.random import random_seed as _rs
+                                    return _rs(inst._engine, s)
+                                except Exception:
+                                    try:
+                                        import random as _r
+                                        _r.seed(int(s))
+                                    except Exception:
+                                        pass
+                            setattr(inst, 'random_seed', _fb_random_seed)
+                            continue
+                    except Exception:
+                        # If all fallback attempts fail, silently continue; the
+                        # absence of the method is preferable to raising
+                        # during sketch instantiation.
+                        pass
                 self.sketch = inst
             except Exception:
                 # fall back to leaving as-is
