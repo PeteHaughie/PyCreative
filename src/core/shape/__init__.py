@@ -32,5 +32,17 @@ def square(engine: Any, x: float, y: float, size: float, **kwargs):
     return rect(engine, x, y, size, size, **kwargs)
 
 
+def circle(engine: Any, x: float, y: float, r: float, **kwargs):
+    """Record a circle draw command on the engine's graphics buffer."""
+    # forward drawing state if not specified
+    if 'fill' not in kwargs:
+        kwargs['fill'] = getattr(engine, 'fill_color', None)
+    if 'stroke' not in kwargs:
+        kwargs['stroke'] = getattr(engine, 'stroke_color', None)
+    if 'stroke_weight' not in kwargs:
+        kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
+    return engine.graphics.record('circle', x=x, y=y, r=r, **kwargs)
+
+
 def stroke_weight(engine: Any, w: int):
     engine.stroke_weight = int(w)

@@ -111,6 +111,11 @@ class SimpleSketchAPI:
         if fn:
             return fn(x1, y1, x2, y2, **kwargs)
 
+    def circle(self, x, y, r, **kwargs):
+        fn = self._engine.api.get('circle')
+        if fn:
+            return fn(x, y, r, **kwargs)
+
     # new drawing state helpers
     def fill(self, *args):
         """Set fill color respecting color_mode (RGB or HSB)."""

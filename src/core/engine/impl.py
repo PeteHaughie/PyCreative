@@ -15,6 +15,8 @@ from core.color import hsb_to_rgb
 from .api_registry import APIRegistry
 
 from core.adapters.skia_gl_present import SkiaGLPresenter
+import os
+from contextlib import redirect_stderr
 
 
 class Engine:
@@ -62,6 +64,44 @@ class Engine:
 
         self._running = False
 
+        # Register default API functions so SimpleSketchAPI delegates work
+        try:
+            from core.shape import rect as _rect, line as _line
+            # Register shape drawing functions that already record into
+            # engine.graphics via core.shape.
+            self.api.register('rect', lambda *a, **k: _rect(self, *a, **k))
+            self.api.register('line', lambda *a, **k: _line(self, *a, **k))
+            # circle helper is optional; register if present
+            try:
+                from core.shape import circle as _circle
+                self.api.register('circle', lambda *a, **k: _circle(self, *a, **k))
+            except Exception:
+                pass
+        except Exception:
+            # If shape module isn't available, skip registration silently
+            pass
+
+        # Register simple color/stroke ops to record state changes as commands
+        def _rec_fill(rgba):
+            # store engine state and record a 'fill' op
+            self.fill_color = tuple(int(x) for x in rgba)
+            return self.graphics.record('fill', color=self.fill_color)
+
+        def _rec_stroke(rgba):
+            self.stroke_color = tuple(int(x) for x in rgba)
+            return self.graphics.record('stroke', color=self.stroke_color)
+
+        def _rec_stroke_weight(w):
+            self.stroke_weight = int(w)
+            return self.graphics.record('stroke_weight', weight=int(w))
+
+        try:
+            self.api.register('fill', _rec_fill)
+            self.api.register('stroke', _rec_stroke)
+            self.api.register('stroke_weight', _rec_stroke_weight)
+        except Exception:
+            pass
+
 
     def register_api(self, registrant: Callable[["Engine"], None]):
         """Call a module's register_api(engine) hook to wire API functions.
@@ -96,8 +136,8 @@ class Engine:
                 api = SimpleSketchAPI(self)
                 # expose a broader set of convenience methods to Sketch instances
                 for name in (
-                    'size', 'background', 'no_loop', 'loop', 'redraw', 'save_frame',
-                    'rect', 'line', 'square', 'frame_rate',
+                    'size', 'background', 'window_title', 'no_loop', 'loop', 'redraw', 'save_frame',
+                    'rect', 'line', 'circle', 'square', 'frame_rate',
                     'fill', 'stroke', 'stroke_weight'
                 ):
                     if not hasattr(inst, name):
@@ -126,9 +166,28 @@ class Engine:
             setup = getattr(self.sketch, 'setup', None)
             if callable(setup):
                 self._call_sketch_method(setup, this)
-            self._setup_commands = list(self.graphics.commands)
+            # Capture and remove any background command emitted in setup so
+            # it can be applied once only. Store its RGB for the presenter.
+            recorded = list(self.graphics.commands)
+            setup_bg = None
+            remaining = []
+            for cmd in recorded:
+                if cmd.get('op') == 'background' and setup_bg is None:
+                    # capture the first background command from setup
+                    args = cmd.get('args', {})
+                    setup_bg = (int(args.get('r', 200)), int(args.get('g', 200)), int(args.get('b', 200)))
+                else:
+                    remaining.append(cmd)
+            # store the background captured during setup (or None)
+            self._setup_background = setup_bg
+            # store setup commands without background so they don't replay each frame
+            self._setup_commands = remaining
             self._setup_done = True
             print("[DEBUG] Playing setup commands:", self._setup_commands)
+            try:
+                print(f"[DEBUG] step_frame: captured setup_background={self._setup_background!r}")
+            except Exception:
+                pass
         # If no_loop and already drawn, return immediately before any draw logic
         if not self.looping and getattr(self, '_no_loop_drawn', False):
             return
@@ -136,6 +195,22 @@ class Engine:
             self.graphics.clear()
             # Prepend setup commands to graphics.commands for each frame
             self.graphics.commands = list(self._setup_commands)
+            # Headless: ensure the first recorded frame contains a background.
+            # If the sketch provided a background in setup, that background was
+            # captured to `_setup_background` and removed from setup commands to
+            # avoid repeating in windowed mode. For headless runs we want the
+            # recorded commands to include that background once so snapshots
+            # and tests see an initialized canvas.
+            if getattr(self, 'headless', False):
+                if getattr(self, '_setup_background', None) is not None and not getattr(self, '_setup_bg_applied_headless', False):
+                    bg = self._setup_background
+                    # prepend a background command so it appears before other setup commands
+                    self.graphics.commands.insert(0, {'op': 'background', 'args': {'r': int(bg[0]), 'g': int(bg[1]), 'b': int(bg[2])}, 'meta': {'seq': 0}})
+                    self._setup_bg_applied_headless = True
+                # Note: do not insert a default background automatically for headless
+                # runs. Tests expect recorded command order to reflect only what the
+                # sketch emitted. If a default background is desired for snapshots,
+                # callers should emit one explicitly.
 
         # Note: do not auto-insert a default background here. If a sketch
         # wants a background it should call `this.background()` in setup()
@@ -157,13 +232,7 @@ class Engine:
             print("[DEBUG] No sketch attached to engine.")
             return
 
-        # run setup once
-        if not self._setup_done:
-            this = SimpleSketchAPI(self)
-            setup = getattr(self.sketch, 'setup', None)
-            if callable(setup):
-                self._call_sketch_method(setup, this)
-            self._setup_done = True
+        # (setup is run and recorded earlier in this method; do not run it again)
 
         # decide whether to run draw this frame
         # Semantics:
@@ -178,6 +247,11 @@ class Engine:
             should_draw = True
         # If redraw() requested, draw once.
         elif self._redraw_requested:
+            should_draw = True
+        # If the caller requested we ignore no_loop semantics (for example
+        # the CLI --max-frames override), allow drawing even when looping
+        # is disabled.
+        elif not self.looping and getattr(self, '_ignore_no_loop', False):
             should_draw = True
         # If looping was disabled (no_loop called, e.g. in setup), allow a
         # single one-shot draw on the first frame and then stop. This matches
@@ -211,9 +285,9 @@ class Engine:
         if self._redraw_requested:
             self._redraw_requested = False
 
-        # If looping is disabled, mark that we've run the one-shot draw so
-        # subsequent frames are skipped early.
-        if not self.looping:
+        # If looping is disabled and we are NOT ignoring no_loop, mark that
+        # we've run the one-shot draw so subsequent frames are skipped early.
+        if not self.looping and not getattr(self, '_ignore_no_loop', False):
             self._no_loop_drawn = True
 
         self.frame_count += 1
@@ -235,13 +309,18 @@ class Engine:
         except TypeError:
             return fn()
 
-    def run_frames(self, n: int = 1):
+    def run_frames(self, n: int = 1, ignore_no_loop: bool = False):
         import time
+        # Temporarily set a flag so step_frame can observe whether the
+        # caller asked to ignore no_loop semantics for this run.
+        prev_ignore = getattr(self, '_ignore_no_loop', False)
+        self._ignore_no_loop = bool(ignore_no_loop)
 
         frame_counter = 0
         while frame_counter < n:
-            # Stop if no_loop has already drawn
-            if not self.looping and getattr(self, '_no_loop_drawn', False):
+            # Stop if no_loop has already drawn, unless caller requested we
+            # ignore no_loop semantics (for example, CLI --max-frames override).
+            if not getattr(self, '_ignore_no_loop', False) and not self.looping and getattr(self, '_no_loop_drawn', False):
                 break
             start = time.perf_counter()
             self.step_frame()
@@ -260,6 +339,8 @@ class Engine:
                 if to_sleep > 0:
                     time.sleep(to_sleep)
             frame_counter += 1
+        # restore previous flag
+        self._ignore_no_loop = prev_ignore
 
     # Windowed lifecycle helpers
     def start(self, max_frames: Optional[int] = None):
@@ -274,7 +355,10 @@ class Engine:
             if max_frames is None:
                 self.run_frames(1)
             else:
-                self.run_frames(max_frames)
+                # If caller provided max_frames, honor it even if the sketch
+                # requests no_loop(). This mirrors the CLI semantics where
+                # --max-frames should run the requested number of frames.
+                self.run_frames(max_frames, ignore_no_loop=True)
             return
 
         # Lazy-import pyglet to avoid import-time dependency in tests
@@ -287,8 +371,46 @@ class Engine:
         # Setup is now handled in step_frame; do not run it here
 
         # create window using potentially updated size from setup()
-        self._window = pyglet.window.Window(
-            width=self.width, height=self.height, vsync=True)
+        # Ensure `setup()` runs at least once before creating the window so
+        # that any setup-time background is captured. Pyglet may invoke
+        # `on_draw` immediately after window creation which can race with
+        # scheduled updates; running setup here avoids that race.
+        if not getattr(self, '_setup_done', False):
+            try:
+                # Run setup and capture setup commands similar to step_frame()
+                self.graphics.clear()
+                this = SimpleSketchAPI(self)
+                setup = getattr(self.sketch, 'setup', None)
+                if callable(setup):
+                    self._call_sketch_method(setup, this)
+                recorded = list(self.graphics.commands)
+                setup_bg = None
+                remaining = []
+                for cmd in recorded:
+                    if cmd.get('op') == 'background' and setup_bg is None:
+                        args = cmd.get('args', {})
+                        setup_bg = (int(args.get('r', 200)), int(args.get('g', 200)), int(args.get('b', 200)))
+                    else:
+                        remaining.append(cmd)
+                self._setup_background = setup_bg
+                self._setup_commands = remaining
+                self._setup_done = True
+            except Exception:
+                pass
+        # Creating a pyglet window on macOS sometimes prints ObjC callback
+        # exceptions during teardown even though the app continues to run.
+        # Temporarily redirect stderr to hide that noise while still
+        # propagating real failures.
+        try:
+            devnull = open(os.devnull, 'w')
+            with redirect_stderr(devnull):
+                self._window = pyglet.window.Window(
+                    width=self.width, height=self.height, vsync=True)
+        finally:
+            try:
+                devnull.close()
+            except Exception:
+                pass
         try:
             print(
                 f'Engine: created window {self._window} size=({self.width},{self.height})')
@@ -298,27 +420,102 @@ class Engine:
         self._frames_left = float(
             'inf') if max_frames is None else int(max_frames)
 
+        # Create presenter once so the underlying FBO/texture and Skia surface
+        # persist across frames. This allows drawings to accumulate if the
+        # sketch does not clear the background each frame (Processing-style).
+        presenter = SkiaGLPresenter(self.width, self.height)
+        replay_fn = presenter.replay_fn
+
         @self._window.event
         def on_draw():
-            # DEBUG: Print graphics.commands before rendering
-            # print("[DEBUG] graphics.commands before render:", self.graphics.commands)
-            presenter = SkiaGLPresenter(self.width, self.height)
-            replay_fn = presenter.replay_fn
-            presenter.render_commands(self.graphics.commands, replay_fn)
-            presenter.present()
+            try:
+                print(f"[DEBUG] on_draw: _setup_done={getattr(self,'_setup_done',None)}, _setup_background={getattr(self,'_setup_background',None)}, _setup_bg_applied={getattr(self,'_setup_bg_applied',False)}, _default_bg_applied={getattr(self,'_default_bg_applied',False)}")
+            except Exception:
+                pass
+            # Build commands to replay. If setup provided a background, ensure
+            # it's applied once by prepending it to the very first frame's
+            # commands. The engine tracks `_setup_bg_applied` to avoid
+            # reapplying the setup background on subsequent frames.
+            cmds = list(self.graphics.commands)
+            setup_bg = getattr(self, '_setup_background', None)
+            if setup_bg is not None and not getattr(self, '_setup_bg_applied', False):
+                # Only prepend if the current frame doesn't already specify a background
+                if not any(c.get('op') == 'background' for c in cmds):
+                    cmds = [{'op': 'background', 'args': {'r': int(setup_bg[0]), 'g': int(setup_bg[1]), 'b': int(setup_bg[2])}, 'meta': {'seq': 0}}] + cmds
+                    # Mark that we've applied the setup background once so it
+                    # doesn't clear subsequent frames.
+                    self._setup_bg_applied = True
+            # Only apply the engine default background if no setup background
+            # exists at all. If the sketch provided a setup background we
+            # should never inject the default gray background later.
+            elif setup_bg is None and getattr(self, '_setup_done', False):
+                # If the sketch did not set any background during setup and
+                # we haven't applied a default background yet, apply a single
+                # default rgb(200) background so the first frame starts with
+                # a reasonable canvas instead of uninitialized pixels.
+                if not any(c.get('op') == 'background' for c in cmds) and not getattr(self, '_default_bg_applied', False):
+                    cmds = [{'op': 'background', 'args': {'r': 200, 'g': 200, 'b': 200}, 'meta': {'seq': 0}}] + cmds
+                    self._default_bg_applied = True
 
-            texture = wrap_gl_texture(presenter.tex_id, presenter.width, presenter.height)
-            if texture:
-                texture.blit(0, 0)
+            # If the sketch changed size during setup/draw, ensure presenter
+            # backing textures match the new size.
+            if presenter.width != int(self.width) or presenter.height != int(self.height):
+                try:
+                    presenter.resize(self.width, self.height)
+                except Exception:
+                    pass
+
+            try:
+                presenter.render_commands(cmds, replay_fn)
+            except Exception as e:
+                print('[DEBUG] presenter.render_commands raised:', repr(e))
+                # Fall through to present attempt; present may still show previous content
+            # Clear the default framebuffer to the setup/default background
+            # colour before presenting the presenter's texture. This avoids a
+            # visible one-frame flicker where the window may briefly show a
+            # different background (OS/window) before the texture is blitted.
+            try:
+                from pyglet import gl
+                try:
+                    setup_bg = getattr(self, '_setup_background', None)
+                    if setup_bg is not None:
+                        r, g, b = float(setup_bg[0]) / 255.0, float(setup_bg[1]) / 255.0, float(setup_bg[2]) / 255.0
+                        gl.glClearColor(r, g, b, 1.0)
+                        gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+                    elif getattr(self, '_default_bg_applied', False):
+                        # If we've applied the engine default background, clear
+                        # the window to that colour so the presented texture
+                        # overlays a predictable base.
+                        gl.glClearColor(200.0 / 255.0, 200.0 / 255.0, 200.0 / 255.0, 1.0)
+                        gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+            try:
+                presenter.present()
+            except Exception:
+                # Present failures are non-fatal; previous frame contents may
+                # still be visible. Do not spam stdout in normal runs.
+                pass
         
-        def wrap_gl_texture(tex_id, width, height):
-            from pyglet import image
-            texture = image.Texture(width, height, image.GL_TEXTURE_2D, tex_id)
-            return texture
+        # Note: we intentionally avoid creating a pyglet Image backed by
+        # the presenter's GL texture. Wrapping an external GL texture in a
+        # pyglet.image.Texture can cause GL_INVALID_OPERATION depending on
+        # driver/context state. The presenter.present() implementation
+        # performs the direct GL textured-quad draw and is the preferred
+        # display path.
+
+        # whether start() was given an explicit max_frames (in which case
+        # we should ignore sketch no_loop semantics for the duration of this
+        # run)
+        self._ignore_no_loop = False if max_frames is None else True
 
         def update(dt):
-            # Stop if no_loop has already drawn
-            if not self.looping and getattr(self, '_no_loop_drawn', False):
+            # Stop if no_loop has already drawn unless we're explicitly
+            # ignoring no_loop for this run.
+            if not self._ignore_no_loop and not self.looping and getattr(self, '_no_loop_drawn', False):
                 return
             # print(f"[DEBUG] Engine.update() called. dt={dt}, frames_left={self._frames_left}")
             self.step_frame()
@@ -361,12 +558,21 @@ class Engine:
             except Exception:
                 pass
 
-        # run the app (blocks until exit)
+        # run the app (blocks until exit). Suppress noisy stderr messages from
+        # the platform/pyglet bridge while still allowing the app to run.
         try:
             print('Engine: entering pyglet.app.run()')
         except Exception:
             pass
-        pyglet.app.run()
+        try:
+            devnull = open(os.devnull, 'w')
+            with redirect_stderr(devnull):
+                pyglet.app.run()
+        finally:
+            try:
+                devnull.close()
+            except Exception:
+                pass
         try:
             print('Engine: pyglet.app.run() returned')
         except Exception:

@@ -58,7 +58,13 @@ def main(argv: list[str] | None = None) -> int:
 	if args.headless:
 		# headless default: if user didn't supply max-frames, run a single frame
 		frames = 1 if args.max_frames is None else int(args.max_frames)
-		eng.run_frames(frames)
+		# If the CLI specified max-frames, force running that many frames and
+		# ignore the sketch's no_loop() request so CI/debug runs behave
+		# deterministically.
+		if args.max_frames is None:
+			eng.run_frames(frames)
+		else:
+			eng.run_frames(frames, ignore_no_loop=True)
 		print(f'Ran sketch for {frames} frame(s); recorded commands: {len(eng.graphics.commands)}')
 		if getattr(eng, '_verbose', False):
 			for cmd in eng.graphics.commands:
