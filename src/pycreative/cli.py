@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
 	parser.add_argument('sketch', type=str, help='Path to sketch .py file to run')
 	parser.add_argument('--headless', action='store_true', help='Run in headless mode (no GPU/window)')
 	parser.add_argument('--max-frames', type=int, default=None, help='Run the sketch for N frames and exit (omit for interactive window)')
+	parser.add_argument('--present-mode', type=str, default=None, choices=['vbo', 'blit', 'immediate'], help='Force presenter mode: vbo|blit|immediate')
+	parser.add_argument('--force-gles', action='store_true', help='Force using GLES shader variant for testing')
 	parser.add_argument('--verbose', action='store_true', help='Print recorded graphics commands each frame')
 	args = parser.parse_args(argv)
 
@@ -52,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
 		print(f"Failed to import core.engine: {exc}")
 		return 3
 
-	eng = Engine(sketch_module=sketch_mod, headless=args.headless)
+	eng = Engine(sketch_module=sketch_mod, headless=args.headless, present_mode=args.present_mode, force_gles=bool(args.force_gles))
 	# attach verbose flag so Engine can optionally print commands
 	setattr(eng, '_verbose', bool(args.verbose))
 	if args.headless:

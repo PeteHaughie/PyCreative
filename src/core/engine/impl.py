@@ -28,7 +28,7 @@ class Engine:
     - expose minimal helpers: size, no_loop, loop, redraw, save_frame
     """
 
-    def __init__(self, sketch_module: Optional[Any] = None, headless: bool = True):
+    def __init__(self, sketch_module: Optional[Any] = None, headless: bool = True, present_mode: Optional[str] = None, force_gles: bool = False):
         self._no_loop_drawn = False
         self.sketch = sketch_module
         self.headless = headless
@@ -63,6 +63,10 @@ class Engine:
         self._normalize_sketch()
 
         self._running = False
+        # store desired presenter mode if provided (None | 'vbo' | 'blit' | 'immediate')
+        self.present_mode = present_mode
+        # optional force GLES flag (for testing on platforms with GLES support)
+        self.force_gles = bool(force_gles)
 
         # Register default API functions so SimpleSketchAPI delegates work
         try:
@@ -183,9 +187,13 @@ class Engine:
             # store setup commands without background so they don't replay each frame
             self._setup_commands = remaining
             self._setup_done = True
-            print("[DEBUG] Playing setup commands:", self._setup_commands)
+            import logging as _logging
             try:
-                print(f"[DEBUG] step_frame: captured setup_background={self._setup_background!r}")
+                _logging.getLogger(__name__).debug('Playing setup commands: %r', self._setup_commands)
+            except Exception:
+                pass
+            try:
+                _logging.getLogger(__name__).debug('step_frame: captured setup_background=%r', self._setup_background)
             except Exception:
                 pass
         # If no_loop and already drawn, return immediately before any draw logic
@@ -229,7 +237,11 @@ class Engine:
         except Exception:
             start_seq = 0
         if self.sketch is None:
-            print("[DEBUG] No sketch attached to engine.")
+            import logging as _logging
+            try:
+                _logging.getLogger(__name__).debug('No sketch attached to engine.')
+            except Exception:
+                pass
             return
 
         # (setup is run and recorded earlier in this method; do not run it again)
@@ -269,7 +281,11 @@ class Engine:
         if callable(draw):
             self._call_sketch_method(draw, this)
         else:
-            print("[DEBUG] draw is not callable.")
+            import logging as _logging
+            try:
+                _logging.getLogger(__name__).debug('draw is not callable.')
+            except Exception:
+                pass
 
         # Tag any commands recorded during this step with the current frame index
         try:
@@ -423,13 +439,15 @@ class Engine:
         # Create presenter once so the underlying FBO/texture and Skia surface
         # persist across frames. This allows drawings to accumulate if the
         # sketch does not clear the background each frame (Processing-style).
-        presenter = SkiaGLPresenter(self.width, self.height)
+        presenter = SkiaGLPresenter(self.width, self.height, force_present_mode=self.present_mode, force_gles=self.force_gles)
         replay_fn = presenter.replay_fn
 
         @self._window.event
         def on_draw():
             try:
-                print(f"[DEBUG] on_draw: _setup_done={getattr(self,'_setup_done',None)}, _setup_background={getattr(self,'_setup_background',None)}, _setup_bg_applied={getattr(self,'_setup_bg_applied',False)}, _default_bg_applied={getattr(self,'_default_bg_applied',False)}")
+                import logging as _logging
+                _logging.getLogger(__name__).debug("on_draw: _setup_done=%r, _setup_background=%r, _setup_bg_applied=%r, _default_bg_applied=%r",
+                                                     getattr(self,'_setup_done',None), getattr(self,'_setup_background',None), getattr(self,'_setup_bg_applied',False), getattr(self,'_default_bg_applied',False))
             except Exception:
                 pass
             # Build commands to replay. If setup provided a background, ensure
@@ -468,7 +486,11 @@ class Engine:
             try:
                 presenter.render_commands(cmds, replay_fn)
             except Exception as e:
-                print('[DEBUG] presenter.render_commands raised:', repr(e))
+                import logging as _logging
+                try:
+                    _logging.getLogger(__name__).debug('presenter.render_commands raised: %r', repr(e))
+                except Exception:
+                    pass
                 # Fall through to present attempt; present may still show previous content
             # Clear the default framebuffer to the setup/default background
             # colour before presenting the presenter's texture. This avoids a
