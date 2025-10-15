@@ -8,6 +8,8 @@ Existing ADRs
 - `0001-skia-gpu-first.md` — initial GPU-first Skia decision
 - `0002-public-shims-and-package-split.md` — public shims and package split
 - `0007-skia-gl-backendtexture-fallback.md` — Skia GL backend-texture reliability and chosen FBO-attach fallback
+- `0008-presenter-shader-fallback.md` — presenter shader fallback ordering and diagnostics
+- `0009-package-export-pattern.md` — prefer explicit packages and package-level exports
 
 Note about numbering
 --------------------
@@ -29,5 +31,3 @@ git log --diff-filter=D --summary -- docs/adr
 # search the whole history for files with '0003'..'0006' in their names
 git log --all --name-only --pretty=format:%H | grep -E "000[3-6]" -n || true
 ```
-
-If you want, I can search the git history now and attempt to restore any missing ADRs.
