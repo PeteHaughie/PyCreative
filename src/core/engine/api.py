@@ -57,42 +57,15 @@ class SimpleSketchAPI:
             raise TypeError('frame_rate expects an integer')
 
     def background(self, *args):
-        """Set background color. Accepts single grayscale, RGB (3) or HSB depending on color_mode.
-
-        In 'RGB' mode inputs are treated as 0-255 RGB. In 'HSB' mode inputs are
-        treated as H,S,B either 0-1 or 0-255 and converted to RGB.
-        """
-        mode = getattr(self._engine, 'color_mode', 'RGB')
-
-        if len(args) == 1:
-            v = args[0]
-            if isinstance(v, (tuple, list)) and len(v) == 3:
-                vals = v
-            else:
-                vals = (int(v), int(v), int(v))
-        elif len(args) == 3:
-            vals = args
-        else:
-            raise TypeError('background() expects 1 or 3 arguments')
-
-        if str(mode).upper() == 'HSB':
-            r, g, b = hsb_to_rgb(*vals)
-        else:
-            r, g, b = (int(vals[0]), int(vals[1]), int(vals[2]))
-
-        # update engine background color and record op
-        self._engine.background_color = (int(r), int(g), int(b))
-        self._engine.graphics.record('background', r=int(r), g=int(g), b=int(b))
-        # If a window exists (windowed mode), update the GL clear color
+        """Delegate to the shared background implementation in core.color."""
         try:
-            win = getattr(self._engine, '_window', None)
-            if win is not None:
-                # lazy-import pyglet.gl to avoid import-time dependency
-                from pyglet import gl
-                gl.glClearColor(int(r) / 255.0, int(g) / 255.0, int(b) / 255.0, 1.0)
+            from core.color.background import set_background
+            return set_background(self._engine, *args)
         except Exception:
-            # Non-fatal: if pyglet isn't available or call fails, continue
-            pass
+            # Avoid raising unexpected errors during sketches — surface-level
+            # type/argument errors should still propagate, but other failures
+            # are non-fatal.
+            raise
 
     def no_loop(self):
         self._engine._no_loop()
@@ -118,42 +91,14 @@ class SimpleSketchAPI:
 
     # new drawing state helpers
     def fill(self, *args):
-        """Set fill color respecting color_mode (RGB or HSB)."""
-        mode = getattr(self._engine, 'color_mode', 'RGB')
-        if len(args) == 1:
-            v = args[0]
-            if isinstance(v, (tuple, list)) and len(v) == 3:
-                vals = v
-            else:
-                vals = (int(v), int(v), int(v))
-        elif len(args) == 3:
-            vals = args
-        else:
-            raise TypeError('fill() expects 1 or 3 args')
-
-        if str(mode).upper() == 'HSB':
-            self._engine.fill_color = hsb_to_rgb(*vals)
-        else:
-            self._engine.fill_color = (int(vals[0]), int(vals[1]), int(vals[2]))
+        """Set fill color respecting color_mode (RGB or HSB). Delegates to core.color.fill."""
+        from core.color.fill import set_fill
+        return set_fill(self._engine, *args)
 
     def stroke(self, *args):
-        """Set stroke color respecting color_mode (RGB or HSB)."""
-        mode = getattr(self._engine, 'color_mode', 'RGB')
-        if len(args) == 1:
-            v = args[0]
-            if isinstance(v, (tuple, list)) and len(v) == 3:
-                vals = v
-            else:
-                vals = (int(v), int(v), int(v))
-        elif len(args) == 3:
-            vals = args
-        else:
-            raise TypeError('stroke() expects 1 or 3 args')
-
-        if str(mode).upper() == 'HSB':
-            self._engine.stroke_color = hsb_to_rgb(*vals)
-        else:
-            self._engine.stroke_color = (int(vals[0]), int(vals[1]), int(vals[2]))
+        """Set stroke color respecting color_mode (RGB or HSB). Delegates to core.color.stroke."""
+        from core.color.stroke import set_stroke
+        return set_stroke(self._engine, *args)
 
     def stroke_weight(self, w: int):
         self._engine.stroke_weight = int(w)

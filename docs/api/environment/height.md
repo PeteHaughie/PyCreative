@@ -20,5 +20,6 @@ height
 
 ## Related
 
+- [setup()](/docs/api/structure/setup_.md)
 - [width](/docs/api/environment/width.md)
 - [size()](/docs/api/environment/size_.md)

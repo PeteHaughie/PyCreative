@@ -112,6 +112,43 @@ def hsb_to_rgb(h, s, b):
     return _h(h, s, b)
 
 
+# Note: `width` and `height` are exposed as dynamic module attributes
+# via `__getattr__` below (so `pycreative.width` and `pycreative.height`
+# return the current engine values). Do not define callables with these
+# names as that prevents `__getattr__` from being called.
+
+
+# Module-level dynamic attributes: expose `width` and `height` as attributes
+# (not callables) so users can write `pycreative.width` / `pycreative.height`.
+def __getattr__(name: str):
+    """Provide dynamic module attributes such as `width` and `height`.
+
+    Accessing `pycreative.width` or `pycreative.height` returns values from
+    the currently registered engine (set via `set_current_engine`).
+    """
+    if name == 'width':
+        try:
+            eng = get_current_engine()
+        except Exception:
+            raise AttributeError('width is not available until an engine is set')
+        from core.environment import width as _w
+        return _w(eng)
+    if name == 'height':
+        try:
+            eng = get_current_engine()
+        except Exception:
+            raise AttributeError('height is not available until an engine is set')
+        from core.environment import height as _hgt
+        return _hgt(eng)
+    raise AttributeError(name)
+
+
+def __dir__():
+    """List module attributes, including dynamic `width`/`height`."""
+    # include dynamic attributes
+    return sorted(list(globals().keys()) + ['width', 'height'])
+
+
 # Public shims
 # previously the public shim functions were defined below; they are now
 # replaced by the explicit implementations above.
