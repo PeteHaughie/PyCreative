@@ -11,9 +11,12 @@ from typing import Any, Dict, List
 @dataclass
 class GraphicsBuffer:
     commands: List[Dict[str, Any]] = field(default_factory=list)
+    _seq: int = 0
 
     def clear(self):
         self.commands.clear()
 
     def record(self, op: str, **kwargs):
-        self.commands.append({'op': op, 'args': kwargs})
+        self._seq += 1
+        meta = {'seq': self._seq}
+        self.commands.append({'op': op, 'args': kwargs, 'meta': meta})

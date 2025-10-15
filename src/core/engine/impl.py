@@ -14,6 +14,8 @@ from core.graphics import GraphicsBuffer
 from core.color import hsb_to_rgb
 from .api_registry import APIRegistry
 
+from core.adapters.skia_gl_present import SkiaGLPresenter
+
 
 class Engine:
     """A tiny headless engine for testing sketches.
@@ -25,6 +27,7 @@ class Engine:
     """
 
     def __init__(self, sketch_module: Optional[Any] = None, headless: bool = True):
+        self._no_loop_drawn = False
         self.sketch = sketch_module
         self.headless = headless
         self.api = APIRegistry()
@@ -52,51 +55,13 @@ class Engine:
         self.color_mode = 'RGB'
         # pluggable snapshot backend: callable(path, width, height, engine)
         # default is None (the engine will attempt a Pillow-based write)
-        self.snapshot_backend: Optional[Callable[[
-            str, int, int, "Engine"], None]] = None
+        self.snapshot_backend: Optional[Callable[[str, int, int, "Engine"], None]] = None
 
         # Normalize sketch: if a module contains a `Sketch` class, instantiate it
         self._normalize_sketch()
 
         self._running = False
 
-        # register a minimal drawing API for sketches to call (delegates to core.shape)
-        try:
-            import core.shape as _shape
-            self.api.register('rect', lambda x, y, w, h, **kwargs: _shape.rect(self, x, y, w, h, **kwargs))
-            self.api.register('line', lambda x1, y1, x2, y2, **kwargs: _shape.line(self, x1, y1, x2, y2, **kwargs))
-            self.api.register('square', lambda x, y, size, **kwargs: _shape.square(self, x, y, size, **kwargs))
-            self.api.register('stroke_weight', lambda w: _shape.stroke_weight(self, w))
-        except Exception:
-            # In constrained/test environments the shape module may be unavailable;
-            # fallback to simple inline recorders.
-            self.api.register('rect', lambda x, y, w, h, **kwargs: self.graphics.record('rect', x=x, y=y, w=w, h=h, **kwargs))
-            self.api.register('line', lambda x1, y1, x2, y2, **kwargs: self.graphics.record('line', x1=x1, y1=y1, x2=x2, y2=y2, **kwargs))
-
-        # register environment helpers (size, frame_rate, etc.) from core.environment
-        try:
-            import core.environment as _env
-            # register getters/setters and functions under their spec names
-            self.api.register('size', lambda w, h: _env.size(self, w, h))
-            self.api.register('frame_rate', lambda fps=None: _env.frame_rate(self, fps))
-            self.api.register('frame_count', lambda: _env.frame_count(self))
-            self.api.register('delay', lambda ms: _env.delay(self, ms))
-            self.api.register('pixel_density', lambda d=None: _env.pixel_density(self, d))
-            self.api.register('pixel_width', lambda: _env.pixel_width(self))
-            self.api.register('pixel_height', lambda: _env.pixel_height(self))
-            self.api.register('display_width', lambda: _env.display_width(self))
-            self.api.register('display_height', lambda: _env.display_height(self))
-            self.api.register('fullscreen', lambda display=None: _env.fullscreen(self, display))
-            self.api.register('cursor', lambda *a, **k: _env.cursor(self, *a, **k))
-            self.api.register('no_cursor', lambda: _env.no_cursor(self))
-            self.api.register('window_move', lambda x, y: _env.window_move(self, x, y))
-            self.api.register('window_ratio', lambda w, h: _env.window_ratio(self, w, h))
-            self.api.register('window_resizeable', lambda r: _env.window_resizeable(self, r))
-            self.api.register('window_title', lambda t: _env.window_title(self, t))
-        except Exception:
-            # If the environment module is unavailable in a constrained test
-            # environment, skip registration silently.
-            pass
 
     def register_api(self, registrant: Callable[["Engine"], None]):
         """Call a module's register_api(engine) hook to wire API functions.
@@ -129,7 +94,12 @@ class Engine:
                 # Attach a SimpleSketchAPI facade onto the instance so class-based
                 # sketches can call self.size(), self.background(), etc.
                 api = SimpleSketchAPI(self)
-                for name in ('size', 'background', 'no_loop', 'loop', 'redraw', 'save_frame', 'rect', 'line', 'frame_rate'):
+                # expose a broader set of convenience methods to Sketch instances
+                for name in (
+                    'size', 'background', 'no_loop', 'loop', 'redraw', 'save_frame',
+                    'rect', 'line', 'square', 'frame_rate',
+                    'fill', 'stroke', 'stroke_weight'
+                ):
                     if not hasattr(inst, name):
                         try:
                             setattr(inst, name, getattr(api, name))
@@ -146,8 +116,45 @@ class Engine:
 
     def step_frame(self):
         """Execute a single frame: call sketch.setup()/draw() and record commands."""
-        self.graphics.clear()
+        # Preserve setup commands (e.g., background) for every frame
+        if not hasattr(self, '_setup_commands'):
+            self._setup_commands = []
+        # On first frame, record setup commands
+        if not self._setup_done:
+            self.graphics.clear()
+            this = SimpleSketchAPI(self)
+            setup = getattr(self.sketch, 'setup', None)
+            if callable(setup):
+                self._call_sketch_method(setup, this)
+            self._setup_commands = list(self.graphics.commands)
+            self._setup_done = True
+            print("[DEBUG] Playing setup commands:", self._setup_commands)
+        # If no_loop and already drawn, return immediately before any draw logic
+        if not self.looping and getattr(self, '_no_loop_drawn', False):
+            return
+        else:
+            self.graphics.clear()
+            # Prepend setup commands to graphics.commands for each frame
+            self.graphics.commands = list(self._setup_commands)
+
+        # Note: do not auto-insert a default background here. If a sketch
+        # wants a background it should call `this.background()` in setup()
+        # or draw(). This keeps recorded command order intuitive for tests
+        # and user code (drawn shapes appear in the same order they were
+        # emitted).
+        # Defer calling draw until we've decided whether this frame should run
+        # (draw is invoked later once per frame). This avoids accidentally
+        # calling draw twice during a single step (which previously caused
+        # no_loop sketches to run draw() two times).
+        # print("[DEBUG] Engine.step_frame() called. Sketch type:", type(self.sketch))
+        # keep track of the sequence id before this frame so we can tag
+        # newly-recorded commands with a frame number for debugging
+        try:
+            start_seq = int(getattr(self.graphics, '_seq', 0))
+        except Exception:
+            start_seq = 0
         if self.sketch is None:
+            print("[DEBUG] No sketch attached to engine.")
             return
 
         # run setup once
@@ -159,29 +166,55 @@ class Engine:
             self._setup_done = True
 
         # decide whether to run draw this frame
+        # Semantics:
+        # - If looping is enabled, draw every frame.
+        # - If redraw() was requested, draw once.
+        # - If no_loop() was called (looping==False) and no redraw() was
+        #   requested, do NOT draw. This matches the expectations that
+        #   calling no_loop() in setup() prevents any automatic draw.
         should_draw = False
+        # If looping is enabled, draw every frame.
         if self.looping:
             should_draw = True
+        # If redraw() requested, draw once.
         elif self._redraw_requested:
+            should_draw = True
+        # If looping was disabled (no_loop called, e.g. in setup), allow a
+        # single one-shot draw on the first frame and then stop. This matches
+        # Processing semantics where calling no_loop() prevents continuous
+        # looping but still allows one draw to run immediately after setup.
+        elif not self.looping and not self._no_loop_drawn and self.frame_count == 0:
             should_draw = True
 
         if not should_draw:
             return
 
-        # Note: do not auto-insert a default background here. If a sketch
-        # wants a background it should call `this.background()` in setup()
-        # or draw(). This keeps recorded command order intuitive for tests
-        # and user code (drawn shapes appear in the same order they were
-        # emitted).
+        # Only call draw once per frame
         this = SimpleSketchAPI(self)
-
         draw = getattr(self.sketch, 'draw', None)
         if callable(draw):
             self._call_sketch_method(draw, this)
+        else:
+            print("[DEBUG] draw is not callable.")
+
+        # Tag any commands recorded during this step with the current frame index
+        try:
+            for cmd in self.graphics.commands:
+                meta = cmd.setdefault('meta', {})
+                seq = int(meta.get('seq', 0))
+                if seq > start_seq:
+                    meta['frame'] = int(self.frame_count)
+        except Exception:
+            pass
 
         # reset one-shot redraw request
         if self._redraw_requested:
             self._redraw_requested = False
+
+        # If looping is disabled, mark that we've run the one-shot draw so
+        # subsequent frames are skipped early.
+        if not self.looping:
+            self._no_loop_drawn = True
 
         self.frame_count += 1
 
@@ -205,9 +238,20 @@ class Engine:
     def run_frames(self, n: int = 1):
         import time
 
-        for _ in range(n):
+        frame_counter = 0
+        while frame_counter < n:
+            # Stop if no_loop has already drawn
+            if not self.looping and getattr(self, '_no_loop_drawn', False):
+                break
             start = time.perf_counter()
             self.step_frame()
+            # verbose output: print recorded commands after each frame
+            if getattr(self, '_verbose', False):
+                for cmd in self.graphics.commands:
+                    try:
+                        print('VERBOSE CMD:', cmd)
+                    except Exception:
+                        pass
             # enforce frame rate if requested and running in non-headless mode
             if self.frame_rate > 0 and not self.headless:
                 elapsed = time.perf_counter() - start
@@ -215,6 +259,7 @@ class Engine:
                 to_sleep = target - elapsed
                 if to_sleep > 0:
                     time.sleep(to_sleep)
+            frame_counter += 1
 
     # Windowed lifecycle helpers
     def start(self, max_frames: Optional[int] = None):
@@ -239,8 +284,9 @@ class Engine:
             from pyglet import shapes
         except Exception as exc:  # pragma: no cover - platform specific
             raise RuntimeError('pyglet is required for windowed mode') from exc
+        # Setup is now handled in step_frame; do not run it here
 
-        # create window
+        # create window using potentially updated size from setup()
         self._window = pyglet.window.Window(
             width=self.width, height=self.height, vsync=True)
         try:
@@ -248,55 +294,41 @@ class Engine:
                 f'Engine: created window {self._window} size=({self.width},{self.height})')
         except Exception:
             pass
-
-        # internal frame counter to stop after max_frames. When max_frames is
-        # None we set it to a very large number so the scheduled update keeps
         # running until the user explicitly closes the window.
         self._frames_left = float(
             'inf') if max_frames is None else int(max_frames)
 
-        # set clear color from current background
-        r, g, b = self.background_color
-        gl.glClearColor(r / 255.0, g / 255.0, b / 255.0, 1.0)
-
         @self._window.event
         def on_draw():
-            self._window.clear()
-            # create a local batch per-frame to avoid accumulating shape objects
-            local_batch = pyglet.graphics.Batch()
-            for cmd in self.graphics.commands:
-                op = cmd.get('op')
-                args = cmd.get('args', {})
-                if op == 'rect':
-                    x = args.get('x', 0)
-                    y = args.get('y', 0)
-                    w = args.get('w', 0)
-                    h = args.get('h', 0)
-                    # choose fill color if present, otherwise transparent
-                    fill = args.get('fill')
-                    stroke = args.get('stroke')
-                    color = fill if fill is not None else (255, 255, 255)
-                    shapes.Rectangle(x, y, w, h, color=color,
-                                     batch=local_batch)
-                elif op == 'line':
-                    x1 = args.get('x1', 0)
-                    y1 = args.get('y1', 0)
-                    x2 = args.get('x2', 0)
-                    y2 = args.get('y2', 0)
-                    lw = args.get('stroke_weight', 1)
-                    color = args.get('stroke', (0, 0, 0))
-                    shapes.Line(x1, y1, x2, y2, width=lw,
-                                color=color, batch=local_batch)
-            local_batch.draw()
+            # DEBUG: Print graphics.commands before rendering
+            # print("[DEBUG] graphics.commands before render:", self.graphics.commands)
+            presenter = SkiaGLPresenter(self.width, self.height)
+            replay_fn = presenter.replay_fn
+            presenter.render_commands(self.graphics.commands, replay_fn)
+            presenter.present()
+
+            texture = wrap_gl_texture(presenter.tex_id, presenter.width, presenter.height)
+            if texture:
+                texture.blit(0, 0)
+        
+        def wrap_gl_texture(tex_id, width, height):
+            from pyglet import image
+            texture = image.Texture(width, height, image.GL_TEXTURE_2D, tex_id)
+            return texture
 
         def update(dt):
-            try:
-                print(
-                    f'Engine:update called dt={dt} frames_left={self._frames_left}')
-            except Exception:
-                pass
-            # step the sketch to populate graphics.commands
+            # Stop if no_loop has already drawn
+            if not self.looping and getattr(self, '_no_loop_drawn', False):
+                return
+            # print(f"[DEBUG] Engine.update() called. dt={dt}, frames_left={self._frames_left}")
             self.step_frame()
+            # verbose: echo recorded commands to stdout for debugging
+            if getattr(self, '_verbose', False):
+                for cmd in self.graphics.commands:
+                    try:
+                        print('VERBOSE CMD:', cmd)
+                    except Exception:
+                        pass
             # request a redraw
             try:
                 self._window.invalid = True
@@ -310,6 +342,7 @@ class Engine:
                         self._window.close()
                     except Exception:
                         pass
+                    import pyglet
                     pyglet.app.exit()
 
         # schedule updates at frame_rate if set, otherwise use default clock tick
@@ -394,6 +427,5 @@ class Engine:
                 self.graphics.record('save_frame', path=path, backend='none')
             except Exception:
                 pass
-
 
 from .api import SimpleSketchAPI

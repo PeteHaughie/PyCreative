@@ -39,6 +39,16 @@ class SimpleSketchAPI:
         """Set sketch size (should be called in setup())."""
         self._engine._set_size(w, h)
 
+    def window_title(self, title: str):
+        """Set window title (if applicable)."""
+        try:
+            win = getattr(self._engine, '_window', None)
+            if win is not None:
+                win.set_caption(str(title))
+        except Exception:
+            # Non-fatal: if pyglet isn't available or call fails, continue
+            pass
+
     def frame_rate(self, n: int):
         """Set frame rate. Use -1 for unrestricted."""
         try:
@@ -73,6 +83,16 @@ class SimpleSketchAPI:
         # update engine background color and record op
         self._engine.background_color = (int(r), int(g), int(b))
         self._engine.graphics.record('background', r=int(r), g=int(g), b=int(b))
+        # If a window exists (windowed mode), update the GL clear color
+        try:
+            win = getattr(self._engine, '_window', None)
+            if win is not None:
+                # lazy-import pyglet.gl to avoid import-time dependency
+                from pyglet import gl
+                gl.glClearColor(int(r) / 255.0, int(g) / 255.0, int(b) / 255.0, 1.0)
+        except Exception:
+            # Non-fatal: if pyglet isn't available or call fails, continue
+            pass
 
     def no_loop(self):
         self._engine._no_loop()
