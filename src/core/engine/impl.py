@@ -85,6 +85,17 @@ class Engine:
             # If shape module isn't available, skip registration silently
             pass
 
+        # Register math/random APIs if available (moved to core.random)
+        try:
+            from core.random import random as _rand, random_seed as _rand_seed
+            try:
+                self.api.register('random', lambda *a, **k: _rand(self, *a, **k))
+                self.api.register('random_seed', lambda *a, **k: _rand_seed(self, *a, **k))
+            except Exception:
+                pass
+        except Exception:
+            pass
+
         # Register simple color/stroke ops to record state changes as commands
         def _rec_fill(rgba):
             # store engine state and record a 'fill' op
@@ -135,14 +146,47 @@ class Engine:
         if hasattr(s, 'Sketch') and isinstance(getattr(s, 'Sketch'), type):
             try:
                 inst = s.Sketch()
+                # Expose the engine on the instance so dynamic properties
+                # (e.g., width/height) can access it without depending on
+                # how API callables were attached.
+                try:
+                    setattr(inst, '_engine', self)
+                except Exception:
+                    pass
                 # Attach a SimpleSketchAPI facade onto the instance so class-based
                 # sketches can call self.size(), self.background(), etc.
                 api = SimpleSketchAPI(self)
+                # If this is a class-based sketch instance, create a tiny
+                # dynamic subclass that exposes `width` and `height` as
+                # properties delegating to the engine. This allows sketch
+                # authors to use `self.width` inside class-based sketches.
+                try:
+                    cls = inst.__class__
+                    if not hasattr(cls, 'width') and not hasattr(cls, 'height'):
+                        def _make_width_prop():
+                            return property(lambda self_obj: int(getattr(self_obj._engine, 'width', 0)))
+
+                        def _make_height_prop():
+                            return property(lambda self_obj: int(getattr(self_obj._engine, 'height', 0)))
+
+                        Dynamic = type(f"{cls.__name__}_WithEnv", (cls,), {
+                            'width': _make_width_prop(),
+                            'height': _make_height_prop(),
+                        })
+                        try:
+                            inst.__class__ = Dynamic
+                        except Exception:
+                            # If assignment fails for some types, silently continue
+                            pass
+                except Exception:
+                    pass
                 # expose a broader set of convenience methods to Sketch instances
                 for name in (
                     'size', 'background', 'window_title', 'no_loop', 'loop', 'redraw', 'save_frame',
                     'rect', 'line', 'circle', 'square', 'frame_rate',
-                    'fill', 'stroke', 'stroke_weight'
+                    'fill', 'stroke', 'stroke_weight',
+                    # random APIs (exposed so class-based sketches can call self.random())
+                    'random', 'random_seed'
                 ):
                     if not hasattr(inst, name):
                         try:

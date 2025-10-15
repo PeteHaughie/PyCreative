@@ -34,6 +34,16 @@ class SimpleSketchAPI:
         if fn:
             return fn(x, y, w, h, **kwargs)
 
+    @property
+    def width(self) -> int:
+        """Current sketch width (reads from the engine)."""
+        return int(getattr(self._engine, 'width', 0))
+
+    @property
+    def height(self) -> int:
+        """Current sketch height (reads from the engine)."""
+        return int(getattr(self._engine, 'height', 0))
+
     # lifecycle and environment helpers exposed to sketches
     def size(self, w: int, h: int):
         """Set sketch size (should be called in setup())."""
@@ -102,6 +112,26 @@ class SimpleSketchAPI:
 
     def stroke_weight(self, w: int):
         self._engine.stroke_weight = int(w)
+
+    def random(self, *args):
+        """Return a random float using the engine's RNG. See docs for overloads."""
+        try:
+            fn = self._engine.api.get('random')
+            if fn:
+                return fn(*args)
+        except Exception:
+            pass
+        raise RuntimeError('random() API not available')
+
+    def random_seed(self, seed):
+        """Seed the engine's RNG for deterministic sequences."""
+        try:
+            fn = self._engine.api.get('random_seed')
+            if fn:
+                return fn(seed)
+        except Exception:
+            pass
+        raise RuntimeError('random_seed() API not available')
 
     def square(self, x, y, size, **kwargs):
         # delegate to rect with equal width/height; also forward drawing state

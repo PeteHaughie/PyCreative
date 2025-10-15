@@ -44,5 +44,17 @@ More information is in the [docs/README.md](docs/README.md)
 - [sketches/](sketches/): User sketches
 - [tests/](tests/): Test suite
 
+## Local pre-commit hook
+
+To help maintain package export conventions, a small installer is provided
+to add a local git pre-commit hook that checks for explicit `__init__.py`
+packages under `src/core/`:
+
+```bash
+./scripts/install_package_hook.sh
+```
+
+More usage and troubleshooting is in `scripts/README.md`.
+
 ## License
 MIT

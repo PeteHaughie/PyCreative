@@ -73,4 +73,22 @@ mypy --config-file pyproject.toml
 pytest -q
 ```
 
+Local pre-commit hooks
+----------------------
+
+We provide a small installer to add a local `pre-commit` hook that enforces
+package export conventions (explicit `__init__.py` in `src/core/*`). To
+install the hook locally (recommended for contributors), run:
+
+```bash
+./scripts/install_package_hook.sh
+```
+
+To remove the hook:
+
+```bash
+rm -f .git/hooks/pre-commit
+```
+
+
 If you'd like to also run editor-style checks (pyright/pylance), install Node and run `pyright`.
