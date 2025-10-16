@@ -22,9 +22,9 @@ def test_fill_overloads_and_alpha():
     api.fill((200, 201, 202))
     assert eng.fill_color == (200, 201, 202)
 
-    # alpha not allowed on main engine
-    with pytest.raises(TypeError):
-        api.fill(10, 0.5)
+    # alpha allowed on main engine now
+    api.fill(10, 0.5)
+    assert pytest.approx(eng.fill_alpha, 0.0001) == 0.5
 
     # alpha allowed if marked offscreen
     eng2 = Engine(headless=True)
@@ -46,8 +46,9 @@ def test_stroke_overloads_and_alpha():
     api.stroke(5, 6, 7)
     assert eng.stroke_color == (5, 6, 7)
 
-    with pytest.raises(TypeError):
-        api.stroke(10, 0.2)
+    # alpha allowed on main engine now
+    api.stroke(10, 0.2)
+    assert pytest.approx(eng.stroke_alpha, 0.0001) == 0.2
 
     eng2 = Engine(headless=True)
     eng2._is_offscreen_graphics = True

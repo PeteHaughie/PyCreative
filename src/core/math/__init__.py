@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from typing import Iterable, Tuple
+import builtins
 
 
 def abs_(v: float) -> float:
@@ -87,7 +88,9 @@ def min_(a: float, b: float) -> float:
 
 
 def round_(v: float) -> int:
-    return round(v)
+    # Use the builtin round to avoid accidentally calling the module-level
+    # `round` alias (which points to this function) and causing recursion.
+    return builtins.round(v)
 
 
 class PCVector:

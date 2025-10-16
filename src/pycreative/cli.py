@@ -7,22 +7,22 @@ keeps things small so it can be used during development and in CI.
 from __future__ import annotations
 
 import argparse
-import importlib.util
+import importlib
 import sys
 from pathlib import Path
 
-
 def _load_sketch_from_path(path: Path):
-	"""Dynamically load a python module from a path and return the module object.
+	"""Load a sketch module using the project's loader utility.
 
-	The sketch is expected to provide a top-level `draw(this)` function.
+	This keeps sketch files free of loader plumbing — the CLI will ensure
+	sibling imports inside the sketch file resolve correctly.
 	"""
-	spec = importlib.util.spec_from_file_location(path.stem, str(path))
-	if spec is None or spec.loader is None:
-		raise SystemExit(f"Can't load sketch from {path}")
-	mod = importlib.util.module_from_spec(spec)
-	spec.loader.exec_module(mod)
-	return mod
+	try:
+		# import here after repo src has been added to sys.path in main
+		from core.util.loader import load_module_from_path
+	except Exception as exc:
+		raise SystemExit(f'Failed to import loader: {exc}')
+	return load_module_from_path(str(path))
 
 
 def main(argv: list[str] | None = None) -> int:

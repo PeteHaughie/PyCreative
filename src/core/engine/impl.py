@@ -8,15 +8,13 @@ Not a production implementation — replace with real Engine when ready.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 from core.graphics import GraphicsBuffer
 from core.color import hsb_to_rgb
 from .api_registry import APIRegistry
-
 from core.adapters.skia_gl_present import SkiaGLPresenter
-import os
 from contextlib import redirect_stderr
+import os
 
 
 class Engine:
@@ -70,46 +68,29 @@ class Engine:
 
         # Register default API functions so SimpleSketchAPI delegates work
         try:
-            from core.shape import rect as _rect, line as _line, point as _point
-            # Register shape drawing functions that already record into
-            # engine.graphics via core.shape.
-            self.api.register('rect', lambda *a, **k: _rect(self, *a, **k))
-            self.api.register('line', lambda *a, **k: _line(self, *a, **k))
-            self.api.register('point', lambda *a, **k: _point(self, *a, **k))
-            # circle helper is optional; register if present
+            from core.engine.registrations import register_shape_apis, register_random_and_noise
             try:
-                from core.shape import circle as _circle
-                self.api.register('circle', lambda *a, **k: _circle(self, *a, **k))
+                register_shape_apis(self)
+            except Exception:
+                pass
+            try:
+                register_random_and_noise(self)
             except Exception:
                 pass
         except Exception:
-            # If shape module isn't available, skip registration silently
-            pass
-
-        # Register math/random APIs if available (moved to core.random)
-        try:
-            from core.random import random as _rand, random_seed as _rand_seed, random_gaussian as _rand_gauss
-            try:
-                self.api.register('random', lambda *a, **k: _rand(self, *a, **k))
-                self.api.register('random_seed', lambda *a, **k: _rand_seed(self, *a, **k))
-                try:
-                    self.api.register('random_gaussian', lambda *a, **k: _rand_gauss(self, *a, **k))
-                except Exception:
-                    pass
-            except Exception:
-                pass
-        except Exception:
+            # best-effort only; continue if registrations can't be imported
             pass
 
         # Register simple color/stroke ops to record state changes as commands
         def _rec_fill(rgba):
             # store engine state and record a 'fill' op
             self.fill_color = tuple(int(x) for x in rgba)
-            return self.graphics.record('fill', color=self.fill_color)
+            # also record any alpha that may be set on the engine
+            return self.graphics.record('fill', color=self.fill_color, fill_alpha=getattr(self, 'fill_alpha', None))
 
         def _rec_stroke(rgba):
             self.stroke_color = tuple(int(x) for x in rgba)
-            return self.graphics.record('stroke', color=self.stroke_color)
+            return self.graphics.record('stroke', color=self.stroke_color, stroke_alpha=getattr(self, 'stroke_alpha', None))
 
         def _rec_no_fill():
             self.fill_color = None
@@ -274,6 +255,76 @@ class Engine:
                                     return v
                             setattr(inst, 'constrain', _fb_constrain)
                             continue
+                        if name == 'map':
+                            def _fb_map(value, start1, stop1, start2, stop2):
+                                try:
+                                    v = float(value)
+                                    s1 = float(start1); s2 = float(stop1)
+                                    t1 = float(start2); t2 = float(stop2)
+                                    if s2 == s1:
+                                        raise ValueError('map: start1 and stop1 cannot be equal')
+                                    return t1 + (v - s1) * (t2 - t1) / (s2 - s1)
+                                except Exception:
+                                    return value
+                            setattr(inst, 'map', _fb_map)
+                            continue
+                        if name == 'lerp':
+                            def _fb_lerp(a, b, amt):
+                                try:
+                                    return (1.0 - float(amt)) * float(a) + float(amt) * float(b)
+                                except Exception:
+                                    return a
+                            setattr(inst, 'lerp', _fb_lerp)
+                            continue
+                        if name == 'norm':
+                            def _fb_norm(value, start, stop):
+                                try:
+                                    v = float(value); s = float(start); t = float(stop)
+                                    if t == s:
+                                        raise ValueError('norm: start and stop cannot be equal')
+                                    return (v - s) / (t - s)
+                                except Exception:
+                                    return 0.0
+                            setattr(inst, 'norm', _fb_norm)
+                            continue
+                        if name == 'round':
+                            def _fb_round(v):
+                                try:
+                                    return round(float(v))
+                                except Exception:
+                                    try:
+                                        return round(v)
+                                    except Exception:
+                                        return v
+                            setattr(inst, 'round', _fb_round)
+                            continue
+                        if name == 'noise':
+                            def _fb_noise(v, *rest):
+                                # best-effort fallback: use Python's random for smooth-ish output
+                                try:
+                                    import math, random as _r
+                                    # single-value noise: map random to [0,1]
+                                    return float(_r.random())
+                                except Exception:
+                                    return 0.0
+                            setattr(inst, 'noise', _fb_noise)
+                            continue
+                        if name == 'noise_seed':
+                            def _fb_noise_seed(s):
+                                try:
+                                    import random as _r
+                                    _r.seed(int(s))
+                                except Exception:
+                                    pass
+                                return None
+                            setattr(inst, 'noise_seed', _fb_noise_seed)
+                            continue
+                        if name == 'noise_detail':
+                            def _fb_noise_detail(lod, falloff=0.5):
+                                # noop fallback
+                                return None
+                            setattr(inst, 'noise_detail', _fb_noise_detail)
+                            continue
                         if name == 'random':
                             def _fb_random(*a, **k):
                                 try:
@@ -435,8 +486,21 @@ class Engine:
         if not should_draw:
             return
 
-        # Only call draw once per frame
+        # Only call update() then draw() once per frame. update() runs before
+        # draw() and can be used to change sketch state (movement, physics,
+        # collisions) prior to rendering. Use _call_sketch_method so we
+        # gracefully handle both bound methods and module-level functions.
         this = SimpleSketchAPI(self)
+        # Call optional update() first
+        update_fn = getattr(self.sketch, 'update', None)
+        if callable(update_fn):
+            try:
+                self._call_sketch_method(update_fn, this)
+            except Exception:
+                # Do not let update errors stop the frame; continue to draw
+                pass
+
+        # Then call draw()
         draw = getattr(self.sketch, 'draw', None)
         if callable(draw):
             self._call_sketch_method(draw, this)
@@ -474,12 +538,8 @@ class Engine:
         Prefer calling with `this`; if the function raises a TypeError due to
         unexpected arguments, fall back to calling without arguments.
         """
-        # If this is a bound method (has __self__), call without `this`.
-        if hasattr(fn, '__self__') and getattr(fn, '__self__') is not None:
-            return fn()
-
-        # Otherwise, prefer calling with `this` (module-level functions expect it),
-        # but fall back to no-arg call if that fails.
+        # Prefer calling with `this`; if the callable doesn't accept an
+        # argument (raises TypeError), fall back to calling without args.
         try:
             return fn(this)
         except TypeError:
@@ -587,6 +647,18 @@ class Engine:
                 devnull.close()
             except Exception:
                 pass
+        # Apply any window title requested during setup()/before the window
+        # existed. This ensures calls to this.window_title(...) in setup are
+        # persisted and applied once the window is available.
+        try:
+            pending = getattr(self, '_pending_window_title', None)
+            if pending is not None:
+                try:
+                    self._window.set_caption(str(pending))
+                except Exception:
+                    pass
+        except Exception:
+            pass
         try:
             print(
                 f'Engine: created window {self._window} size=({self.width},{self.height})')

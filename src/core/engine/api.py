@@ -72,6 +72,14 @@ class SimpleSketchAPI:
     def window_title(self, title: str):
         """Set window title (if applicable)."""
         try:
+            # Persist the requested title on the engine so calls made during
+            # setup (before a window exists) are applied once the window is
+            # created.
+            try:
+                setattr(self._engine, '_pending_window_title', str(title))
+            except Exception:
+                pass
+
             win = getattr(self._engine, '_window', None)
             if win is not None:
                 win.set_caption(str(title))
@@ -119,6 +127,14 @@ class SimpleSketchAPI:
         if fn:
             return fn(x, y, r, **kwargs)
 
+    def ellipse(self, x, y, w, h=None, **kwargs):
+        # ellipse(w,h) overload: if h is None, treat as circle-like diameter
+        if h is None:
+            h = w
+        fn = self._engine.api.get('ellipse')
+        if fn:
+            return fn(x, y, w, h, **kwargs)
+
     def point(self, x, y, **kwargs):
         fn = self._engine.api.get('point')
         if fn:
@@ -128,12 +144,26 @@ class SimpleSketchAPI:
     def fill(self, *args):
         """Set fill color respecting color_mode (RGB or HSB). Delegates to core.color.fill."""
         from core.color.fill import set_fill
-        return set_fill(self._engine, *args)
+        # Update engine state
+        set_fill(self._engine, *args)
+        # If the engine provided a recorder for 'fill', call it to record the command
+        try:
+            fn = self._engine.api.get('fill')
+            if fn:
+                return fn(self._engine.fill_color)
+        except Exception:
+            pass
 
     def stroke(self, *args):
         """Set stroke color respecting color_mode (RGB or HSB). Delegates to core.color.stroke."""
         from core.color.stroke import set_stroke
-        return set_stroke(self._engine, *args)
+        set_stroke(self._engine, *args)
+        try:
+            fn = self._engine.api.get('stroke')
+            if fn:
+                return fn(self._engine.stroke_color)
+        except Exception:
+            pass
 
     def no_fill(self):
         """Disable filling geometry."""
@@ -174,6 +204,16 @@ class SimpleSketchAPI:
         except Exception:
             pass
         raise RuntimeError('random() API not available')
+
+    def uniform(self, low, high):
+        """Return a random float between low and high using the engine's RNG."""
+        try:
+            fn = self._engine.api.get('uniform')
+            if fn:
+                return fn(low, high)
+        except Exception:
+            pass
+        raise RuntimeError('uniform() API not available')
 
     def random_gaussian(self):
         """Return a Gaussian-distributed value using the engine RNG."""

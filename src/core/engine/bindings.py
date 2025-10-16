@@ -9,10 +9,16 @@ assert class-based sketches expose the expected API.
 SKETCH_CONVENIENCE_METHODS = (
     'size', 'background', 'window_title', 'no_loop', 'loop', 'redraw', 'save_frame',
     'rect', 'line', 'circle', 'square', 'frame_rate',
+    'ellipse',
     'fill', 'stroke', 'stroke_weight',
     # Math helpers and random API commonly used in examples
-    'constrain', 'lerp', 'map', 'dist',
+    # expose the common math calculation helpers so sketches can call
+    # `self.map()`, `self.lerp()`, `self.norm()`, etc.
+    'abs', 'ceil', 'floor', 'constrain', 'dist', 'lerp', 'mag', 'map',
+    'sq', 'sqrt', 'pow', 'max', 'min', 'round', 'exp', 'log', 'norm',
     'point', 'random', 'random_seed', "random_gaussian",
+    'uniform',
+    'noise', 'noise_seed', 'noise_detail',
     'no_fill', 'no_stroke',
 )
 

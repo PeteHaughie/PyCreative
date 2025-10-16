@@ -510,9 +510,11 @@ class SkiaGLPresenter:
 
         fill = (0, 0, 0)
         stroke = (0, 0, 0)
+        fill_alpha = None
+        stroke_alpha = None
         stroke_weight = 1
 
-        def _make_paint(color=None, style=skia.Paint.kFill_Style, width=1):
+        def _make_paint(color=None, style=skia.Paint.kFill_Style, width=1, alpha=None):
             p = skia.Paint()
             try:
                 p.setAntiAlias(True)
@@ -524,6 +526,17 @@ class SkiaGLPresenter:
                 except Exception:
                     try:
                         p.setColor(skia.Color4f(color[0] / 255.0, color[1] / 255.0, color[2] / 255.0, 1.0))
+                    except Exception:
+                        pass
+            # apply alpha if requested
+            if alpha is not None:
+                try:
+                    p.setAlphaf(float(alpha))
+                except Exception:
+                    try:
+                        # fallback: recreate color with explicit alpha
+                        if color is not None:
+                            p.setColor(skia.Color4f(color[0] / 255.0, color[1] / 255.0, color[2] / 255.0, float(alpha)))
                     except Exception:
                         pass
             try:
@@ -543,12 +556,15 @@ class SkiaGLPresenter:
 
             if op == 'fill':
                 fill = tuple(int(x) for x in args.get('color', fill))
+                # record any alpha set by this fill command (normalized already)
+                fill_alpha = args.get('fill_alpha', None)
 
             elif op == 'no_fill':
                 fill = None
 
             elif op == 'stroke':
                 stroke = tuple(int(x) for x in args.get('color', stroke))
+                stroke_alpha = args.get('stroke_alpha', None)
 
             elif op == 'no_stroke':
                 stroke = None
@@ -566,13 +582,19 @@ class SkiaGLPresenter:
                 local_stroke = args.get('stroke', stroke)
                 local_sw = int(args.get('stroke_weight', args.get('strokeWeight', args.get('w', stroke_weight))))
                 if local_fill is not None:
-                    paint = _make_paint(local_fill, style=skia.Paint.kFill_Style)
+                    fa = args.get('fill_alpha', None)
+                    if fa is None:
+                        fa = fill_alpha
+                    paint = _make_paint(local_fill, style=skia.Paint.kFill_Style, alpha=fa)
                     try:
                         canvas.drawRect(skia.Rect(x, y, x + w, y + h), paint)
                     except Exception:
                         pass
                 if local_stroke is not None and local_sw > 0:
-                    paint = _make_paint(local_stroke, style=skia.Paint.kStroke_Style, width=local_sw)
+                    sa = args.get('stroke_alpha', None)
+                    if sa is None:
+                        sa = stroke_alpha
+                    paint = _make_paint(local_stroke, style=skia.Paint.kStroke_Style, width=local_sw, alpha=sa)
                     try:
                         canvas.drawRect(skia.Rect(x, y, x + w, y + h), paint)
                     except Exception:
@@ -586,7 +608,10 @@ class SkiaGLPresenter:
                 local_stroke = args.get('stroke', stroke)
                 local_sw = int(args.get('stroke_weight', args.get('strokeWeight', args.get('w', stroke_weight))))
                 use_color = local_stroke if local_stroke is not None else (fill or (0, 0, 0))
-                paint = _make_paint(use_color, style=skia.Paint.kStroke_Style, width=local_sw)
+                sa = args.get('stroke_alpha', None)
+                if sa is None:
+                    sa = stroke_alpha
+                paint = _make_paint(use_color, style=skia.Paint.kStroke_Style, width=local_sw, alpha=sa)
                 try:
                     canvas.drawLine(x1, y1, x2, y2, paint)
                 except Exception:
@@ -601,13 +626,19 @@ class SkiaGLPresenter:
                 local_stroke = args.get('stroke', stroke)
                 local_sw = int(args.get('stroke_weight', args.get('strokeWeight', args.get('w', stroke_weight))))
                 if local_fill is not None:
-                    paint = _make_paint(local_fill, style=skia.Paint.kFill_Style)
+                    fa = args.get('fill_alpha', None)
+                    if fa is None:
+                        fa = fill_alpha
+                    paint = _make_paint(local_fill, style=skia.Paint.kFill_Style, alpha=fa)
                     try:
                         canvas.drawCircle(cx, cy, r, paint)
                     except Exception:
                         pass
                 if local_stroke is not None and local_sw > 0:
-                    paint = _make_paint(local_stroke, style=skia.Paint.kStroke_Style, width=local_sw)
+                    sa = args.get('stroke_alpha', None)
+                    if sa is None:
+                        sa = stroke_alpha
+                    paint = _make_paint(local_stroke, style=skia.Paint.kStroke_Style, width=local_sw, alpha=sa)
                     try:
                         canvas.drawCircle(cx, cy, r, paint)
                     except Exception:
@@ -625,7 +656,10 @@ class SkiaGLPresenter:
                 try:
                     # Prefer stroke color to match Processing docs (point() uses stroke())
                     if local_stroke is not None and local_sw > 0:
-                        paint = _make_paint(local_stroke, style=skia.Paint.kStroke_Style, width=local_sw)
+                        sa = args.get('stroke_alpha', None)
+                        if sa is None:
+                            sa = stroke_alpha
+                        paint = _make_paint(local_stroke, style=skia.Paint.kStroke_Style, width=local_sw, alpha=sa)
                         try:
                             canvas.drawRect(skia.Rect(px - half, py - half, px + half, py + half), paint)
                         except Exception:

@@ -18,6 +18,20 @@ def set_stroke(engine: Any, *args):
         return (int(vals[0]), int(vals[1]), int(vals[2]))
 
     a = None
+
+    def _norm_alpha(val):
+        """Normalize alpha to 0..1. Accept 0..1 or 0..255 and clamp."""
+        try:
+            f = float(val)
+        except Exception:
+            raise TypeError('alpha must be numeric')
+        if f > 1.0:
+            f = f / 255.0
+        if f < 0.0:
+            f = 0.0
+        if f > 1.0:
+            f = 1.0
+        return float(f)
     if len(args) == 1:
         v = args[0]
         if isinstance(v, (tuple, list)) and len(v) == 3:
@@ -36,22 +50,31 @@ def set_stroke(engine: Any, *args):
         engine.stroke_alpha = None
         return
     elif len(args) == 2:
+        # Support (gray, alpha) or ((r,g,b), alpha)
+        first, second = args[0], args[1]
+        if isinstance(first, (tuple, list)) and len(first) == 3:
+            try:
+                a = _norm_alpha(second)
+            except Exception:
+                raise TypeError('stroke((r,g,b), alpha) expects numeric alpha')
+            engine.stroke_color = tuple(int(x) for x in _norm(first))
+            engine.stroke_alpha = float(a)
+            return
         try:
-            iv = int(args[0])
-            a = float(args[1])
+            iv = int(first)
+            a = _norm_alpha(second)
         except Exception:
             raise TypeError('stroke(gray, alpha) expects (number, number)')
-        if not bool(getattr(engine, '_is_offscreen_graphics', False)):
-            raise TypeError('alpha parameter in stroke() is allowed only with an offscreen PCGraphics object')
         engine.stroke_color = (iv, iv, iv)
         engine.stroke_alpha = float(a)
         return
     elif len(args) == 4:
         engine.stroke_color = tuple(int(x) for x in _norm(args[:3]))
         try:
-            if not bool(getattr(engine, '_is_offscreen_graphics', False)):
-                raise TypeError('alpha parameter in stroke() is allowed only with an offscreen PCGraphics object')
-            engine.stroke_alpha = float(args[3])
+            # Allow alpha on strokes (main surface)
+            engine.stroke_alpha = _norm_alpha(args[3])
+        except TypeError:
+            raise
         except Exception:
             raise TypeError('stroke(r,g,b,alpha) alpha must be numeric')
         return
