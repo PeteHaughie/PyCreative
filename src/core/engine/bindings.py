@@ -18,6 +18,7 @@ SKETCH_CONVENIENCE_METHODS = (
     'sq', 'sqrt', 'pow', 'max', 'min', 'round', 'exp', 'log', 'norm',
     'point', 'random', 'random_seed', "random_gaussian",
     'uniform',
+    'pcvector',
     'noise', 'noise_seed', 'noise_detail',
     'no_fill', 'no_stroke',
 )

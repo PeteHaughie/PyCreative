@@ -127,6 +127,20 @@ class PCVector:
     def from_angle(angle: float, magnitude: float = 1.0) -> 'PCVector':
         return PCVector(math.cos(angle) * magnitude, math.sin(angle) * magnitude)
 
+    @staticmethod
+    def random2d(magnitude: float = 1.0) -> 'PCVector':
+        """Return a vector with a random direction and given magnitude.
+
+        The distribution is uniform over angle [0, 2*pi).
+        """
+        try:
+            import random as _r
+            angle = _r.random() * 2.0 * math.pi
+            return PCVector.from_angle(angle, float(magnitude))
+        except Exception:
+            # Fallback: deterministic unit vector if random isn't available
+            return PCVector.from_angle(0.0, float(magnitude))
+
     def _unpack_other(self, other, y=None) -> Tuple[float, float]:
         # Accept another PCVector, a (x,y) tuple, or numeric x with y provided
         if isinstance(other, PCVector):
