@@ -8,10 +8,12 @@ Keep this module tiny to avoid heavy import-time side-effects.
 """
 from __future__ import annotations
 
-from typing import Optional, Callable, Any
+from typing import Optional, Any
 
-# type: ignore imports are deliberate to avoid import-time cycles in tests
 _current_engine: Optional[Any] = None
+
+# NOTE: imports in this module are performed lazily to avoid import-time
+# cycles during tests. Keep top-level state minimal.
 
 
 def set_current_engine(engine: Any) -> None:

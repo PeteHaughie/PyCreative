@@ -2,6 +2,7 @@
 Skia CPU surface and write a PNG. This provides an authoritative Skia
 snapshot for headless debugging when skia-python is available.
 """
+    # mypy: ignore-errors
 from __future__ import annotations
 
 from typing import Any

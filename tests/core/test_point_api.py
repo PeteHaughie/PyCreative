@@ -26,7 +26,6 @@ def test_point_records_point_and_forwards_state():
 
 def test_point_available_on_simple_api():
     engine = Engine(headless=True)
-    this = engine and None
     # SimpleSketchAPI usage via direct creation
     from core.engine.api import SimpleSketchAPI
     api = SimpleSketchAPI(engine)

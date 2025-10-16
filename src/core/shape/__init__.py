@@ -3,7 +3,7 @@
 These functions accept an `engine` as the first argument to remain
 implementation-focused and avoid import-time cycles with the Engine.
 """
-from typing import Any, Optional, Tuple
+from typing import Any
 
 
 def rect(engine: Any, x: float, y: float, w: float, h: float, **kwargs):

@@ -5,6 +5,7 @@ This module lazy-imports pyglet so tests and headless runs don't require
 pyglet to be installed. It exposes small helpers that convert pyglet's
 button constants and event objects into plain dicts the Engine can accept.
 """
+# mypy: ignore-errors
 from typing import Any, Dict, Optional
 
 

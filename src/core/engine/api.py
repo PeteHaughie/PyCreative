@@ -1,7 +1,8 @@
 from typing import TYPE_CHECKING
+from typing import Any
 
 if TYPE_CHECKING:
-    from .impl import Engine  # type: ignore
+    from .impl import Engine
 
 
 class SimpleSketchAPI:
@@ -17,7 +18,7 @@ class SimpleSketchAPI:
         try:
             from core.math import PCVector  # local import to avoid top-level cost
             # provide a small factory so sketches can do `v = this.pcvector()`
-            self.pcvector = PCVector
+            self.pcvector: Any = PCVector
             # Expose common math helpers at the sketch-level as documented
             # (e.g., this.lerp, this.map, this.dist, etc.). We expose a
             # conservative set matching docs/api/math/calculation.

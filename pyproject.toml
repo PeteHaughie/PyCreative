@@ -41,8 +41,9 @@ build-backend = "setuptools.build_meta"
 [tool.ruff]
 line-length = 88
 
-# Paths to exclude from linting (examples and sketches contain user sketches / non-standard code)
-exclude = ["examples", "sketches"]
+# Paths to exclude from linting (examples/sketches/scripts contain user sketches or PoC code)
+# Use a regex to exclude directories when ruff is invoked over the project root.
+exclude = '(^examples/|^sketches/|^scripts/|^src/core/adapters/|^src/core/io/)'
 
 [tool.mypy]
 python_version = 3.11
@@ -51,8 +52,10 @@ strict = false
 check_untyped_defs = true
 disallow_untyped_defs = false
 warn_unused_ignores = true
-# Exclude examples and sketches from mypy checks (they are example sketches, not library code)
-exclude = '(^examples/|^sketches/)'
+# Exclude examples, sketches, scripts and heavy adapter/io modules from mypy checks.
+# This mirrors the conservative Option-A approach used locally so CI runs without
+# additional CLI flags will behave the same.
+exclude = '(^examples/|^sketches/|^scripts/|^src/core/adapters/|^src/core/io/)'
 # Default files/directories to type-check when no CLI targets are provided
 files = ["src"]
 

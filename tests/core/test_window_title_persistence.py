@@ -12,7 +12,6 @@ class SketchSetsTitleInSetup:
 def test_window_title_persists_until_window_created(monkeypatch):
     # We will exercise Engine.start() window-creation path but avoid
     # launching a real pyglet app. Monkeypatch pyglet.window.Window to a dummy.
-    dummy_window_cls = None
 
     try:
 

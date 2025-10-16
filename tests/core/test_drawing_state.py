@@ -19,7 +19,6 @@ def test_fill_and_rect_records_fill():
     # find rect command and ensure it includes fill via engine state
     rect_cmds = [c for c in engine.graphics.commands if c['op'] == 'rect']
     assert len(rect_cmds) == 1
-    args = rect_cmds[0]['args']
     # since SimpleSketchAPI.rect delegates to API which records raw args,
     # fill is stored on engine.fill_color
     assert engine.fill_color == (10, 20, 30)

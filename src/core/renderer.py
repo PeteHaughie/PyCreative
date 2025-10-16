@@ -21,10 +21,13 @@ class Renderer:
             'background': getattr(adapter, 'draw_background', None),
         }
 
-    def render(self, descriptors: Iterable[Dict]) -> None:
+    def render(self, descriptors: Iterable[Dict[str, Any]]) -> None:
         for d in descriptors:
             t = d.get('type')
-            args = d.get('args', {})
+            args = d.get('args', {}) if isinstance(d.get('args', {}), dict) else {}
+            if not isinstance(t, str):
+                # unknown or malformed descriptor; skip
+                continue
 
             # Special-case: square maps to draw_rect with width/height = s
             if t == 'square':

@@ -7,8 +7,7 @@ vector with a few convenience methods.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from typing import Iterable, Tuple
+from typing import Tuple
 import builtins
 
 
@@ -111,10 +110,6 @@ class PCVector:
 
     def mag(self) -> float:
         return math.hypot(self.x, self.y)
-
-    def add(self, other: 'PCVector'):
-        self.x += other.x
-        self.y += other.y
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return f'PCVector({self.x}, {self.y})'

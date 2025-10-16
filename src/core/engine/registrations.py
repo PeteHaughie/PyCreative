@@ -7,25 +7,25 @@ from typing import Any
 
 
 def register_shape_apis(engine: Any):
+    # Import the shape module and look up functions by name at runtime.
+    # This avoids mypy/static-import complaints when optional helpers
+    # (like `ellipse`) are not present in the module.
     try:
-        from core.shape import rect as _rect, line as _line, point as _point
-        engine.api.register('rect', lambda *a, **k: _rect(engine, *a, **k))
-        engine.api.register('line', lambda *a, **k: _line(engine, *a, **k))
-        engine.api.register('point', lambda *a, **k: _point(engine, *a, **k))
+        import core.shape as _shape
+        if hasattr(_shape, 'rect'):
+            engine.api.register('rect', lambda *a, **k: getattr(_shape, 'rect')(engine, *a, **k))
+        if hasattr(_shape, 'line'):
+            engine.api.register('line', lambda *a, **k: getattr(_shape, 'line')(engine, *a, **k))
+        if hasattr(_shape, 'point'):
+            engine.api.register('point', lambda *a, **k: getattr(_shape, 'point')(engine, *a, **k))
+
+        # optional helpers
+        if hasattr(_shape, 'circle'):
+            engine.api.register('circle', lambda *a, **k: getattr(_shape, 'circle')(engine, *a, **k))
+        if hasattr(_shape, 'ellipse'):
+            engine.api.register('ellipse', lambda *a, **k: getattr(_shape, 'ellipse')(engine, *a, **k))
     except Exception:
         # best-effort only
-        pass
-
-    # optional helpers
-    try:
-        from core.shape import circle as _circle
-        engine.api.register('circle', lambda *a, **k: _circle(engine, *a, **k))
-    except Exception:
-        pass
-    try:
-        from core.shape import ellipse as _ellipse
-        engine.api.register('ellipse', lambda *a, **k: _ellipse(engine, *a, **k))
-    except Exception:
         pass
 
 

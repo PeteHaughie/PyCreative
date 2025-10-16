@@ -36,7 +36,7 @@ def load_module_from_path(path: str, module_name: Optional[str] = None) -> Modul
         if parent not in sys.path:
             sys.path.insert(0, parent)
             inserted = True
-        spec.loader.exec_module(mod)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)
     finally:
         if inserted:
             try:

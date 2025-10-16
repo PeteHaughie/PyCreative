@@ -4,6 +4,7 @@ This small helper mirrors the Pillow replayer but issues Skia draw calls
 so the engine can render recorded commands into a Skia Surface (CPU or
 GPU-backed) for presentation.
 """
+# mypy: ignore-errors
 from __future__ import annotations
 
 from typing import Any

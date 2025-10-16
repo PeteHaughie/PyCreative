@@ -14,6 +14,7 @@ from .api_registry import APIRegistry
 from core.adapters.skia_gl_present import SkiaGLPresenter
 from contextlib import redirect_stderr
 import os
+from .api import SimpleSketchAPI
 
 
 class Engine:
@@ -287,16 +288,24 @@ class Engine:
                 # Load the canonical binding list from the engine bindings
                 # module. Fall back to an inline list if the import fails so
                 # early boot or tests without the module still work.
+                from typing import Sequence
+                # Declare _sketch_methods once and assign in branches to avoid
+                # static redefinition errors from type checkers.
+                _sketch_methods: Sequence[str]
                 try:
                     from core.engine.bindings import SKETCH_CONVENIENCE_METHODS
+                    # Normalize to a sequence of strings so static checkers see a
+                    # consistent type regardless of the concrete collection used
+                    # in the bindings module.
+                    _sketch_methods = list(SKETCH_CONVENIENCE_METHODS)
                 except Exception:
-                    SKETCH_CONVENIENCE_METHODS = (
+                    _sketch_methods = [
                         'size', 'background', 'window_title', 'no_loop', 'loop', 'redraw', 'save_frame',
                         'rect', 'line', 'circle', 'square', 'frame_rate',
                         'fill', 'stroke', 'stroke_weight',
-                    )
+                    ]
 
-                for name in SKETCH_CONVENIENCE_METHODS:
+                for name in _sketch_methods:
                     if hasattr(inst, name):
                         continue
                     # Prefer the API-provided implementation when available
@@ -335,7 +344,9 @@ class Engine:
                                             v = int(args[0])
                                             inst._engine.graphics.record('background', r=v, g=v, b=v)
                                         else:
-                                            r = int(args[0]); g = int(args[1]); b = int(args[2])
+                                            r = int(args[0])
+                                            g = int(args[1])
+                                            b = int(args[2])
                                             inst._engine.graphics.record('background', r=r, g=g, b=b)
                                     except Exception:
                                         # Best-effort only
@@ -357,8 +368,10 @@ class Engine:
                             def _fb_map(value, start1, stop1, start2, stop2):
                                 try:
                                     v = float(value)
-                                    s1 = float(start1); s2 = float(stop1)
-                                    t1 = float(start2); t2 = float(stop2)
+                                    s1 = float(start1)
+                                    s2 = float(stop1)
+                                    t1 = float(start2)
+                                    t2 = float(stop2)
                                     if s2 == s1:
                                         raise ValueError('map: start1 and stop1 cannot be equal')
                                     return t1 + (v - s1) * (t2 - t1) / (s2 - s1)
@@ -377,7 +390,9 @@ class Engine:
                         if name == 'norm':
                             def _fb_norm(value, start, stop):
                                 try:
-                                    v = float(value); s = float(start); t = float(stop)
+                                    v = float(value)
+                                    s = float(start)
+                                    t = float(stop)
                                     if t == s:
                                         raise ValueError('norm: start and stop cannot be equal')
                                     return (v - s) / (t - s)
@@ -519,8 +534,9 @@ class Engine:
             # recorded commands to include that background once so snapshots
             # and tests see an initialized canvas.
             if getattr(self, 'headless', False):
-                if getattr(self, '_setup_background', None) is not None and not getattr(self, '_setup_bg_applied_headless', False):
-                    bg = self._setup_background
+                _bg_local = getattr(self, '_setup_background', None)
+                if _bg_local is not None and not getattr(self, '_setup_bg_applied_headless', False):
+                    bg = _bg_local
                     # prepend a background command so it appears before other setup commands
                     self.graphics.commands.insert(0, {'op': 'background', 'args': {'r': int(bg[0]), 'g': int(bg[1]), 'b': int(bg[2])}, 'meta': {'seq': 0}})
                     self._setup_bg_applied_headless = True
@@ -736,8 +752,14 @@ class Engine:
         try:
             devnull = open(os.devnull, 'w')
             with redirect_stderr(devnull):
-                self._window = pyglet.window.Window(
-                    width=self.width, height=self.height, vsync=True)
+                # Create window; cast to Any for static checking so mypy
+                # does not attempt to verify pyglet's internal abstract base
+                # classes here.
+                from typing import cast, Any as _Any
+                _win = pyglet.window.Window(width=self.width, height=self.height, vsync=True)  # type: ignore
+                # cast to Any to avoid mypy attempting to validate pyglet's
+                # abstract base classes in this context.
+                self._window = cast(_Any, _win)
         finally:
             try:
                 devnull.close()
@@ -767,8 +789,11 @@ class Engine:
         # Create presenter once so the underlying FBO/texture and Skia surface
         # persist across frames. This allows drawings to accumulate if the
         # sketch does not clear the background each frame (Processing-style).
-        presenter = SkiaGLPresenter(self.width, self.height, force_present_mode=self.present_mode, force_gles=self.force_gles)
-        replay_fn = presenter.replay_fn
+        # Presenter may be a complex object from adapters; treat as Any to
+        # avoid instantiating abstract types during static checking.
+        from typing import Any as _Any
+        presenter: _Any = SkiaGLPresenter(self.width, self.height, force_present_mode=self.present_mode, force_gles=self.force_gles)
+        replay_fn = getattr(presenter, 'replay_fn', None)
 
         @self._window.event
         def on_draw():
@@ -784,10 +809,13 @@ class Engine:
             # reapplying the setup background on subsequent frames.
             cmds = list(self.graphics.commands)
             setup_bg = getattr(self, '_setup_background', None)
-            if setup_bg is not None and not getattr(self, '_setup_bg_applied', False):
+            # mypy: setup_bg may be None or a tuple; assign to local and
+            # check before indexing.
+            _setup_bg_local = setup_bg
+            if _setup_bg_local is not None and not getattr(self, '_setup_bg_applied', False):
                 # Only prepend if the current frame doesn't already specify a background
                 if not any(c.get('op') == 'background' for c in cmds):
-                    cmds = [{'op': 'background', 'args': {'r': int(setup_bg[0]), 'g': int(setup_bg[1]), 'b': int(setup_bg[2])}, 'meta': {'seq': 0}}] + cmds
+                    cmds = [{'op': 'background', 'args': {'r': int(_setup_bg_local[0]), 'g': int(_setup_bg_local[1]), 'b': int(_setup_bg_local[2])}, 'meta': {'seq': 0}}] + cmds
                     # Mark that we've applied the setup background once so it
                     # doesn't clear subsequent frames.
                     self._setup_bg_applied = True
@@ -854,6 +882,23 @@ class Engine:
         # pyglet-driven events update engine state and dispatch sketch
         # handlers. Import adapters lazily so headless tests remain import-safe.
         try:
+            # Helper to obtain a normalize_button function from adapters if
+            # available, otherwise provide a local fallback with a stable
+            # signature for static type checkers.
+            from typing import Optional as _Optional
+
+            def _get_normalize_button():
+                try:
+                    from core.adapters.pyglet_mouse import normalize_button as _nb
+                    return _nb
+                except Exception:
+                    def _fallback(b: object) -> _Optional[str]:
+                        try:
+                            return str(b)
+                        except Exception:
+                            return None
+                    return _fallback
+
             @self._window.event
             def on_mouse_motion(x, y, dx, dy):
                 try:
@@ -876,14 +921,7 @@ class Engine:
 
             @self._window.event
             def on_mouse_press(x, y, button, modifiers):
-                try:
-                    from core.adapters.pyglet_mouse import normalize_button
-                except Exception:
-                    def normalize_button(b):
-                        try:
-                            return str(b)
-                        except Exception:
-                            return None
+                normalize_button = _get_normalize_button()
                 try:
                     self._apply_mouse_update(x, y)
                 except Exception:
@@ -912,14 +950,7 @@ class Engine:
 
             @self._window.event
             def on_mouse_release(x, y, button, modifiers):
-                try:
-                    from core.adapters.pyglet_mouse import normalize_button
-                except Exception:
-                    def normalize_button(b):
-                        try:
-                            return str(b)
-                        except Exception:
-                            return None
+                normalize_button = _get_normalize_button()
                 try:
                     self._apply_mouse_update(x, y)
                 except Exception:
@@ -1319,12 +1350,27 @@ class Engine:
         count = None
         try:
             if hasattr(event_or_count, 'get_count') and callable(getattr(event_or_count, 'get_count')):
-                count = int(event_or_count.get_count())
+                # call get_count() and coerce safely to int via a dynamically
+                # typed intermediate to satisfy static overload resolution.
+                _maybe: object = event_or_count.get_count()
+                try:
+                    # Use a dynamic Any-typed variable so int() overload
+                    # resolution succeeds in static analysis.
+                    from typing import Any as _Any, cast
+                    _val: _Any = _maybe
+                    # Cast to an int-compatible type for static checkers, then
+                    # coerce at runtime. This is a conservative local workaround
+                    # to appease mypy's overload resolution.
+                    count = int(cast(int, _val))
+                except Exception:
+                    count = None
         except Exception:
             count = None
         if count is None:
             try:
-                count = int(event_or_count)
+                from typing import Any as _Any
+                _ec: _Any = event_or_count
+                count = int(_ec)
             except Exception:
                 # Can't determine count; abort
                 return None
@@ -1335,19 +1381,19 @@ class Engine:
             try:
                 # Many handlers expect an event; provide a tiny shim
                 class _Wheel:
-                    def __init__(self, c):
-                        self._c = c
-                    def get_count(self):
-                        return self._c
+                    def __init__(self, c: int):
+                        self._c = int(c)
+                    def get_count(self) -> int:
+                        return int(self._c)
 
                 try:
                     # Prefer calling with the event-like shim
                     return handler(_Wheel(count))
                 except TypeError:
                     # Fallback: the handler might expect `this` instead
-                    return self._call_sketch_method(handler, _Wheel(count))
+                    this = SimpleSketchAPI(self)
+                    return self._call_sketch_method(handler, this)
             except Exception:
                 pass
 
 
-from .api import SimpleSketchAPI

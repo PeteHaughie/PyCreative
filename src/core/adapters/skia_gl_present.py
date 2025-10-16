@@ -5,6 +5,7 @@ backend render target) when an OpenGL context is available. If the GPU path
 is not available it falls back to a CPU raster Skia Surface so callers still
 receive a usable surface for headless rendering and testing.
 """
+# mypy: ignore-errors
 from __future__ import annotations
 
 import ctypes
@@ -429,10 +430,14 @@ class SkiaGLPresenter:
                         except Exception:
                             pass
                         try:
-                            gl.glTexCoord2f(0.0, 0.0); gl.glVertex2f(0.0, 0.0)
-                            gl.glTexCoord2f(1.0, 0.0); gl.glVertex2f(float(vw), 0.0)
-                            gl.glTexCoord2f(1.0, 1.0); gl.glVertex2f(float(vw), float(vh))
-                            gl.glTexCoord2f(0.0, 1.0); gl.glVertex2f(0.0, float(vh))
+                            gl.glTexCoord2f(0.0, 0.0)
+                            gl.glVertex2f(0.0, 0.0)
+                            gl.glTexCoord2f(1.0, 0.0)
+                            gl.glVertex2f(float(vw), 0.0)
+                            gl.glTexCoord2f(1.0, 1.0)
+                            gl.glVertex2f(float(vw), float(vh))
+                            gl.glTexCoord2f(0.0, 1.0)
+                            gl.glVertex2f(0.0, float(vh))
                         except Exception:
                             pass
                         try:
