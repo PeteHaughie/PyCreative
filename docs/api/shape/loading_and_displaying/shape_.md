@@ -39,7 +39,7 @@ shape(shape, a, b, c, d)
 
 ## Return
 
-pass
+None
 
 ## Related
 - [PCShape](/docs/api/shape/PCShape/PCShape.md)

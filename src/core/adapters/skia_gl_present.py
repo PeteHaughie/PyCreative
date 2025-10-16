@@ -455,7 +455,6 @@ class SkiaGLPresenter:
                                 pass
 
             except Exception:
-                import traceback
                 # Suppress detailed fallback errors in normal runs
                 pass
 

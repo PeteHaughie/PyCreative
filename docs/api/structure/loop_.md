@@ -34,7 +34,7 @@ loop()
 
 ## Return
 
-pass
+None
 
 ## Related
 

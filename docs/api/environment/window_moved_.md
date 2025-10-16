@@ -19,7 +19,7 @@ window_moved()
 
 ## Return
 
-pass
+None
 
 ## Related
 

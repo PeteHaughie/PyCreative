@@ -32,6 +32,6 @@ def setup(self):
 | angle	(float) | the angle in radians |
 | target	(PCVector) | the target vector (if null a new vector will be created) |
 
-## Returns
+## Return
 
 PCVector

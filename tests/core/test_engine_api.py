@@ -9,7 +9,8 @@ def test_engine_shim_exports_engine():
     It asserts the module `src.core.engine` (importable as `core.engine` via src/ path)
     exposes the `Engine` symbol and lists it in `__all__` when present.
     """
-    import importlib, sys
+    import importlib
+    import sys
     sys.path.insert(0, 'src')
 
     # Import lazily and skip the test if the implementation is temporarily

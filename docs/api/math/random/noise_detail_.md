@@ -48,7 +48,7 @@ noise_detail(lod, falloff)
 
 ## Return
 
-pass
+None
 
 ## Related
 

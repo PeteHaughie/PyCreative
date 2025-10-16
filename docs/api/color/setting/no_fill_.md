@@ -21,8 +21,7 @@ no_fill()
 
 ## Return
 
-pass
-
+None
 
 ## Related
 

@@ -1,4 +1,3 @@
-import pytest
 
 from core.engine.impl import Engine
 from core.engine.api import SimpleSketchAPI

@@ -12,4 +12,4 @@ window_resized()
 
 ## Return
 
-pass
+None

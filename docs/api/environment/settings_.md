@@ -36,7 +36,7 @@ settings()
 
 ## Return
 
-pass
+None
 
 ## Related
 

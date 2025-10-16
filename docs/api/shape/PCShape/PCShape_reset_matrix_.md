@@ -38,7 +38,7 @@ sh	(PCShape)	any variable of type PCShape
 
 ## Return
 
-pass
+None
 
 ## Related
 

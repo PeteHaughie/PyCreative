@@ -33,7 +33,7 @@ delay(ms)
 
 ## Return
 
-pass
+None
 
 ## Related
 

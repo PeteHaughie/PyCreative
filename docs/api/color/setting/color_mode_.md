@@ -68,7 +68,7 @@ color_mode(mode, max1, max2, max3, maxA)
 
 ## Return
 
-pass
+None
 
 ## Related
 

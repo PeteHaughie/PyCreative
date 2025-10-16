@@ -26,4 +26,4 @@ square(x, y, extent)
 
 ## Return
 
-pass
+None

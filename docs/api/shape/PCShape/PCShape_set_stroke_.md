@@ -35,4 +35,4 @@ sh.setStroke(stroke)
 
 ## Return
 
-pass
+None

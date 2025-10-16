@@ -42,7 +42,7 @@ sh.end_shape(kind)
 
 ## Return
 
-pass
+None
 
 ## Related
 

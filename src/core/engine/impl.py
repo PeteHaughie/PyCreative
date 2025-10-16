@@ -8,9 +8,8 @@ Not a production implementation — replace with real Engine when ready.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
 from core.graphics import GraphicsBuffer
-from core.color import hsb_to_rgb
 from .api_registry import APIRegistry
 from core.adapters.skia_gl_present import SkiaGLPresenter
 from contextlib import redirect_stderr
@@ -51,6 +50,15 @@ class Engine:
         self.fill_color: Optional[tuple] = (255, 255, 255)
         self.stroke_color: Optional[tuple] = (0, 0, 0)
         self.stroke_weight: int = 1
+        # Mouse/input state (defaults per docs)
+        # mouse_x/y report current mouse coords (int); pmouse_x/y are previous
+        self.mouse_x: int = 0
+        self.mouse_y: int = 0
+        self.pmouse_x: int = 0
+        self.pmouse_y: int = 0
+        # mouse_pressed boolean and mouse_button ('LEFT'|'RIGHT'|'CENTER'|None)
+        self.mouse_pressed: bool = False
+        self.mouse_button: Optional[str] = None
         # color mode: 'RGB' or 'HSB' (case-insensitive). Default RGB.
         self.color_mode = 'RGB'
         # pluggable snapshot backend: callable(path, width, height, engine)
@@ -59,6 +67,14 @@ class Engine:
 
         # Normalize sketch: if a module contains a `Sketch` class, instantiate it
         self._normalize_sketch()
+
+        # Debugging toggle: when True, exceptions raised by user handlers
+        # will be re-raised instead of swallowed. Can be enabled via
+        # environment variable PYCREATIVE_DEBUG_HANDLER_EXCEPTIONS.
+        try:
+            self._debug_handler_exceptions = bool(int(os.getenv('PYCREATIVE_DEBUG_HANDLER_EXCEPTIONS', '0')))
+        except Exception:
+            self._debug_handler_exceptions = False
 
         self._running = False
         # store desired presenter mode if provided (None | 'vbo' | 'blit' | 'immediate')
@@ -175,9 +191,91 @@ class Engine:
                         def _make_height_prop():
                             return property(lambda self_obj: int(getattr(self_obj._engine, 'height', 0)))
 
+                        def _make_mouse_x_prop():
+                            return property(lambda self_obj: int(getattr(self_obj._engine, 'mouse_x', 0)))
+
+                        def _make_mouse_y_prop():
+                            return property(lambda self_obj: int(getattr(self_obj._engine, 'mouse_y', 0)))
+
+                        def _make_pmouse_x_prop():
+                            return property(lambda self_obj: int(getattr(self_obj._engine, 'pmouse_x', 0)))
+
+                        def _make_pmouse_y_prop():
+                            return property(lambda self_obj: int(getattr(self_obj._engine, 'pmouse_y', 0)))
+
+                        def _make_mouse_button_prop():
+                            return property(lambda self_obj: getattr(self_obj._engine, 'mouse_button', None))
+
+                        # Create a descriptor that exposes a read-only boolean
+                        # view of engine.mouse_pressed while still allowing
+                        # the user-defined `mouse_pressed()` handler to be
+                        # invoked if the developer calls it as a function.
+                        class _MousePressedProxy:
+                            def __init__(self, handler=None):
+                                # handler is the original unbound function from the user's class (may be None)
+                                self._handler = handler
+
+                            def __get__(self, instance, owner=None):
+                                # Return a bound proxy object that is both bool-like
+                                # and callable (if a handler exists).
+                                if instance is None:
+                                    return self
+
+                                class _Bound:
+                                    def __init__(self, inst, handler):
+                                        self._inst = inst
+                                        self._handler = handler
+
+                                    def __bool__(self):
+                                        try:
+                                            return bool(getattr(self._inst._engine, 'mouse_pressed', False))
+                                        except Exception:
+                                            return False
+
+                                    # allow int(self.mouse_pressed) or contexts that check truthiness
+                                    def __int__(self):
+                                        return 1 if bool(self) else 0
+
+                                    def __call__(self, *a, **kw):
+                                        # If user defined a handler, call it with the
+                                        # instance as first arg (bound semantics).
+                                        if callable(self._handler):
+                                            try:
+                                                return self._handler(self._inst, *a, **kw)
+                                            except Exception:
+                                                if getattr(self._inst._engine, '_debug_handler_exceptions', False):
+                                                    raise
+                                                return None
+                                        # no handler defined: noop
+                                        return None
+
+                                    def __repr__(self):
+                                        try:
+                                            return f"<mouse_pressed proxy {bool(self)}>"
+                                        except Exception:
+                                            return "<mouse_pressed proxy>"
+
+                                return _Bound(instance, self._handler)
+
+                        # Capture the original unbound mouse_pressed function if present
+                        orig_mouse_pressed = None
+                        try:
+                            m = getattr(cls, 'mouse_pressed', None)
+                            if callable(m):
+                                # store the unbound function so the proxy can call it
+                                orig_mouse_pressed = m
+                        except Exception:
+                            orig_mouse_pressed = None
+
                         Dynamic = type(f"{cls.__name__}_WithEnv", (cls,), {
                             'width': _make_width_prop(),
                             'height': _make_height_prop(),
+                            'mouse_x': _make_mouse_x_prop(),
+                            'mouse_y': _make_mouse_y_prop(),
+                            'pmouse_x': _make_pmouse_x_prop(),
+                            'pmouse_y': _make_pmouse_y_prop(),
+                            'mouse_button': _make_mouse_button_prop(),
+                            'mouse_pressed': _MousePressedProxy(handler=orig_mouse_pressed),
                         })
                         try:
                             inst.__class__ = Dynamic
@@ -302,7 +400,7 @@ class Engine:
                             def _fb_noise(v, *rest):
                                 # best-effort fallback: use Python's random for smooth-ish output
                                 try:
-                                    import math, random as _r
+                                    import random as _r
                                     # single-value noise: map random to [0,1]
                                     return float(_r.random())
                                 except Exception:
@@ -600,8 +698,6 @@ class Engine:
         # Lazy-import pyglet to avoid import-time dependency in tests
         try:
             import pyglet
-            from pyglet import gl
-            from pyglet import shapes
         except Exception as exc:  # pragma: no cover - platform specific
             raise RuntimeError('pyglet is required for windowed mode') from exc
         # Setup is now handled in step_frame; do not run it here
@@ -754,6 +850,159 @@ class Engine:
                 # still be visible. Do not spam stdout in normal runs.
                 pass
         
+        # Register input event handlers on the created window so real
+        # pyglet-driven events update engine state and dispatch sketch
+        # handlers. Import adapters lazily so headless tests remain import-safe.
+        try:
+            @self._window.event
+            def on_mouse_motion(x, y, dx, dy):
+                try:
+                    # Update engine mouse coords and call sketch handler
+                    self._apply_mouse_update(x, y)
+                except Exception:
+                    pass
+                moved = getattr(self.sketch, 'mouse_moved', None)
+                if callable(moved):
+                    try:
+                        try:
+                            moved()
+                        except TypeError:
+                            this = SimpleSketchAPI(self)
+                            self._call_sketch_method(moved, this)
+                    except Exception:
+                        # Swallow handler exceptions unless debug flag set
+                        if getattr(self, '_debug_handler_exceptions', False):
+                            raise
+
+            @self._window.event
+            def on_mouse_press(x, y, button, modifiers):
+                try:
+                    from core.adapters.pyglet_mouse import normalize_button
+                except Exception:
+                    def normalize_button(b):
+                        try:
+                            return str(b)
+                        except Exception:
+                            return None
+                try:
+                    self._apply_mouse_update(x, y)
+                except Exception:
+                    pass
+                try:
+                    self.mouse_pressed = True
+                except Exception:
+                    pass
+                try:
+                    btn = normalize_button(button)
+                    if btn is not None:
+                        self.mouse_button = btn
+                except Exception:
+                    pass
+                handler = getattr(self.sketch, 'mouse_pressed', None)
+                if callable(handler):
+                    try:
+                        try:
+                            handler()
+                        except TypeError:
+                            this = SimpleSketchAPI(self)
+                            self._call_sketch_method(handler, this)
+                    except Exception:
+                        if getattr(self, '_debug_handler_exceptions', False):
+                            raise
+
+            @self._window.event
+            def on_mouse_release(x, y, button, modifiers):
+                try:
+                    from core.adapters.pyglet_mouse import normalize_button
+                except Exception:
+                    def normalize_button(b):
+                        try:
+                            return str(b)
+                        except Exception:
+                            return None
+                try:
+                    self._apply_mouse_update(x, y)
+                except Exception:
+                    pass
+                try:
+                    self.mouse_pressed = False
+                except Exception:
+                    pass
+                try:
+                    btn = normalize_button(button)
+                    if btn is not None:
+                        self.mouse_button = btn
+                except Exception:
+                    pass
+                released = getattr(self.sketch, 'mouse_released', None)
+                if callable(released):
+                    try:
+                        try:
+                            released()
+                        except TypeError:
+                            this = SimpleSketchAPI(self)
+                            self._call_sketch_method(released, this)
+                    except Exception:
+                        if getattr(self, '_debug_handler_exceptions', False):
+                            raise
+                clicked = getattr(self.sketch, 'mouse_clicked', None)
+                if callable(clicked):
+                    try:
+                        try:
+                            clicked()
+                        except TypeError:
+                            this = SimpleSketchAPI(self)
+                            self._call_sketch_method(clicked, this)
+                    except Exception:
+                        if getattr(self, '_debug_handler_exceptions', False):
+                            raise
+
+            @self._window.event
+            def on_mouse_drag(x, y, dx, dy, buttons, modifiers):
+                try:
+                    self._apply_mouse_update(x, y)
+                except Exception:
+                    pass
+                try:
+                    self.mouse_pressed = True
+                except Exception:
+                    pass
+                dragged = getattr(self.sketch, 'mouse_dragged', None)
+                if callable(dragged):
+                    try:
+                        try:
+                            dragged()
+                        except TypeError:
+                            this = SimpleSketchAPI(self)
+                            self._call_sketch_method(dragged, this)
+                    except Exception:
+                        if getattr(self, '_debug_handler_exceptions', False):
+                            raise
+
+            @self._window.event
+            def on_mouse_scroll(x, y, scroll_x, scroll_y):
+                # scroll_y is commonly used as the wheel count
+                handler = getattr(self.sketch, 'mouse_wheel', None)
+                if callable(handler):
+                    try:
+                        class _Wheel:
+                            def __init__(self, c):
+                                self._c = c
+                            def get_count(self):
+                                return int(self._c)
+                        try:
+                            handler(_Wheel(scroll_y))
+                        except TypeError:
+                            this = SimpleSketchAPI(self)
+                            self._call_sketch_method(handler, this)
+                    except Exception:
+                        if getattr(self, '_debug_handler_exceptions', False):
+                            raise
+        except Exception:
+            # Best-effort only: do not fail window creation if handlers cannot
+            # be registered for platform-specific reasons.
+            pass
+        
         # Note: we intentionally avoid creating a pyglet Image backed by
         # the presenter's GL texture. Wrapping an external GL texture in a
         # pyglet.image.Texture can cause GL_INVALID_OPERATION depending on
@@ -887,5 +1136,218 @@ class Engine:
                 self.graphics.record('save_frame', path=path, backend='none')
             except Exception:
                 pass
+
+    # --- Mouse/input simulation helpers ---------------------------------
+    def _ensure_setup(self):
+        """Ensure setup() has run on the sketch. If not, run a single frame
+        which will execute setup() and capture any setup commands.
+        """
+        if not getattr(self, '_setup_done', False):
+            # run a single frame in headless mode to execute setup
+            try:
+                self.run_frames(1)
+            except Exception:
+                # best-effort only
+                pass
+
+    def _apply_mouse_update(self, x: Optional[int], y: Optional[int]):
+        """Update pmouse/mouse state. If x or y is None, preserve previous.
+        pmouse values are set to previous mouse before updating.
+        """
+        try:
+            self.pmouse_x = int(self.mouse_x)
+        except Exception:
+            self.pmouse_x = 0
+        try:
+            self.pmouse_y = int(self.mouse_y)
+        except Exception:
+            self.pmouse_y = 0
+        if x is not None:
+            try:
+                self.mouse_x = int(x)
+            except Exception:
+                pass
+        if y is not None:
+            try:
+                self.mouse_y = int(y)
+            except Exception:
+                pass
+
+    def simulate_mouse_press(self, x: Optional[int] = None, y: Optional[int] = None, button: Optional[str] = None, event: Optional[object] = None):
+        """Simulate a mouse press. Accepts either primitives (x,y,button)
+        or an event-like object. Ensures setup() ran and dispatches
+        sketch.mouse_pressed() if present.
+        """
+        # Lazy normalize event-like objects
+        from core.adapters.pyglet_mouse import normalize_event
+        ev = normalize_event(event) if event is not None else {}
+        ex = ev.get('x', x)
+        ey = ev.get('y', y)
+        btn = ev.get('button', button)
+
+        self._ensure_setup()
+        # Update mouse coordinates and pressed flags
+        self._apply_mouse_update(ex, ey)
+        self.mouse_pressed = True
+        if btn is not None:
+            try:
+                self.mouse_button = str(btn)
+            except Exception:
+                pass
+
+        # Dispatch handler on sketch if present
+        handler = getattr(self.sketch, 'mouse_pressed', None)
+        if callable(handler):
+            try:
+                # Prefer calling with no arguments so the proxy can invoke
+                # the original handler with the correct bound signature.
+                return handler()
+            except TypeError:
+                try:
+                    this = SimpleSketchAPI(self)
+                    return self._call_sketch_method(handler, this)
+                except Exception:
+                    if getattr(self, '_debug_handler_exceptions', False):
+                        raise
+                    return None
+            except Exception:
+                if getattr(self, '_debug_handler_exceptions', False):
+                    raise
+                return None
+
+    def simulate_mouse_release(self, x: Optional[int] = None, y: Optional[int] = None, button: Optional[str] = None, event: Optional[object] = None):
+        """Simulate mouse release and dispatch sketch.mouse_released/clicked.
+        """
+        from core.adapters.pyglet_mouse import normalize_event
+        ev = normalize_event(event) if event is not None else {}
+        ex = ev.get('x', x)
+        ey = ev.get('y', y)
+        btn = ev.get('button', button)
+
+        self._ensure_setup()
+        # Update positions
+        self._apply_mouse_update(ex, ey)
+        self.mouse_pressed = False
+        if btn is not None:
+            try:
+                self.mouse_button = str(btn)
+            except Exception:
+                pass
+
+        # Call mouse_released
+        released = getattr(self.sketch, 'mouse_released', None)
+        if callable(released):
+            try:
+                try:
+                    released()
+                except TypeError:
+                    this = SimpleSketchAPI(self)
+                    self._call_sketch_method(released, this)
+            except Exception:
+                pass
+
+        # Optionally call mouse_clicked (many frameworks define click as press+release)
+        clicked = getattr(self.sketch, 'mouse_clicked', None)
+        if callable(clicked):
+            try:
+                try:
+                    clicked()
+                except TypeError:
+                    this = SimpleSketchAPI(self)
+                    self._call_sketch_method(clicked, this)
+            except Exception:
+                pass
+
+    def simulate_mouse_move(self, x: Optional[int] = None, y: Optional[int] = None, event: Optional[object] = None):
+        """Simulate mouse move (no button pressed): updates mouse coords and
+        calls mouse_moved if present.
+        """
+        from core.adapters.pyglet_mouse import normalize_event
+        ev = normalize_event(event) if event is not None else {}
+        ex = ev.get('x', x)
+        ey = ev.get('y', y)
+
+        self._ensure_setup()
+        self._apply_mouse_update(ex, ey)
+
+        moved = getattr(self.sketch, 'mouse_moved', None)
+        if callable(moved):
+            try:
+                try:
+                    moved()
+                except TypeError:
+                    this = SimpleSketchAPI(self)
+                    self._call_sketch_method(moved, this)
+            except Exception:
+                pass
+
+    def simulate_mouse_drag(self, x: Optional[int] = None, y: Optional[int] = None, button: Optional[str] = None, event: Optional[object] = None):
+        """Simulate mouse drag (move while pressed). Calls mouse_dragged.
+        """
+        from core.adapters.pyglet_mouse import normalize_event
+        ev = normalize_event(event) if event is not None else {}
+        ex = ev.get('x', x)
+        ey = ev.get('y', y)
+        btn = ev.get('button', button)
+
+        self._ensure_setup()
+        # Ensure pressed state
+        self._apply_mouse_update(ex, ey)
+        self.mouse_pressed = True
+        if btn is not None:
+            try:
+                self.mouse_button = str(btn)
+            except Exception:
+                pass
+
+        dragged = getattr(self.sketch, 'mouse_dragged', None)
+        if callable(dragged):
+            try:
+                try:
+                    dragged()
+                except TypeError:
+                    this = SimpleSketchAPI(self)
+                    self._call_sketch_method(dragged, this)
+            except Exception:
+                pass
+
+    def simulate_mouse_wheel(self, event_or_count: object):
+        """Simulate mouse wheel event. Accepts either an event object with
+        get_count() or a numeric count directly.
+        """
+        # Determine count
+        count = None
+        try:
+            if hasattr(event_or_count, 'get_count') and callable(getattr(event_or_count, 'get_count')):
+                count = int(event_or_count.get_count())
+        except Exception:
+            count = None
+        if count is None:
+            try:
+                count = int(event_or_count)
+            except Exception:
+                # Can't determine count; abort
+                return None
+
+        self._ensure_setup()
+        handler = getattr(self.sketch, 'mouse_wheel', None)
+        if callable(handler):
+            try:
+                # Many handlers expect an event; provide a tiny shim
+                class _Wheel:
+                    def __init__(self, c):
+                        self._c = c
+                    def get_count(self):
+                        return self._c
+
+                try:
+                    # Prefer calling with the event-like shim
+                    return handler(_Wheel(count))
+                except TypeError:
+                    # Fallback: the handler might expect `this` instead
+                    return self._call_sketch_method(handler, _Wheel(count))
+            except Exception:
+                pass
+
 
 from .api import SimpleSketchAPI

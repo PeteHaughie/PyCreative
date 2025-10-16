@@ -27,7 +27,7 @@ None
 
 ## Return
 
-pass
+None
 
 ## Related
 

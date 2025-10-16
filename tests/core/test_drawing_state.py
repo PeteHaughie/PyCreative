@@ -1,4 +1,3 @@
-import os
 from core.engine import Engine
 
 

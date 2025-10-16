@@ -45,7 +45,7 @@ cursor()
 
 ## Return
 
-pass
+None
 
 ## Related
 

@@ -62,6 +62,6 @@ def setup(self):
 | v	(PCVector) | any variable of type PCVector |
 | source	(float[]) | array to copy from |
 
-## Returns
+## Return
 
 PCVector

@@ -52,7 +52,7 @@ ellipse_mode(mode)
 
 ## Return
 
-pass
+None
 
 ## Related
 

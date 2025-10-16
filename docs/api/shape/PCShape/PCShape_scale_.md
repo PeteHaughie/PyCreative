@@ -43,7 +43,7 @@ sh.scale(x, y, z)
 
 ## Return
 
-pass
+None
 
 ## Related
 

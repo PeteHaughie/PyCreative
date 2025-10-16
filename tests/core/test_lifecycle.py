@@ -1,5 +1,6 @@
 def test_setup_runs_once():
-    import importlib, sys
+    import importlib
+    import sys
     sys.path.insert(0, 'src')
 
     class sketch:
@@ -19,7 +20,8 @@ def test_setup_runs_once():
 
 
 def test_no_loop_prevents_draw():
-    import importlib, sys
+    import importlib
+    import sys
     sys.path.insert(0, 'src')
 
     # Calling no_loop() in setup should still allow a single draw to run
@@ -45,7 +47,8 @@ def test_no_loop_called_in_draw_stops_future_frames():
     """If a sketch calls no_loop() from inside draw(), that draw should
     complete but subsequent frames should be skipped.
     """
-    import importlib, sys
+    import importlib
+    import sys
     sys.path.insert(0, 'src')
 
     class sketch:
@@ -70,7 +73,8 @@ def test_loop_toggle_allows_resuming_loop():
     previous no_loop(). This simulates a sketch that disables looping in
     setup but then resumes looping (for example, in response to an event).
     """
-    import importlib, sys
+    import importlib
+    import sys
     sys.path.insert(0, 'src')
 
     class sketch:
@@ -96,7 +100,8 @@ def test_loop_toggle_allows_resuming_loop():
 
 
 def test_redraw_one_shot():
-    import importlib, sys
+    import importlib
+    import sys
     sys.path.insert(0, 'src')
 
     class sketch:
@@ -118,7 +123,8 @@ def test_redraw_one_shot():
 
 
 def test_save_frame_records_command(tmp_path):
-    import importlib, sys
+    import importlib
+    import sys
     sys.path.insert(0, 'src')
 
     out = tmp_path / 'frame.png'

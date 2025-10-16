@@ -19,4 +19,4 @@ window_ratio(wide, high)
 
 ## Return
 
-pass
+None

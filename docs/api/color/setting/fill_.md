@@ -53,7 +53,7 @@ fill(v1, v2, v3, alpha)
 
 ## Return
 
-pass
+None
 
 ## Related
 

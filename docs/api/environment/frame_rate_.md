@@ -29,7 +29,7 @@ frame_rate(fps)
 
 ## Return
 
-pass
+None
 
 ## Related
 

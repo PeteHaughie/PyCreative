@@ -31,7 +31,7 @@ update()
 
 ## Return
 
-pass
+None
 
 ## Related
 

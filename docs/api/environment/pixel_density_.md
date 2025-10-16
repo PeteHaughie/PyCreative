@@ -37,7 +37,7 @@ pixel_density(value)
 
 ## Return
 
-pass
+None
 
 ## Related
 

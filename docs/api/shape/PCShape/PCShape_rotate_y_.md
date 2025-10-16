@@ -41,7 +41,7 @@ sh.rotate(angle)
 
 ## Return
 
-pass
+None
 
 ## Related
 

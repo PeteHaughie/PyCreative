@@ -32,7 +32,7 @@ noise_seed(seed)
 
 ## Return
 
-pass
+None
 
 ## Related
 

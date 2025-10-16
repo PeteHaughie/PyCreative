@@ -49,4 +49,4 @@ rect(a, b, c, d, tl, tr, br, bl)
 
 ## Return
 
-pass
+None

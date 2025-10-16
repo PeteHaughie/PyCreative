@@ -40,7 +40,7 @@ sh.setVisible(visible)
 
 ## Return
 
-pass
+None
 
 ## Related
 

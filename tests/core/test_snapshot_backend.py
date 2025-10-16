@@ -1,5 +1,6 @@
 def test_custom_snapshot_backend_is_used(tmp_path):
-    import importlib, sys
+    import importlib
+    import sys
     sys.path.insert(0, 'src')
 
     calls = []
@@ -26,7 +27,8 @@ def test_custom_snapshot_backend_is_used(tmp_path):
 
 
 def test_default_snapshot_backend_records(tmp_path):
-    import importlib, sys
+    import importlib
+    import sys
     sys.path.insert(0, 'src')
 
     out = tmp_path / 'out.png'

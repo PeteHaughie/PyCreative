@@ -44,7 +44,7 @@ setup()
 
 ## Return
 
-pass
+None
 
 ## Related
 

@@ -37,7 +37,7 @@ size(w, h)
 
 ## Return
 
-pass
+None
 
 ## Related
 

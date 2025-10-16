@@ -1,6 +1,6 @@
 import math
 import pytest
-from core.math import PCVector, lerp
+from core.math import PCVector
 
 
 def test_normalize_setmag_limit_and_lerp():

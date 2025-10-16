@@ -1,5 +1,6 @@
 def test_default_frame_rate_and_api():
-    import importlib, sys
+    import importlib
+    import sys
     sys.path.insert(0, 'src')
 
     mod = importlib.import_module('core.engine')
@@ -22,7 +23,8 @@ def test_default_frame_rate_and_api():
 
 
 def test_frame_rate_unrestricted():
-    import importlib, sys
+    import importlib
+    import sys
     sys.path.insert(0, 'src')
 
     mod = importlib.import_module('core.engine')

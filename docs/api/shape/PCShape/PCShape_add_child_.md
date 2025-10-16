@@ -56,7 +56,7 @@ sh.addChild(who, idx)
 
 ## Return
 
-pass
+None
 
 ## Related
 

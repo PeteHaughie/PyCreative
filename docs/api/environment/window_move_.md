@@ -26,7 +26,7 @@ window_move(x, y)
 
 ## Return
 
-pass
+None
 
 ## Related
 

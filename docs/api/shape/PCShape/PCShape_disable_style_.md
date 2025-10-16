@@ -38,7 +38,7 @@ sh.disable_style()
 
 ## Return
 
-pass
+None
 
 ## Related
 

@@ -54,4 +54,4 @@ arc(a, b, c, d, start, stop, mode)
 
 ## Return
 
-pass
+None

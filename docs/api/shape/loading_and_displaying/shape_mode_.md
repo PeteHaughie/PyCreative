@@ -32,7 +32,7 @@ shape_mode(mode)
 
 ## Return
 
-void
+None
 
 ## Related
 

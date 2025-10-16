@@ -26,4 +26,4 @@ window_title(title)
 
 ## Return
 
-pass
+None

@@ -20,7 +20,7 @@ no_stroke()
 
 ## Return
 
-pass
+None
 
 ## Related
 

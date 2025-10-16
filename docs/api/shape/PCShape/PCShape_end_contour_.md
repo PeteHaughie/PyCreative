@@ -59,7 +59,7 @@ sh.end_contour()
 
 ## Return
 
-pass
+None
 
 ## Related
 

@@ -1,4 +1,3 @@
-import math
 
 from core.engine import Engine
 from core.engine.api import SimpleSketchAPI

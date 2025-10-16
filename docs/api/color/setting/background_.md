@@ -51,7 +51,7 @@ background(image)
 
 ## Return
 
-pass
+None
 
 ## Related
 

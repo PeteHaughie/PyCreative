@@ -33,7 +33,7 @@ redraw()
 
 ## Return
 
-pass
+None
 
 ## Related
 - [draw()](/docs/api/structure/draw_.md)

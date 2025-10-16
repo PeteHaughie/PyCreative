@@ -42,7 +42,7 @@ sh.translate(x, y, z)
 
 ## Return
 
-void	
+None	
 
 ## Related
 

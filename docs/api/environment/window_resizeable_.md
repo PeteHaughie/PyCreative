@@ -18,4 +18,4 @@ window_resizeable(resizable)
 
 ## Return
 
-pass
+None

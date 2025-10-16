@@ -38,7 +38,7 @@ sh.enable_style()
 
 ## Return
 
-pass
+None
 
 ## Related
 

@@ -60,7 +60,7 @@ no_loop()
 
 ## Return
 
-pass
+None
 
 ## Related
 

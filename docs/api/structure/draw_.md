@@ -50,7 +50,7 @@ draw()
 
 ## Return
 
-pass
+None
 
 ## Related
 

@@ -34,7 +34,7 @@ fullscreen(display=0)
 
 ## Return
 
-pass
+None
 
 ## Related
 

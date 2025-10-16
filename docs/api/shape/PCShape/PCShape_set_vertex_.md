@@ -54,7 +54,7 @@ sh.setVertex(index, vec)
 
 ## Return
 
-pass
+None
 
 ## Related
 

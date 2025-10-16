@@ -1,4 +1,3 @@
-import pytest
 from core.engine import Engine
 
 

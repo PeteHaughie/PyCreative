@@ -1,5 +1,4 @@
 import types
-import pytest
 from core.engine import Engine
 
 

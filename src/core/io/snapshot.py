@@ -4,7 +4,7 @@ Provides a small high-level API used by Engine to save frames. This module
 tries registered/custom backends first, then falls back to a Pillow writer
 or a no-op record when not available.
 """
-from typing import Any, Callable
+from typing import Any
 
 
 def save_frame(path: str, engine: Any) -> None:

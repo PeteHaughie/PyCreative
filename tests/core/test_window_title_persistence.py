@@ -1,7 +1,6 @@
 import pytest
 
 from core.engine.impl import Engine
-from core.engine.api import SimpleSketchAPI
 
 
 class SketchSetsTitleInSetup:
@@ -13,12 +12,9 @@ class SketchSetsTitleInSetup:
 def test_window_title_persists_until_window_created(monkeypatch):
     # We will exercise Engine.start() window-creation path but avoid
     # launching a real pyglet app. Monkeypatch pyglet.window.Window to a dummy.
-    import types
     dummy_window_cls = None
 
     try:
-        import pyglet
-        from types import SimpleNamespace
 
         class DummyWin:
             def __init__(self, width, height, vsync=True):

@@ -1,5 +1,4 @@
-from typing import TYPE_CHECKING, Any
-from core.color import hsb_to_rgb
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .impl import Engine  # type: ignore

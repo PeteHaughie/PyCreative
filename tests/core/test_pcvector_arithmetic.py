@@ -1,4 +1,3 @@
-import math
 import pytest
 from core.math import PCVector
 

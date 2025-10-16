@@ -40,7 +40,7 @@ def setup(self):
 | parent	(Sketch) | the Sketch instance to associate with the new vector |
 | target	(PCVector) | a PCVector to store the result in |
 
-## Returns
+## Return
 
 PCVector
 

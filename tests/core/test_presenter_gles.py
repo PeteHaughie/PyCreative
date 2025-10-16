@@ -1,4 +1,3 @@
-import pytest
 from core.adapters.skia_gl_present import SkiaGLPresenter
 
 
