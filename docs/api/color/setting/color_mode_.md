@@ -1,4 +1,4 @@
-[docs](/docs/)→[api](/docs/api)→[color](/docs/api/color/)→[setting](/docs/api/setting/)
+[docs](/docs/)→[api](/docs/api)→[color](/docs/api/color/)→[setting](/docs/api/setting/)→[color_mode_.md](/docs/api/color/setting/color_mode_.md)
 
 # color_mode()
 

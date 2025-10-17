@@ -1,4 +1,4 @@
-[docs](/docs/)→[api](/docs/api)→[color](/docs/api/color/)→[setting](/docs/api/setting/)
+[docs](/docs/)→[api](/docs/api)→[color](/docs/api/color/)→[setting](/docs/api/setting/)→[stroke_.md](/docs/api/color/setting/stroke_.md)
 
 # stroke()
 
