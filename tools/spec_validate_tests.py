@@ -18,7 +18,7 @@ and doc/test alignment tools if desired.
 from __future__ import annotations
 
 import re
-import yaml
+import yaml  # type: ignore
 import subprocess
 from pathlib import Path
 
@@ -32,7 +32,7 @@ def load_rules(path: Path) -> dict:
 
 
 def check_docs_api(rules: dict) -> list[str]:
-    errs = []
+    errs: list[str] = []
     docs_ok = (ROOT / 'docs' / 'api').exists()
     if rules.get('docs_alignment', {}).get('enforce_api_doc_consistency', False) and not docs_ok:
         errs.append('docs/api/ missing but docs_alignment is enabled')
@@ -40,7 +40,7 @@ def check_docs_api(rules: dict) -> list[str]:
 
 
 def check_snapshots(rules: dict) -> list[str]:
-    errs = []
+    errs: list[str] = []
     snap_cfg = rules.get('snapshot_policy', {})
     if snap_cfg.get('enabled'):
         snap_dir = ROOT / (snap_cfg.get('directory') or 'tests/__snapshots__')
@@ -50,7 +50,7 @@ def check_snapshots(rules: dict) -> list[str]:
 
 
 def check_test_layout(rules: dict) -> list[str]:
-    errs = []
+    errs: list[str] = []
     tests_dir = ROOT / 'tests'
     if not tests_dir.exists():
         errs.append('tests/ directory missing')
@@ -63,7 +63,7 @@ def check_test_layout(rules: dict) -> list[str]:
 
 
 def scan_pytest_markers(rules: dict) -> list[str]:
-    errs = []
+    errs: list[str] = []
     pytest_opts = rules.get('pytest_options', {})
     markers = pytest_opts.get('markers', [])
     if not markers:
@@ -99,7 +99,7 @@ def scan_pytest_markers(rules: dict) -> list[str]:
 
 
 def check_git_clean(rules: dict) -> list[str]:
-    errs = []
+    errs: list[str] = []
     ci_cfg = rules.get('ci', {})
     if ci_cfg.get('require_clean_git_state'):
         try:

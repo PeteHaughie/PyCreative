@@ -21,10 +21,18 @@ def set_background(engine: Any, *args):
             maxs = getattr(engine, 'color_mode_max', None)
             if maxs is not None and len(maxs) >= 3:
                 try:
-                    h = float(vals[0]) / float(maxs[0])
-                    s = float(vals[1]) / float(maxs[1])
-                    v = float(vals[2]) / float(maxs[2])
-                    r, g, b = hsb_to_rgb(h, s, v)
+                    # If values already look normalized (<= 1), assume they
+                    # are in 0..1 and pass through. Otherwise divide by maxima.
+                    h_in = float(vals[0])
+                    s_in = float(vals[1])
+                    v_in = float(vals[2])
+                    if h_in <= 1.0 and s_in <= 1.0 and v_in <= 1.0:
+                        r, g, b = hsb_to_rgb(h_in, s_in, v_in)
+                    else:
+                        h = h_in / float(maxs[0])
+                        s = s_in / float(maxs[1])
+                        v = v_in / float(maxs[2])
+                        r, g, b = hsb_to_rgb(h, s, v)
                 except Exception:
                     r, g, b = hsb_to_rgb(vals[0], vals[1], vals[2])
             else:
