@@ -107,13 +107,66 @@ def ellipse(engine: Any, x: float, y: float, w: float, h: Optional[float] = None
     """
     if h is None:
         h = w
+    # Interpret ellipse parameters according to engine.ellipse_mode if present.
+    # Supported modes (Processing-style): CORNER (default), CORNERS, CENTER, RADIUS
+    try:
+        emode = str(getattr(engine, 'ellipse_mode', 'CENTER')).upper()
+    except Exception:
+        emode = 'CENTER'
+
+    # Normalize to canonical (x_top_left, y_top_left, width, height) where
+    # ellipse recording expects center-like params converted to top-left + w/h
+    try:
+        if emode == 'CORNER':
+            ex = float(x)
+            ey = float(y)
+            ew = float(w)
+            eh = float(h)
+        elif emode == 'CORNERS':
+            # x,y,x2,y2 passed as x,y,w,h; treat w,h as x2,y2
+            x0 = float(x)
+            y0 = float(y)
+            x1 = float(w)
+            y1 = float(h)
+            ex = min(x0, x1)
+            ey = min(y0, y1)
+            ew = abs(x1 - x0)
+            eh = abs(y1 - y0)
+        elif emode == 'CENTER':
+            # x,y is center; w,h are full width/height
+            cx = float(x)
+            cy = float(y)
+            ew = float(w)
+            eh = float(h)
+            ex = cx - (ew / 2.0)
+            ey = cy - (eh / 2.0)
+        elif emode == 'RADIUS':
+            # x,y is center; w,h are radii
+            cx = float(x)
+            cy = float(y)
+            rx = float(w)
+            ry = float(h)
+            ex = cx - rx
+            ey = cy - ry
+            ew = rx * 2.0
+            eh = ry * 2.0
+        else:
+            ex = float(x)
+            ey = float(y)
+            ew = float(w)
+            eh = float(h)
+    except Exception:
+        ex = x
+        ey = y
+        ew = w
+        eh = h
     if 'fill' not in kwargs:
         kwargs['fill'] = getattr(engine, 'fill_color', None)
     if 'stroke' not in kwargs:
         kwargs['stroke'] = getattr(engine, 'stroke_color', None)
     if 'stroke_weight' not in kwargs:
         kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
-    return engine.graphics.record('ellipse', x=x, y=y, w=w, h=h, **kwargs)
+    return engine.graphics.record('ellipse', x=ex, y=ey, w=ew, h=eh, **kwargs)
 
 
 def stroke_weight(engine: Any, w: int):
