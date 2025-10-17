@@ -5,14 +5,14 @@ Mover class for Example 1.7: Motion 101: Velocity
 class Mover:
     def __init__(self, sketch):
         self.sketch = sketch
-        self.position = self.sketch.pvector(self.sketch.random(self.sketch.width), self.sketch.random(self.sketch.height))
-        self.velocity = self.sketch.pvector(self.sketch.random(-2, 2), self.sketch.random(-2, 2))
+        self.position = self.sketch.pcvector(self.sketch.random(self.sketch.width), self.sketch.random(self.sketch.height))
+        self.velocity = self.sketch.pcvector(self.sketch.random(-2, 2), self.sketch.random(-2, 2))
 
     def update(self):
         self.position.add(self.velocity)
 
     def show(self):
-        self.sketch.stroke((0, 0, 0))
+        self.sketch.stroke(0)
         self.sketch.stroke_weight(2)
         self.sketch.fill(127)
         self.sketch.circle(self.position.x, self.position.y, 48)

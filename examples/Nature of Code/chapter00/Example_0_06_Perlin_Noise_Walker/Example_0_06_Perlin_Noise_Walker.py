@@ -9,12 +9,11 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter0/Examp
 // Example 0-6: Perlin Noise Walker
 """
 
-from pycreative.app import Sketch
 
-
-class Example_0_6_Perlin_Noise_Walker(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
+        self.window_title("NOC: Example 0-6 Perlin Noise Walker")
         self.background(255)
         self.walker = Walker(self)
 
@@ -46,4 +45,4 @@ class Walker:
         self.sketch.stroke_weight(2)
         self.sketch.fill(127)
         self.sketch.stroke(0)
-        self.sketch.ellipse(self.x, self.y, 48)
+        self.sketch.circle(self.x, self.y, 48)

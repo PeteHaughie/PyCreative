@@ -118,6 +118,47 @@ class PCVector:
     def copy(self) -> 'PCVector':
         return PCVector(self.x, self.y)
 
+    # --- Processing-style static helpers (return new vectors, do not mutate) ---
+    @staticmethod
+    def sub_vec(a, b):
+        """Return a new PCVector equal to a - b. Accepts PCVector or (x,y).
+
+        This mirrors Processing's static PVector.sub(v1, v2) behaviour.
+        """
+        ax, ay = (a.x, a.y) if isinstance(a, PCVector) else (float(a[0]), float(a[1]))
+        bx, by = (b.x, b.y) if isinstance(b, PCVector) else (float(b[0]), float(b[1]))
+        return PCVector(ax - bx, ay - by)
+
+    @staticmethod
+    def add_vec(a, b):
+        ax, ay = (a.x, a.y) if isinstance(a, PCVector) else (float(a[0]), float(a[1]))
+        bx, by = (b.x, b.y) if isinstance(b, PCVector) else (float(b[0]), float(b[1]))
+        return PCVector(ax + bx, ay + by)
+
+    @staticmethod
+    def mult_vec(a, n):
+        # If n is a scalar, scale; if n is a vector-like, component-wise multiply
+        ax, ay = (a.x, a.y) if isinstance(a, PCVector) else (float(a[0]), float(a[1]))
+        if isinstance(n, PCVector):
+            return PCVector(ax * n.x, ay * n.y)
+        try:
+            nf = float(n)
+            return PCVector(ax * nf, ay * nf)
+        except Exception:
+            raise TypeError('mult_vec expects a scalar or PCVector')
+
+    @staticmethod
+    def div_vec(a, n):
+        ax, ay = (a.x, a.y) if isinstance(a, PCVector) else (float(a[0]), float(a[1]))
+        if isinstance(n, PCVector):
+            if n.x == 0 or n.y == 0:
+                raise ZeroDivisionError('division by zero component in vector')
+            return PCVector(ax / n.x, ay / n.y)
+        nf = float(n)
+        if nf == 0:
+            raise ZeroDivisionError('division by zero')
+        return PCVector(ax / nf, ay / nf)
+
     @staticmethod
     def from_angle(angle: float, magnitude: float = 1.0) -> 'PCVector':
         return PCVector(math.cos(angle) * magnitude, math.sin(angle) * magnitude)
@@ -152,11 +193,13 @@ class PCVector:
         ox, oy = self._unpack_other(other, y)
         self.x += ox
         self.y += oy
+        return self
 
     def sub(self, other, y=None):
         ox, oy = self._unpack_other(other, y)
         self.x -= ox
         self.y -= oy
+        return self
 
     def mult(self, n):
         # multiply by scalar or component-wise by another vector
@@ -166,6 +209,7 @@ class PCVector:
         else:
             self.x *= float(n)
             self.y *= float(n)
+        return self
 
     def div(self, n):
         # divide by scalar or component-wise by another vector
@@ -180,16 +224,19 @@ class PCVector:
                 raise ZeroDivisionError('division by zero')
             self.x /= n
             self.y /= n
+        return self
 
     def normalize(self):
         m = self.mag()
         if m != 0:
             self.x /= m
             self.y /= m
+        return self
 
     def set_mag(self, magnitude: float):
         self.normalize()
         self.mult(magnitude)
+        return self
 
     def limit(self, max_len: float):
         m = self.mag()
@@ -259,3 +306,23 @@ pow = pow_
 max = max_
 min = min_
 round = round_
+
+# Module-level Processing-like helpers (non-mutating)
+def sub(a, b):
+    """Return a new PCVector equal to a - b.
+
+    Accepts PCVector or (x,y) sequences.
+    """
+    return PCVector.sub_vec(a, b)
+
+
+def add(a, b):
+    return PCVector.add_vec(a, b)
+
+
+def mult(a, n):
+    return PCVector.mult_vec(a, n)
+
+
+def div(a, n):
+    return PCVector.div_vec(a, n)

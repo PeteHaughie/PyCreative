@@ -652,6 +652,17 @@ class Engine:
         Prefer calling with `this`; if the function raises a TypeError due to
         unexpected arguments, fall back to calling without arguments.
         """
+        # If fn is a bound method (has __self__ set) then it already
+        # has the instance bound and should be called without passing
+        # `this`. This avoids errors like "takes 1 positional argument
+        # but 2 were given" when methods are bound.
+        try:
+            bound_self = getattr(fn, '__self__', None)
+            if bound_self is not None:
+                return fn()
+        except Exception:
+            pass
+
         # Prefer calling with `this`; if the callable doesn't accept an
         # argument (raises TypeError), fall back to calling without args.
         try:
@@ -903,7 +914,13 @@ class Engine:
             def on_mouse_motion(x, y, dx, dy):
                 try:
                     # Update engine mouse coords and call sketch handler
-                    self._apply_mouse_update(x, y)
+                    # Convert window coords (origin bottom-left) to sketch
+                    # coords (origin top-left) by flipping the Y axis.
+                    try:
+                        hy = int(getattr(self, 'height', 0))
+                        self._apply_mouse_update(x, hy - int(y))
+                    except Exception:
+                        self._apply_mouse_update(x, y)
                 except Exception:
                     pass
                 moved = getattr(self.sketch, 'mouse_moved', None)
@@ -923,7 +940,11 @@ class Engine:
             def on_mouse_press(x, y, button, modifiers):
                 normalize_button = _get_normalize_button()
                 try:
-                    self._apply_mouse_update(x, y)
+                    try:
+                        hy = int(getattr(self, 'height', 0))
+                        self._apply_mouse_update(x, hy - int(y))
+                    except Exception:
+                        self._apply_mouse_update(x, y)
                 except Exception:
                     pass
                 try:
@@ -952,7 +973,11 @@ class Engine:
             def on_mouse_release(x, y, button, modifiers):
                 normalize_button = _get_normalize_button()
                 try:
-                    self._apply_mouse_update(x, y)
+                    try:
+                        hy = int(getattr(self, 'height', 0))
+                        self._apply_mouse_update(x, hy - int(y))
+                    except Exception:
+                        self._apply_mouse_update(x, y)
                 except Exception:
                     pass
                 try:
@@ -991,7 +1016,11 @@ class Engine:
             @self._window.event
             def on_mouse_drag(x, y, dx, dy, buttons, modifiers):
                 try:
-                    self._apply_mouse_update(x, y)
+                    try:
+                        hy = int(getattr(self, 'height', 0))
+                        self._apply_mouse_update(x, hy - int(y))
+                    except Exception:
+                        self._apply_mouse_update(x, y)
                 except Exception:
                     pass
                 try:
@@ -1395,5 +1424,208 @@ class Engine:
                     return self._call_sketch_method(handler, this)
             except Exception:
                 pass
+
+
+    # --- 2D Transform / matrix stack helpers ----------------------------
+    def _identity_matrix(self):
+        """Return a 3x3 identity matrix as a flat list (row-major)."""
+        return [1.0, 0.0, 0.0,
+                0.0, 1.0, 0.0,
+                0.0, 0.0, 1.0]
+
+    def _mul_mat(self, a, b):
+        """Multiply two 3x3 matrices (flat row-major lists).
+
+        Returns a new flat list representing a*b.
+        """
+        return [
+            a[0]*b[0] + a[1]*b[3] + a[2]*b[6],
+            a[0]*b[1] + a[1]*b[4] + a[2]*b[7],
+            a[0]*b[2] + a[1]*b[5] + a[2]*b[8],
+
+            a[3]*b[0] + a[4]*b[3] + a[5]*b[6],
+            a[3]*b[1] + a[4]*b[4] + a[5]*b[7],
+            a[3]*b[2] + a[4]*b[5] + a[5]*b[8],
+
+            a[6]*b[0] + a[7]*b[3] + a[8]*b[6],
+            a[6]*b[1] + a[7]*b[4] + a[8]*b[7],
+            a[6]*b[2] + a[7]*b[5] + a[8]*b[8],
+        ]
+
+    def _ensure_matrix_stack(self):
+        if not hasattr(self, '_matrix_stack'):
+            self._matrix_stack = [self._identity_matrix()]
+
+    def push_matrix(self):
+        self._ensure_matrix_stack()
+        try:
+            top = list(self._matrix_stack[-1])
+            self._matrix_stack.append(top)
+        except Exception:
+            # ensure stack has at least one identity
+            self._matrix_stack = [self._identity_matrix()]
+        try:
+            return self.graphics.record('push_matrix')
+        except Exception:
+            return None
+
+    def pop_matrix(self):
+        self._ensure_matrix_stack()
+        try:
+            if len(self._matrix_stack) > 1:
+                self._matrix_stack.pop()
+            else:
+                # reset to identity if attempting to pop the last
+                self._matrix_stack[-1] = self._identity_matrix()
+        except Exception:
+            self._matrix_stack = [self._identity_matrix()]
+        try:
+            return self.graphics.record('pop_matrix')
+        except Exception:
+            return None
+
+    def reset_matrix(self):
+        self._ensure_matrix_stack()
+        try:
+            self._matrix_stack[-1] = self._identity_matrix()
+        except Exception:
+            self._matrix_stack = [self._identity_matrix()]
+        try:
+            return self.graphics.record('reset_matrix')
+        except Exception:
+            return None
+
+    def _apply_transform_matrix(self, mat):
+        """Right-multiply the current matrix by mat (both flat 3x3 lists)."""
+        self._ensure_matrix_stack()
+        try:
+            cur = self._matrix_stack[-1]
+            self._matrix_stack[-1] = self._mul_mat(cur, mat)
+        except Exception:
+            self._matrix_stack[-1] = list(mat)
+
+    def translate(self, x: float, y: float, z: Optional[float] = None):
+        try:
+            tx = float(x)
+            ty = float(y)
+        except Exception:
+            return None
+        mat = [1.0, 0.0, tx,
+               0.0, 1.0, ty,
+               0.0, 0.0, 1.0]
+        self._apply_transform_matrix(mat)
+        try:
+            return self.graphics.record('translate', x=tx, y=ty)
+        except Exception:
+            return None
+
+    def rotate(self, angle: float):
+        import math
+        try:
+            a = float(angle)
+        except Exception:
+            return None
+        c = math.cos(a)
+        s = math.sin(a)
+        mat = [c, -s, 0.0,
+               s,  c, 0.0,
+               0.0,0.0,1.0]
+        self._apply_transform_matrix(mat)
+        try:
+            return self.graphics.record('rotate', angle=float(a))
+        except Exception:
+            return None
+
+    def scale(self, sx: float, sy: Optional[float] = None, sz: Optional[float] = None):
+        try:
+            sx_f = float(sx)
+            sy_f = float(sy) if sy is not None else sx_f
+        except Exception:
+            return None
+        mat = [sx_f, 0.0, 0.0,
+               0.0, sy_f, 0.0,
+               0.0, 0.0, 1.0]
+        self._apply_transform_matrix(mat)
+        try:
+            return self.graphics.record('scale', sx=sx_f, sy=sy_f)
+        except Exception:
+            return None
+
+    def shear_x(self, angle: float):
+        import math
+        try:
+            a = float(angle)
+        except Exception:
+            return None
+        mat = [1.0, math.tan(a), 0.0,
+               0.0, 1.0,        0.0,
+               0.0, 0.0,        1.0]
+        self._apply_transform_matrix(mat)
+        try:
+            return self.graphics.record('shear_x', angle=float(a))
+        except Exception:
+            return None
+
+    def shear_y(self, angle: float):
+        import math
+        try:
+            a = float(angle)
+        except Exception:
+            return None
+        mat = [1.0, 0.0,        0.0,
+               math.tan(a), 1.0, 0.0,
+               0.0, 0.0,        1.0]
+        self._apply_transform_matrix(mat)
+        try:
+            return self.graphics.record('shear_y', angle=float(a))
+        except Exception:
+            return None
+
+    def apply_matrix(self, *args):
+        """Apply a provided matrix to the current transform.
+
+        Accepts either a single sequence-like of 9 or 6 numbers, or 6/9 numbers
+        as individual arguments. For 6 numbers we expand them into a 3x3
+        affine matrix with a bottom row [0,0,1].
+        """
+        vals = None
+        if len(args) == 1:
+            maybe = args[0]
+            try:
+                # sequence-like
+                vals = list(maybe)
+            except Exception:
+                vals = None
+        else:
+            vals = list(args)
+
+        if vals is None:
+            return None
+
+        try:
+            if len(vals) == 6:
+                # assume [a,b,c,d,e,f] -> 3x3: [a,b,c, d,e,f, 0,0,1]
+                mat = [float(vals[0]), float(vals[1]), float(vals[2]),
+                       float(vals[3]), float(vals[4]), float(vals[5]),
+                       0.0, 0.0, 1.0]
+                self._apply_transform_matrix(mat)
+            elif len(vals) == 9:
+                mat = [float(v) for v in vals]
+                self._apply_transform_matrix(mat)
+            elif len(vals) == 16:
+                # Accept 4x4 matrix (row-major). For 2D engine we won't
+                # attempt a full 4x4 -> 3x3 conversion; just record values
+                # so headless tests can observe the call. Do not modify
+                # the engine matrix stack for 4x4 inputs.
+                mat = [float(v) for v in vals]
+            else:
+                return None
+        except Exception:
+            return None
+
+        try:
+            return self.graphics.record('apply_matrix', matrix=mat)
+        except Exception:
+            return None
 
 

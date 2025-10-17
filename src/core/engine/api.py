@@ -18,7 +18,29 @@ class SimpleSketchAPI:
         try:
             from core.math import PCVector  # local import to avoid top-level cost
             # provide a small factory so sketches can do `v = this.pcvector()`
-            self.pcvector: Any = PCVector
+            # We wrap the raw PCVector class in a thin object that acts as a
+            # constructor but also exposes Processing-style non-mutating helpers
+            # as methods (sub/add/mult/div). This keeps examples that call
+            # `this.pcvector.sub(a, b)` working and avoids accidental mutation
+            # when a non-mutating semantics is expected.
+            class _PCVectorFactory:
+                def __call__(self, x=0.0, y=0.0):
+                    return PCVector(x, y)
+
+                # expose non-mutating helpers that return new PCVector
+                def sub(self, a, b):
+                    return PCVector.sub_vec(a, b)
+
+                def add(self, a, b):
+                    return PCVector.add_vec(a, b)
+
+                def mult(self, a, n):
+                    return PCVector.mult_vec(a, n)
+
+                def div(self, a, n):
+                    return PCVector.div_vec(a, n)
+
+            self.pcvector: Any = _PCVectorFactory()
             # Expose common math helpers at the sketch-level as documented
             # (e.g., this.lerp, this.map, this.dist, etc.). We expose a
             # conservative set matching docs/api/math/calculation.
@@ -250,3 +272,103 @@ class SimpleSketchAPI:
         fn = self._engine.api.get('rect')
         if fn:
             return fn(x, y, size, size, fill=fill, stroke=stroke, stroke_weight=sw)
+
+    # --- Transform helpers (minimal record-only implementations used in headless tests)
+    def translate(self, x, y, z=None):
+        """Translate the current matrix by x,y (,z).
+
+        Records a 'translate' op to the engine graphics buffer so headless
+        tests can assert transform usage.
+        """
+        # Delegate to engine so transform state is maintained
+        try:
+            return self._engine.translate(x, y, z)
+        except Exception:
+            try:
+                args = {'x': float(x), 'y': float(y)}
+                if z is not None:
+                    args['z'] = float(z)
+                return self._engine.graphics.record('translate', **args)
+            except Exception:
+                return None
+
+    def rotate(self, angle):
+        try:
+            return self._engine.rotate(angle)
+        except Exception:
+            try:
+                return self._engine.graphics.record('rotate', angle=float(angle))
+            except Exception:
+                return None
+
+    def scale(self, sx, sy=None, sz=None):
+        try:
+            return self._engine.scale(sx, sy, sz)
+        except Exception:
+            try:
+                if sy is None and sz is None:
+                    return self._engine.graphics.record('scale', sx=float(sx))
+                args = {'sx': float(sx), 'sy': float(sy) if sy is not None else float(sx)}
+                if sz is not None:
+                    args['sz'] = float(sz)
+                return self._engine.graphics.record('scale', **args)
+            except Exception:
+                return None
+
+    def push_matrix(self):
+        try:
+            return self._engine.push_matrix()
+        except Exception:
+            try:
+                return self._engine.graphics.record('push_matrix')
+            except Exception:
+                return None
+
+    def pop_matrix(self):
+        try:
+            return self._engine.pop_matrix()
+        except Exception:
+            try:
+                return self._engine.graphics.record('pop_matrix')
+            except Exception:
+                return None
+
+    def shear_x(self, angle):
+        try:
+            return self._engine.shear_x(angle)
+        except Exception:
+            try:
+                return self._engine.graphics.record('shear_x', angle=float(angle))
+            except Exception:
+                return None
+
+    def shear_y(self, angle):
+        try:
+            return self._engine.shear_y(angle)
+        except Exception:
+            try:
+                return self._engine.graphics.record('shear_y', angle=float(angle))
+            except Exception:
+                return None
+
+    def reset_matrix(self):
+        try:
+            return self._engine.reset_matrix()
+        except Exception:
+            try:
+                return self._engine.graphics.record('reset_matrix')
+            except Exception:
+                return None
+
+    def apply_matrix(self, *args):
+        """Apply a matrix. Accepts either a single source matrix or 16 numbers."""
+        try:
+            return self._engine.apply_matrix(*args)
+        except Exception:
+            try:
+                if len(args) == 1:
+                    src = args[0]
+                    return self._engine.graphics.record('apply_matrix', matrix=src)
+                return self._engine.graphics.record('apply_matrix', values=list(args))
+            except Exception:
+                return None

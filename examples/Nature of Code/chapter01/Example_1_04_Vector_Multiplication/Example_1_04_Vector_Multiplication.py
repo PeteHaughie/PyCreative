@@ -9,21 +9,20 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter1/Examp
 // Example 1-4: Vector Multiplication
 """
 
-from pycreative.app import Sketch
 
-
-class Example_1_4_Vector_Multiplication(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
 
     def draw(self):
         self.background(255)
 
-        mouse = self.pvector(self.mouse_x, self.mouse_y)
-        center = self.pvector(self.width / 2, self.height / 2)
+        mouse = self.pcvector(self.mouse_x, self.mouse_y)
+        center = self.pcvector(self.width / 2, self.height / 2)
         mouse.sub(center)
 
         self.translate(self.width / 2, self.height / 2)
+        self.rect(0, 0, 10, 10)
         self.stroke_weight(2)
         self.stroke(200)
         self.line(0, 0, mouse.x, mouse.y)

@@ -6,12 +6,12 @@ class Mover:
     def __init__(self, sketch):
         self.sketch = sketch
         self.mass = 1
-        self.position = self.sketch.pvector(self.sketch.width / 2, 30)
-        self.velocity = self.sketch.pvector(0, 0)
-        self.acceleration = self.sketch.pvector(0, 0)
+        self.position = self.sketch.pcvector(self.sketch.width / 2, 30)
+        self.velocity = self.sketch.pcvector(0, 0)
+        self.acceleration = self.sketch.pcvector(0, 0)
 
     def apply_force(self, force):
-        f = self.sketch.pvector.div(force, self.mass)
+        f = self.sketch.pcvector.div(force, self.mass)
         self.acceleration.add(f)
 
     def update(self):
@@ -20,10 +20,10 @@ class Mover:
         self.acceleration.mult(0)
 
     def display(self):
-        self.sketch.stroke((0, 0, 0))
-        self.sketch.stroke_weight(2)
-        self.sketch.fill((127, 127))
-        self.sketch.ellipse(self.position.x, self.position.y, 48, 48)
+        self.sketch.stroke(0)
+        self.sketch.stroke_weight(5)
+        self.sketch.fill(127, 127)
+        self.sketch.circle(self.position.x, self.position.y, 48)
 
     def check_edges(self):
         if self.position.x > self.sketch.width:

@@ -21,6 +21,9 @@ SKETCH_CONVENIENCE_METHODS = (
     'pcvector',
     'noise', 'noise_seed', 'noise_detail',
     'no_fill', 'no_stroke',
+    # Transform helpers (2D)
+    'translate', 'rotate', 'scale', 'push_matrix', 'pop_matrix', 'pushMatrix', 'popMatrix',
+    'shear_x', 'shear_y', 'reset_matrix', 'apply_matrix',
 )
 
 __all__ = ['SKETCH_CONVENIENCE_METHODS']

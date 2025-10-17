@@ -9,15 +9,14 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter2/Examp
 // Forces (Gravity and Fluid Resistence) with Vectors
 """
 
-from pycreative.app import Sketch
 from Mover import Mover
 from Liquid import Liquid
 
 
-class Example_2_05_Fluid_Resistance(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 2.5: Fluid Resistance")
+        self.window_title("NOC: Example 2.5 Fluid Resistance")
         self.reset() # Create movers
         self.liquid = Liquid(self, 0, self.height / 2, self.width, self.height / 2, 0.1)
 
@@ -30,7 +29,7 @@ class Example_2_05_Fluid_Resistance(Sketch):
                 drag_force = self.liquid.calculate_drag(mover)
                 mover.apply_force(drag_force)
 
-            gravity = self.pvector(0, 0.1 * mover.mass)
+            gravity = self.pcvector(0, 0.1 * mover.mass)
             mover.apply_force(gravity)
 
             mover.update()

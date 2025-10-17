@@ -8,12 +8,12 @@ class Mover:
         self.sketch = sketch
         self.mass = m
         self.radius = m * 8
-        self.position = self.sketch.pvector(x, y)
-        self.velocity = self.sketch.pvector(0, 0)
-        self.acceleration = self.sketch.pvector(0, 0)
+        self.position = self.sketch.pcvector(x, y)
+        self.velocity = self.sketch.pcvector(0, 0)
+        self.acceleration = self.sketch.pcvector(0, 0)
 
     def apply_force(self, force):
-        f = self.sketch.pvector.div(force, self.mass)
+        f = self.sketch.pcvector.div(force, self.mass)
         self.acceleration.add(f)
 
     def update(self):
@@ -24,8 +24,8 @@ class Mover:
     def draw(self):
         self.sketch.stroke(0)
         self.sketch.stroke_weight(2)
-        self.sketch.fill((127, 127, 127))
-        self.sketch.ellipse(self.position.x, self.position.y, self.radius * 2)
+        self.sketch.fill(127)
+        self.sketch.circle(self.position.x, self.position.y, self.radius * 2)
 
     def contact_edge(self):
         return self.position.y > self.sketch.height - self.radius - 1

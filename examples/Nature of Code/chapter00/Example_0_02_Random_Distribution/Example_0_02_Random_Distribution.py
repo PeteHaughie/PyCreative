@@ -9,15 +9,14 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter0/Examp
 // Example 0-2: Random Distribution
 """
 
-from pycreative.app import Sketch
-
-class Example_0_2_Random_Distribution(Sketch):
-    def setup(self) -> None:
+class Sketch:
+    def setup(self):
         self.size(640, 360)
+        self.window_title("NOC: Example 0-2 Random Distribution")
         self.total = 20
         self.random_counts = [0] * self.total
 
-    def draw(self) -> None:
+    def draw(self):
         self.background(255)
         index = int(self.random(self.total))
         self.random_counts[index] += 1

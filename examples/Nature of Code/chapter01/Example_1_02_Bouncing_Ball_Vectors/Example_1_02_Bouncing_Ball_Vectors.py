@@ -9,13 +9,13 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter1/Examp
 // Example 1-2: Bouncing Ball, with PVector!
 """
 
-from pycreative.app import Sketch
 
-class Example_1_2_Bouncing_Ball_Vectors(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.position = self.pvector(100, 100)
-        self.velocity = self.pvector(2.5, 2)
+        self.window_title("NOC: Example 1-2 Bouncing Ball Vectors")
+        self.position = self.pcvector(100, 100)
+        self.velocity = self.pcvector(2.5, 2)
 
     def draw(self):
         self.background(255)

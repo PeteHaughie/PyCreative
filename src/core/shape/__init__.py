@@ -4,6 +4,7 @@ These functions accept an `engine` as the first argument to remain
 implementation-focused and avoid import-time cycles with the Engine.
 """
 from typing import Any
+from typing import Optional
 
 
 def rect(engine: Any, x: float, y: float, w: float, h: float, **kwargs):
@@ -42,6 +43,22 @@ def circle(engine: Any, x: float, y: float, r: float, **kwargs):
     if 'stroke_weight' not in kwargs:
         kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
     return engine.graphics.record('circle', x=x, y=y, r=r, **kwargs)
+
+
+def ellipse(engine: Any, x: float, y: float, w: float, h: Optional[float] = None, **kwargs):
+    """Record an ellipse draw command on the engine's graphics buffer.
+
+    The API mirrors Processing: ellipse(x, y, w, h). If h is None, use w.
+    """
+    if h is None:
+        h = w
+    if 'fill' not in kwargs:
+        kwargs['fill'] = getattr(engine, 'fill_color', None)
+    if 'stroke' not in kwargs:
+        kwargs['stroke'] = getattr(engine, 'stroke_color', None)
+    if 'stroke_weight' not in kwargs:
+        kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
+    return engine.graphics.record('ellipse', x=x, y=y, w=w, h=h, **kwargs)
 
 
 def stroke_weight(engine: Any, w: int):

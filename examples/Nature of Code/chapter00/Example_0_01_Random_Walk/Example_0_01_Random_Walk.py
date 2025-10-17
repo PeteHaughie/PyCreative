@@ -9,11 +9,10 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter0/Examp
 // Example 0-1: Random Walk
 """
 
-from pycreative.app import Sketch
-
-class Example_0_1_Random_Walk(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
+        self.window_title("NOC: Example 0-1 Random Walk")
         self.walker_x = self.width // 2
         self.walker_y = self.height // 2
         self.background(255)  # White background

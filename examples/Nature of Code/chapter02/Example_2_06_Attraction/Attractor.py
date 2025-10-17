@@ -6,15 +6,16 @@ Attractor class for Example 2.6: Attraction
 class Attractor:
     def __init__(self, sketch, x, y, m=20):
         self.sketch = sketch
-        self.position = self.sketch.pvector(x, y)
+        self.position = self.sketch.pcvector(x, y)
+        print(f"Creating attractor at {self.position.x}, {self.position.y}")
         self.mass = m
-        self.drag_offset = self.sketch.pvector(0, 0)
+        self.drag_offset = self.sketch.pcvector(0, 0)
         self.dragging = False
         self.rollover = False
 
     def attract(self, mover):
         # Calculate direction of force
-        force = self.sketch.pvector.sub(self.position, mover.position)
+        force = self.sketch.pcvector.sub(self.position, mover.position)
         # Distance between objects
         distance = force.mag()
         # Limiting the distance to eliminate "extreme" results for very close or very far objects
@@ -26,7 +27,7 @@ class Attractor:
         force.set_mag(strength)
         return force
 
-    def draw(self):
+    def show(self):
         self.sketch.stroke_weight(4)
         self.sketch.stroke(0)
         if self.dragging:
@@ -35,7 +36,8 @@ class Attractor:
             self.sketch.fill(100)
         else:
             self.sketch.fill(175, 200, 175)
-        self.sketch.ellipse(self.position.x, self.position.y, self.mass * 2)
+        # print(f"Drawing attractor at {self.position.x}, {self.position.y}")
+        self.sketch.circle(self.position.x, self.position.y, self.mass * 2)
 
     def handle_press(self, mx: float, my: float):
         d = self.sketch.dist(mx, my, self.position.x, self.position.y)
@@ -58,3 +60,4 @@ class Attractor:
         if self.dragging:
             self.position.x = mx + self.drag_offset.x
             self.position.y = my + self.drag_offset.y
+            # print(f"Dragging to {self.position.x}, {self.position.y}")

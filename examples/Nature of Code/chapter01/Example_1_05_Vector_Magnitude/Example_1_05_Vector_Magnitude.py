@@ -9,18 +9,16 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter1/Examp
 // Example 1-5: Vector magnitude
 """
 
-from pycreative.app import Sketch
 
-
-class Example_1_5_Vector_Magnitude(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
 
     def draw(self):
         self.background(255)
 
-        mouse = self.pvector(self.mouse_x, self.mouse_y)
-        center = self.pvector(self.width / 2, self.height / 2)
+        mouse = self.pcvector(self.mouse_x, self.mouse_y)
+        center = self.pcvector(self.width / 2, self.height / 2)
         mouse.sub(center)
 
         # The magnitude (i.e. length) of a vector can be accessed via the mag() function.

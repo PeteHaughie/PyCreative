@@ -9,17 +9,16 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter2/Examp
 // A Mover and an Attractor
 """
 
-from pycreative.app import Sketch
 from Attractor import Attractor
 from Mover import Mover
 
 
-class Example_2_06_Attraction(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 2.6: Attraction")
+        self.window_title("NOC: Example 2.6 Attraction")
         self.mover = Mover(self, 300, 50, 2)
-        self.attractor = Attractor(self, self.width / 2, self.height / 2)
+        self.attractor = Attractor(self, self.width // 2, self.height // 2)
         self.G = 1  # gravitational constant (for global scaling)
 
     def draw(self):
@@ -29,8 +28,8 @@ class Example_2_06_Attraction(Sketch):
         self.mover.apply_force(force)
         self.mover.update()
 
-        self.attractor.draw()
-        self.mover.draw()
+        self.attractor.show()
+        self.mover.show()
 
     def mouse_moved(self):
         self.attractor.handle_hover(self.mouse_x or 0, self.mouse_y or 0)

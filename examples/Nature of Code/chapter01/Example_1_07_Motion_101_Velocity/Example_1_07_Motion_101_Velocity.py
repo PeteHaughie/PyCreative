@@ -7,12 +7,12 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter1/Examp
 // http://natureofcode.com
 """
 
-from pycreative.app import Sketch
 from Mover import Mover
 
-class Example_1_7_Motion_101_Velocity(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
+        self.window_title("Example 1.7: Motion 101: Velocity")
         self.mover = Mover(self)
 
     def draw(self):

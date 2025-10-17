@@ -9,14 +9,12 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter0/Examp
 // Example 0-3: Random Walk Tends to Right
 """
 
-from pycreative.app import Sketch
-
-
-class Example_0_3_Random_Walk_Tends_To_Right(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
+        self.window_title("NOC: Example 0-3 Random Walk Tends To Right")
         self.background(255)
-        self.walker = Walker(self, int(self.width / 2), int(self.height / 2))
+        self.walker = Walker(self, int(self.width // 2), int(self.height // 2))
 
     def draw(self):
         self.walker.update()

@@ -9,21 +9,20 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter1/Examp
 // Example 1-6: Vector normalize
 """
 
-from pycreative.app import Sketch
 
-
-class Example_1_6_Vector_Normalize(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
+        self.window_title("Example 1-6: Vector Normalize")
 
     def draw(self):
         self.background(255)
 
-        mouse = self.pvector(self.mouse_x, self.mouse_y)
-        center = self.pvector(self.width / 2, self.height / 2)
+        mouse = self.pcvector(self.mouse_x, self.mouse_y)
+        center = self.pcvector(self.width / 2, self.height / 2)
         mouse.sub(center)
-
-        self.translate(self.width / 2, self.height / 2)
+    
+        # self.translate(self.width / 2, self.height / 2) # not implemented yet
         self.stroke(200)
         self.stroke_weight(2)
         self.line(0, 0, mouse.x, mouse.y)

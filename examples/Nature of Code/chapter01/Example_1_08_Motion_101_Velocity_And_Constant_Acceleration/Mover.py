@@ -5,9 +5,9 @@ Mover class for Example 1.8: Motion 101: Velocity and Constant Acceleration
 class Mover:
     def __init__(self, sketch):
         self.sketch = sketch
-        self.position = self.sketch.pvector(self.sketch.width / 2, self.sketch.height / 2)
-        self.velocity = self.sketch.pvector(0, 0)
-        self.acceleration = self.sketch.pvector(-0.001, 0.01)
+        self.position = self.sketch.pcvector(self.sketch.width / 2, self.sketch.height / 2)
+        self.velocity = self.sketch.pcvector(0, 0)
+        self.acceleration = self.sketch.pcvector(-0.001, 0.01)
         self.top_speed = 10
 
     def update(self):
@@ -21,7 +21,7 @@ class Mover:
         self.sketch.fill(127)
         self.sketch.circle(self.position.x, self.position.y, 48)
 
-    def checkEdges(self):
+    def check_edges(self):
         if self.position.x > self.sketch.width:
             self.position.x = 0
         elif self.position.x < 0:

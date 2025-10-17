@@ -9,26 +9,25 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter2/Examp
 // Example 2-4: Including Friction
 """
 
-from pycreative.app import Sketch
 from Mover import Mover
 
 
-class Example_2_04_Including_Friction(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 2.4: Including Friction")
+        self.window_title("NOC: Example 2.4 Including Friction")
         self.mover = Mover(self, self.width / 2, 30, 5)
         self.mouse_is_pressed = False
 
     def draw(self):
         self.background(255)
 
-        gravity = self.pvector(0, 1)
+        gravity = self.pcvector(0, 1)
         # I should scale by mass to be more accurate, but this example only has one circle
         self.mover.apply_force(gravity)
 
         if self.mouse_is_pressed:
-            wind = self.pvector(0.5, 0)
+            wind = self.pcvector(0.5, 0)
             self.mover.apply_force(wind)
 
         if self.mover.contact_edge():

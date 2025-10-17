@@ -9,18 +9,18 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter1/Examp
 // Example 1-9: Motion 101: Velocity and Random Acceleration
 """
 
-from pycreative.app import Sketch
 from Mover import Mover
 
 
-class Example_1_9_Motion_101_Velocity_And_Random_Acceleration(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
+        self.window_title("Example 1.9: Motion 101: Velocity and Random Acceleration")
         self.mover = Mover(self)
 
     def draw(self):
         self.background(255)
 
         self.mover.update()
-        self.mover.checkEdges()
+        self.mover.check_edges()
         self.mover.draw()

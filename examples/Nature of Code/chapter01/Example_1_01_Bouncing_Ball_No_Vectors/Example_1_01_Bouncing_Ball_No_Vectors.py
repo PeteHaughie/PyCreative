@@ -9,12 +9,11 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter1/Examp
 // Example 1-1: Bouncing Ball, no PVector!
 """
 
-from pycreative.app import Sketch
 
-
-class Example_1_1_Bouncing_Ball_No_Vectors(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
+        self.window_title("NOC: Example 1-1 Bouncing Ball No Vectors")
         self.x = 100
         self.y = 100
         self.xspeed = 2.5

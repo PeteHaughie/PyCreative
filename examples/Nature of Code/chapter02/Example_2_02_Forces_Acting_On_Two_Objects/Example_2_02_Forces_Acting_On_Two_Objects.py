@@ -9,44 +9,43 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter2/Examp
 // Example 2-2: Forces Acting on Two Objects
 """
 
-from pycreative.app import Sketch
 from Mover import Mover
 
 
-class Example_2_02_Forces_Acting_On_Two_Objects(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 2.2: Forces Acting on Two Objects")
+        self.window_title("NOC: Example 2.2 Forces Acting on Two Objects")
         # A large Mover on the left side of the window
-        self.moverA = Mover(self)
-        self.moverA.position = self.pvector(200, 30)
-        self.moverA.mass = 10
+        self.mover_a = Mover(self)
+        self.mover_a.position = self.pcvector(200, 30)
+        self.mover_a.mass = 10
         # A smaller Mover on the right side of the window
-        self.moverB = Mover(self)
-        self.moverB.position = self.pvector(440, 30)
-        self.moverB.mass = 2
+        self.mover_b = Mover(self)
+        self.mover_b.position = self.pcvector(440, 30)
+        self.mover_b.mass = 2
         self.mouse_is_pressed = False
         print("Click mouse to apply wind force.")
 
     def draw(self):
         self.background(255)
 
-        gravity = self.pvector(0, 0.1)
-        self.moverA.apply_force(gravity)
-        self.moverB.apply_force(gravity)
+        gravity = self.pcvector(0, 0.1)
+        self.mover_a.apply_force(gravity)
+        self.mover_b.apply_force(gravity)
 
         if self.mouse_is_pressed:
-            wind = self.pvector(0.1, 0)
-            self.moverA.apply_force(wind)
-            self.moverB.apply_force(wind)
+            wind = self.pcvector(0.1, 0)
+            self.mover_a.apply_force(wind)
+            self.mover_b.apply_force(wind)
 
-        self.moverA.update()
-        self.moverA.draw()
-        self.moverA.check_edges()
+        self.mover_a.update()
+        self.mover_a.draw()
+        self.mover_a.check_edges()
 
-        self.moverB.update()
-        self.moverB.draw()
-        self.moverB.check_edges()
+        self.mover_b.update()
+        self.mover_b.draw()
+        self.mover_b.check_edges()
 
     def mouse_pressed(self):
         self.mouse_is_pressed = True

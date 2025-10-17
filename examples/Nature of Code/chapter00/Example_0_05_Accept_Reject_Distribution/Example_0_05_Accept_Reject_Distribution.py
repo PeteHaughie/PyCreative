@@ -9,16 +9,15 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter0/Examp
 // Example 0-5: Accept-Reject Distribution
 """
 
-from pycreative.app import Sketch
 
-
-class Example_0_5_Accept_Reject_Distribution(Sketch):
-    def setup(self) -> None:
+class Sketch:
+    def setup(self):
         self.size(640, 360)
+        self.window_title("NOC: Example 0-5 Accept Reject Distribution")
         self.total = 20
         self.random_counts = [0] * self.total
 
-    def draw(self) -> None:
+    def draw(self):
         self.background(255)
         index = int(self.accept_reject() * len(self.random_counts))
         self.random_counts[index] += 1
@@ -27,13 +26,13 @@ class Example_0_5_Accept_Reject_Distribution(Sketch):
         self.stroke(0)
         self.stroke_weight(2)
         self.fill(127)
-        w = self.width / len(self.random_counts)
+        w = self.width // len(self.random_counts)
 
         for x in range(len(self.random_counts)):
             rc = self.random_counts[x]
             self.rect(x * w, self.height - rc, w - 1, rc)
 
-    def accept_reject(self) -> float:
+    def accept_reject(self):
         # An algorithm for picking a random number based on monte carlo method
         # Here probability is determined by formula y = x
         while True:

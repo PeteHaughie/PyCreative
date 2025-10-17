@@ -30,5 +30,5 @@ class Liquid:
 
     def draw(self):
         self.sketch.no_stroke()
-        self.sketch.fill((220, 220, 220))
+        self.sketch.fill(220)
         self.sketch.rect(self.x, self.y, self.w, self.h)
