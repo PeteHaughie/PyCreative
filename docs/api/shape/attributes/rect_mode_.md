@@ -17,6 +17,7 @@ rectMode(RADIUS) also uses the first two parameters of rect() as the shape's cen
 The parameter must be written in ALL CAPS because Processing is a case-sensitive language.
 
 ## Examples
+
 ```py
 self.size(400, 400)
 self.rect_mode("CORNER")  # Default rectMode is CORNER

@@ -5,42 +5,104 @@ them without pulling in engine internals.
 """
 from typing import Tuple
 
+# Re-export small, pure conversion helpers from dedicated modules
+from core.color.hsb_to_rgb import hsb_to_rgb  # re-exported for backwards compat
+from core.color.rgb_to_hsb import rgb_to_hsb  # re-exported for backwards compat
 
-def hsb_to_rgb(h: float, s: float, b: float) -> Tuple[int, int, int]:
-    """Convert HSB/HSV to RGB.
 
-    Accepts either 0-1 floats or 0-255 ints for each component. Returns a
-    tuple of ints in 0-255.
+def _clamp01(v: float) -> float:
+    return max(0.0, min(1.0, float(v)))
+
+
+def color(*args):
+    """Create a 32-bit ARGB color integer.
+
+    Supports variants:
+    - color(gray)
+    - color(gray, alpha)
+    - color(r, g, b)
+    - color(r, g, b, a)
+
+    Components may be given as 0..1 floats or 0..255 ints; outputs are ints.
     """
-    def norm(v: float) -> float:
-        return v / 255.0 if v > 1 else float(v)
-
-    H = norm(h)
-    S = norm(s)
-    V = norm(b)
-
-    if S == 0:
-        val = int(round(V * 255))
-        return (val, val, val)
-
-    i = int(H * 6)  # sector 0..5
-    f = (H * 6) - i
-    p = V * (1 - S)
-    q = V * (1 - S * f)
-    t = V * (1 - S * (1 - f))
-
-    i = i % 6
-    if i == 0:
-        r_, g_, b_ = V, t, p
-    elif i == 1:
-        r_, g_, b_ = q, V, p
-    elif i == 2:
-        r_, g_, b_ = p, V, t
-    elif i == 3:
-        r_, g_, b_ = p, q, V
-    elif i == 4:
-        r_, g_, b_ = t, p, V
+    a = 255
+    if len(args) == 0:
+        raise TypeError('color() requires at least one argument')
+    if len(args) == 1:
+        v = args[0]
+        vf = float(v)
+        if vf <= 1:
+            gray = int(round(vf * 255))
+        else:
+            gray = int(round(vf))
+        r = g = b = gray
+    elif len(args) == 2:
+        v, a_in = args
+        vf = float(v)
+        if vf <= 1:
+            gray = int(round(vf * 255))
+        else:
+            gray = int(round(vf))
+        r = g = b = gray
+        af = float(a_in)
+        a = int(round(af * 255)) if af <= 1 else int(round(af))
+    elif len(args) == 3 or len(args) == 4:
+        r_in, g_in, b_in = args[0], args[1], args[2]
+        af = args[3] if len(args) == 4 else 255
+        def conv(x):
+            xf = float(x)
+            return int(round(xf * 255)) if xf <= 1 else int(round(xf))
+        r = conv(r_in)
+        g = conv(g_in)
+        b = conv(b_in)
+        a = conv(af)
     else:
-        r_, g_, b_ = V, p, q
+        raise TypeError('color() accepts 1 to 4 arguments')
 
-    return (int(round(r_ * 255)), int(round(g_ * 255)), int(round(b_ * 255)))
+    # clamp components to byte range
+    r = max(0, min(255, int(r)))
+    g = max(0, min(255, int(g)))
+    b = max(0, min(255, int(b)))
+    a = max(0, min(255, int(a)))
+
+    return (a << 24) | (r << 16) | (g << 8) | b
+
+
+def red(c: int) -> float:
+    return float((int(c) >> 16) & 0xFF)
+
+
+def green(c: int) -> float:
+    return float((int(c) >> 8) & 0xFF)
+
+
+def blue(c: int) -> float:
+    return float(int(c) & 0xFF)
+
+
+def alpha(c: int) -> float:
+    return float((int(c) >> 24) & 0xFF)
+
+
+def lerp_color(c1: int, c2: int, amt: float) -> int:
+    """Interpolate between two ARGB colors; amt is clamped to [0,1]."""
+    t = _clamp01(amt)
+    a1 = (int(c1) >> 24) & 0xFF
+    r1 = (int(c1) >> 16) & 0xFF
+    g1 = (int(c1) >> 8) & 0xFF
+    b1 = int(c1) & 0xFF
+
+    a2 = (int(c2) >> 24) & 0xFF
+    r2 = (int(c2) >> 16) & 0xFF
+    g2 = (int(c2) >> 8) & 0xFF
+    b2 = int(c2) & 0xFF
+
+    def mix(u, v):
+        return int(round((1 - t) * u + t * v))
+
+    a = mix(a1, a2)
+    r = mix(r1, r2)
+    g = mix(g1, g2)
+    b = mix(b1, b2)
+
+    return (a << 24) | (r << 16) | (g << 8) | b

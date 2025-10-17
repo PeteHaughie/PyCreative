@@ -16,6 +16,7 @@ The default mode is `ellipse_mode("CENTER")`, which interprets the first two par
 
 
 ## Examples
+
 ```py
 self.size(400, 400)
 

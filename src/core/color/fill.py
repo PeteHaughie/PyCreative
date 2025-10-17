@@ -14,7 +14,18 @@ def set_fill(engine: Any, *args):
 
     def _norm(vals):
         if str(mode).upper() == 'HSB':
-            return tuple(hsb_to_rgb(*vals))
+            # Support optional engine-provided maxima (e.g., color_mode('HSB',360,100,100))
+            maxs = getattr(engine, 'color_mode_max', None)
+            if maxs is not None and len(maxs) >= 3:
+                try:
+                    h = float(vals[0]) / float(maxs[0])
+                    s = float(vals[1]) / float(maxs[1])
+                    v = float(vals[2]) / float(maxs[2])
+                    return tuple(hsb_to_rgb(h, s, v))
+                except Exception:
+                    # Fall back to raw values
+                    return tuple(hsb_to_rgb(vals[0], vals[1], vals[2]))
+            return tuple(hsb_to_rgb(vals[0], vals[1], vals[2]))
         return (int(vals[0]), int(vals[1]), int(vals[2]))
 
     a = None

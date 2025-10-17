@@ -187,6 +187,41 @@ class SimpleSketchAPI:
         except Exception:
             pass
 
+    def color_mode(self, mode: str, *max_values):
+        """Set the engine's color mode and optional component maxima.
+
+        Usage examples:
+            this.color_mode('RGB')
+            this.color_mode('HSB', 360, 100, 100)
+
+        The optional numeric `max_values` are stored on `engine.color_mode_max`
+        and used by high-level parsing helpers to normalize inputs into the
+        canonical 0..1 ranges used by the pure converters.
+        """
+        try:
+            m = str(mode).upper()
+        except Exception:
+            raise TypeError('color_mode expects a string')
+
+        if m in ('RGB',):
+            setattr(self._engine, 'color_mode', 'RGB')
+            # Default RGB maxima: 255 per channel
+            if len(max_values) == 0:
+                setattr(self._engine, 'color_mode_max', (255.0, 255.0, 255.0))
+            else:
+                setattr(self._engine, 'color_mode_max', tuple(float(x) for x in max_values))
+            return
+        if m in ('HSB', 'HSV'):
+            setattr(self._engine, 'color_mode', 'HSB')
+            # Processing defaults: H in [0,360], S in [0,100], B in [0,100]
+            if len(max_values) == 0:
+                setattr(self._engine, 'color_mode_max', (360.0, 100.0, 100.0))
+            else:
+                setattr(self._engine, 'color_mode_max', tuple(float(x) for x in max_values))
+            return
+
+        raise ValueError(f'unsupported color mode: {mode}')
+
     def no_fill(self):
         """Disable filling geometry."""
         try:

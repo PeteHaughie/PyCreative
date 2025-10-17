@@ -268,6 +268,58 @@ class Engine:
                         except Exception:
                             orig_mouse_pressed = None
 
+                        # Provide a __getattr__ on the dynamic subclass to forward
+                        # missing convenience methods to the SimpleSketchAPI facade
+                        # (available as `api` in this scope). This avoids needing to
+                        # attach every possible helper individually and keeps the
+                        # sketch instance API ergonomic.
+                        def _make_getattr(api_ref):
+                            def __getattr__(self, name):
+                                # Provide small, local fallbacks for common
+                                # convenience methods used by examples if they
+                                # were not attached earlier.
+                                if name == 'rect_mode':
+                                    def _rm(m):
+                                        try:
+                                            self._engine.rect_mode = str(m)
+                                        except Exception:
+                                            pass
+                                    return _rm
+                                if name == 'no_cursor':
+                                    def _nc():
+                                        try:
+                                            self._engine._no_cursor = True
+                                        except Exception:
+                                            pass
+                                    return _nc
+                                if name == 'no_stroke':
+                                    def _ns():
+                                        try:
+                                            self._engine.stroke_color = None
+                                        except Exception:
+                                            pass
+                                    return _ns
+                                if name == 'no_fill':
+                                    def _nf():
+                                        try:
+                                            self._engine.fill_color = None
+                                        except Exception:
+                                            pass
+                                    return _nf
+                                # Forward to the API facade if available
+                                try:
+                                    if hasattr(api_ref, name):
+                                        attr = getattr(api_ref, name)
+                                        if callable(attr):
+                                            def _bound(*a, **kw):
+                                                return attr(*a, **kw)
+                                            return _bound
+                                        return attr
+                                except Exception:
+                                    pass
+                                raise AttributeError(name)
+                            return __getattr__
+
                         Dynamic = type(f"{cls.__name__}_WithEnv", (cls,), {
                             'width': _make_width_prop(),
                             'height': _make_height_prop(),
@@ -277,6 +329,7 @@ class Engine:
                             'pmouse_y': _make_pmouse_y_prop(),
                             'mouse_button': _make_mouse_button_prop(),
                             'mouse_pressed': _MousePressedProxy(handler=orig_mouse_pressed),
+                            '__getattr__': _make_getattr(api),
                         })
                         try:
                             inst.__class__ = Dynamic
@@ -303,6 +356,10 @@ class Engine:
                         'size', 'background', 'window_title', 'no_loop', 'loop', 'redraw', 'save_frame',
                         'rect', 'line', 'circle', 'square', 'frame_rate',
                         'fill', 'stroke', 'stroke_weight',
+                        # engine-level helpers
+                        'color_mode',
+                        # common convenience shims used by examples
+                        'rect_mode', 'no_cursor', 'no_stroke', 'no_fill',
                     ]
 
                 for name in _sketch_methods:
@@ -352,6 +409,50 @@ class Engine:
                                         # Best-effort only
                                         pass
                             setattr(inst, 'background', _fb_background)
+                            continue
+                        if name == 'rect_mode':
+                            def _fb_rect_mode(m):
+                                try:
+                                    inst._engine.rect_mode = str(m)
+                                except Exception:
+                                    pass
+                            setattr(inst, 'rect_mode', _fb_rect_mode)
+                            continue
+                        if name == 'no_cursor':
+                            def _fb_no_cursor():
+                                try:
+                                    inst._engine._no_cursor = True
+                                except Exception:
+                                    pass
+                            setattr(inst, 'no_cursor', _fb_no_cursor)
+                            continue
+                        if name == 'no_stroke':
+                            def _fb_no_stroke():
+                                try:
+                                    inst._engine.stroke_color = None
+                                except Exception:
+                                    pass
+                                try:
+                                    fn = getattr(inst._engine.api, 'no_stroke')
+                                    if callable(fn):
+                                        fn()
+                                except Exception:
+                                    pass
+                            setattr(inst, 'no_stroke', _fb_no_stroke)
+                            continue
+                        if name == 'no_fill':
+                            def _fb_no_fill():
+                                try:
+                                    inst._engine.fill_color = None
+                                except Exception:
+                                    pass
+                                try:
+                                    fn = getattr(inst._engine.api, 'no_fill')
+                                    if callable(fn):
+                                        fn()
+                                except Exception:
+                                    pass
+                            setattr(inst, 'no_fill', _fb_no_fill)
                             continue
                         if name == 'constrain':
                             def _fb_constrain(v, low, high):
@@ -474,6 +575,17 @@ class Engine:
                         # during sketch instantiation.
                         pass
                 self.sketch = inst
+                # Ensure some API helpers that are implemented on SimpleSketchAPI
+                # are available as methods on the instance in edge cases where
+                # the previous attach logic did not succeed.
+                try:
+                    if hasattr(api, 'color_mode') and not hasattr(self.sketch, 'color_mode'):
+                        try:
+                            setattr(self.sketch, 'color_mode', api.color_mode)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             except Exception:
                 # fall back to leaving as-is
                 pass

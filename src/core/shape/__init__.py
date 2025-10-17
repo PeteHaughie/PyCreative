@@ -9,6 +9,61 @@ from typing import Optional
 
 def rect(engine: Any, x: float, y: float, w: float, h: float, **kwargs):
     """Record a rectangle draw command on the engine's graphics buffer."""
+    # Interpret rect parameters according to engine.rect_mode if present.
+    # Supported modes (Processing-style): CORNER (default), CORNERS, CENTER, RADIUS
+    try:
+        mode = str(getattr(engine, 'rect_mode', 'CORNER')).upper()
+    except Exception:
+        mode = 'CORNER'
+
+    # Normalize arguments to canonical (x_top_left, y_top_left, width, height)
+    try:
+        if mode == 'CORNER' or mode == 'CORNER':
+            x_tl = float(x)
+            y_tl = float(y)
+            w_w = float(w)
+            h_h = float(h)
+        elif mode == 'CORNERS':
+            # x,y,x2,y2 passed as x,y,w,h; treat w,h as x2,y2
+            x0 = float(x)
+            y0 = float(y)
+            x1 = float(w)
+            y1 = float(h)
+            x_tl = min(x0, x1)
+            y_tl = min(y0, y1)
+            w_w = abs(x1 - x0)
+            h_h = abs(y1 - y0)
+        elif mode == 'CENTER':
+            # x,y is center; w,h are full width/height
+            cx = float(x)
+            cy = float(y)
+            w_w = float(w)
+            h_h = float(h)
+            x_tl = cx - (w_w / 2.0)
+            y_tl = cy - (h_h / 2.0)
+        elif mode == 'RADIUS':
+            # x,y is center; w,h are radii
+            cx = float(x)
+            cy = float(y)
+            rx = float(w)
+            ry = float(h)
+            x_tl = cx - rx
+            y_tl = cy - ry
+            w_w = rx * 2.0
+            h_h = ry * 2.0
+        else:
+            # unknown mode: fallback to CORNER behaviour
+            x_tl = float(x)
+            y_tl = float(y)
+            w_w = float(w)
+            h_h = float(h)
+    except Exception:
+        # If conversion fails, use raw values
+        x_tl = x
+        y_tl = y
+        w_w = w
+        h_h = h
+
     # forward drawing state if not specified
     if 'fill' not in kwargs:
         kwargs['fill'] = getattr(engine, 'fill_color', None)
@@ -16,7 +71,7 @@ def rect(engine: Any, x: float, y: float, w: float, h: float, **kwargs):
         kwargs['stroke'] = getattr(engine, 'stroke_color', None)
     if 'stroke_weight' not in kwargs:
         kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
-    return engine.graphics.record('rect', x=x, y=y, w=w, h=h, **kwargs)
+    return engine.graphics.record('rect', x=x_tl, y=y_tl, w=w_w, h=h_h, **kwargs)
 
 
 def line(engine: Any, x1: float, y1: float, x2: float, y2: float, **kwargs):
@@ -79,3 +134,44 @@ def point(engine: Any, x: float, y: float, **kwargs):
     if 'stroke_weight' not in kwargs:
         kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
     return engine.graphics.record('point', x=x, y=y, **kwargs)
+
+
+def begin_shape(engine: Any, mode: str = 'POLYGON'):
+    """Begin recording a shape. Subsequent calls to `vertex` will be
+    recorded and emitted when `end_shape` is called.
+    """
+    # initialize a temporary per-engine buffer for shape vertices
+    try:
+        engine._current_shape = {'mode': str(mode), 'vertices': []}
+    except Exception:
+        engine._current_shape = {'mode': str(mode), 'vertices': []}
+    return engine.graphics.record('begin_shape', mode=str(mode))
+
+
+def vertex(engine: Any, x: float, y: float):
+    """Record a single vertex into the current shape buffer."""
+    try:
+        buf = getattr(engine, '_current_shape')
+        buf['vertices'].append((float(x), float(y)))
+    except Exception:
+        # If no begin_shape was called, still record the vertex as a standalone op
+        return engine.graphics.record('vertex', x=float(x), y=float(y))
+    return None
+
+
+def end_shape(engine: Any, close: bool = False):
+    """End the current shape and emit a single 'shape' command with vertices."""
+    buf = getattr(engine, '_current_shape', None)
+    if buf is None:
+        return engine.graphics.record('end_shape', close=bool(close))
+    verts = list(buf.get('vertices', []))
+    mode = buf.get('mode', 'POLYGON')
+    # clear buffer
+    try:
+        delattr(engine, '_current_shape')
+    except Exception:
+        try:
+            del engine._current_shape
+        except Exception:
+            pass
+    return engine.graphics.record('shape', mode=str(mode), vertices=verts, close=bool(close))
