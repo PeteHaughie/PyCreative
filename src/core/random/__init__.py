@@ -6,9 +6,9 @@ engine without interfering with other engines or global state.
 """
 from __future__ import annotations
 
-from typing import Any
-import random as _random
 import math
+import random as _random
+from typing import Any
 
 
 def _ensure_rng(engine: Any):

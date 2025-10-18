@@ -40,8 +40,14 @@ def register_random_and_noise(engine: Any):
     try:
         from core.random import (
             random as _rand,
-            random_seed as _rand_seed,
+        )
+        from core.random import (
             random_gaussian as _rand_gauss,
+        )
+        from core.random import (
+            random_seed as _rand_seed,
+        )
+        from core.random import (
             uniform as _rand_uniform,
         )
         engine.api.register('random', lambda *a, **k: _rand(engine, *a, **k))
@@ -56,7 +62,9 @@ def register_random_and_noise(engine: Any):
             pass
         # noise family
         try:
-            from core.random import noise as _noise, noise_seed as _noise_seed, noise_detail as _noise_detail
+            from core.random import noise as _noise
+            from core.random import noise_detail as _noise_detail
+            from core.random import noise_seed as _noise_seed
             engine.api.register('noise', lambda *a, **k: _noise(engine, *a, **k))
             engine.api.register('noise_seed', lambda *a, **k: _noise_seed(engine, *a, **k))
             engine.api.register('noise_detail', lambda *a, **k: _noise_detail(engine, *a, **k))

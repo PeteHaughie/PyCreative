@@ -7,7 +7,7 @@ def _record_shape(mode, verts):
     begin_shape(eng, mode)
     for x, y in verts:
         vertex(eng, x, y)
-    res = end_shape(eng)
+    end_shape(eng)
     # Return the last recorded op of interest
     shapes = [c for c in eng.graphics.commands if c.get('op') in ('shape', 'invalid_shape')]
     if shapes:

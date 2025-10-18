@@ -6,9 +6,9 @@ vector with a few convenience methods.
 """
 from __future__ import annotations
 
+import builtins
 import math
 from typing import Tuple
-import builtins
 
 
 def abs_(v: float) -> float:

@@ -8,7 +8,7 @@ Keep this module tiny to avoid heavy import-time side-effects.
 """
 from __future__ import annotations
 
-from typing import Optional, Any
+from typing import Any, Optional
 
 _current_engine: Optional[Any] = None
 

@@ -16,4 +16,6 @@ def test_begin_vertex_end_records_shape():
     s = shapes[0]['args']
     assert s['mode'] == 'POLYGON'
     assert s['close'] is True
-    assert s['vertices'] == [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+    # vertices may include per-vertex metadata (fill/stroke); compare coords
+    coords = [tuple(v[:2]) for v in s['vertices']]
+    assert coords == [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]

@@ -4,12 +4,14 @@ Provides a tiny entrypoint `pycreative` (configured in pyproject.toml) that
 loads a sketch file and runs it via the `core.engine.Engine` shim. The CLI
 keeps things small so it can be used during development and in CI.
 """
+
 from __future__ import annotations
 
 import argparse
 import importlib
 import sys
 from pathlib import Path
+
 
 def _load_sketch_from_path(path: Path):
 	"""Load a sketch module using the project's loader utility.
@@ -26,18 +28,49 @@ def _load_sketch_from_path(path: Path):
 
 
 def main(argv: list[str] | None = None) -> int:
-	parser = argparse.ArgumentParser(prog='pycreative', description='Run a pycreative sketch')
-	parser.add_argument('sketch', type=str, help='Path to sketch .py file to run')
-	parser.add_argument('--headless', action='store_true', help='Run in headless mode (no GPU/window)')
-	parser.add_argument('--max-frames', type=int, default=None, help='Run the sketch for N frames and exit (omit for interactive window)')
-	parser.add_argument('--present-mode', type=str, default=None, choices=['vbo', 'blit', 'immediate'], help='Force presenter mode: vbo|blit|immediate')
-	parser.add_argument('--force-gles', action='store_true', help='Force using GLES shader variant for testing')
-	parser.add_argument('--verbose', action='store_true', help='Print recorded graphics commands each frame')
+	parser = argparse.ArgumentParser(
+		prog='pycreative',
+		description='Run a pycreative sketch',
+	)
+	parser.add_argument(
+		'sketch',
+		type=str,
+		help='Path to sketch .py file to run',
+	)
+	parser.add_argument(
+		'--headless',
+		action='store_true',
+		help='Run in headless mode (no GPU/window)',
+	)
+	parser.add_argument(
+		'--max-frames',
+		type=int,
+		default=None,
+		help=('Run the sketch for N frames and exit (omit for interactive '
+			  'window)'),
+	)
+	parser.add_argument(
+		'--present-mode',
+		type=str,
+		default=None,
+		choices=['vbo', 'blit', 'immediate'],
+		help='Force presenter mode: vbo|blit|immediate',
+	)
+	parser.add_argument(
+		'--force-gles',
+		action='store_true',
+		help='Force using GLES shader variant for testing',
+	)
+	parser.add_argument(
+		'--verbose',
+		action='store_true',
+		help='Print recorded graphics commands each frame',
+	)
 	args = parser.parse_args(argv)
 
 	sketch_path = Path(args.sketch)
 	if not sketch_path.exists():
-		print(f"Sketch not found: {sketch_path}")
+		print(f'Sketch not found: {sketch_path}')
 		return 2
 
 	# ensure package source path is available for imports like `core.engine`
@@ -51,10 +84,15 @@ def main(argv: list[str] | None = None) -> int:
 		engine_mod = importlib.import_module('core.engine')
 		Engine = getattr(engine_mod, 'Engine')
 	except Exception as exc:
-		print(f"Failed to import core.engine: {exc}")
+		print(f'Failed to import core.engine: {exc}')
 		return 3
 
-	eng = Engine(sketch_module=sketch_mod, headless=args.headless, present_mode=args.present_mode, force_gles=bool(args.force_gles))
+	eng = Engine(
+		sketch_module=sketch_mod,
+		headless=args.headless,
+		present_mode=args.present_mode,
+		force_gles=bool(args.force_gles),
+	)
 	# attach verbose flag so Engine can optionally print commands
 	setattr(eng, '_verbose', bool(args.verbose))
 	if args.headless:
@@ -67,7 +105,8 @@ def main(argv: list[str] | None = None) -> int:
 			eng.run_frames(frames)
 		else:
 			eng.run_frames(frames, ignore_no_loop=True)
-		print(f'Ran sketch for {frames} frame(s); recorded commands: {len(eng.graphics.commands)}')
+		cmd_count = len(eng.graphics.commands)
+		print(f'Ran sketch for {frames} frame(s); recorded commands: {cmd_count}')
 		if getattr(eng, '_verbose', False):
 			# Print recorded commands once (do not produce a replay per-command)
 			for cmd in eng.graphics.commands:
@@ -77,6 +116,7 @@ def main(argv: list[str] | None = None) -> int:
 			backend_written = False
 			try:
 				from core.io.skia_replayer import replay_to_image_skia as _rsi
+
 				try:
 					_rsi(eng, repr_path)
 					print(f'Wrote Skia offscreen replay to {repr_path}')
@@ -87,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
 				# skia-python not available or import failed; try Pillow replayer
 				try:
 					from core.io.replayer import replay_to_image as _rti
+
 					try:
 						_rti(eng, repr_path)
 						print(f'Wrote Pillow offscreen replay to {repr_path}')
@@ -98,12 +139,13 @@ def main(argv: list[str] | None = None) -> int:
 			if not backend_written:
 				print('No offscreen snapshot could be written')
 	else:
-		# windowed mode: start() will block until the frames complete; omit
-		# max_frames for an interactive session that stays open until closed.
+		# windowed mode: start() will block until the frames complete.
+		# Omit max_frames for an interactive session that stays open until closed.
 		mf = None if args.max_frames is None else int(args.max_frames)
 		eng.start(max_frames=mf)
 		if getattr(eng, '_verbose', False):
-			# In windowed mode, Engine.start() may have printed frames; print final command list
+			# In windowed mode, Engine.start() may have printed frames.
+			# Print final command list.
 			for cmd in eng.graphics.commands:
 				print(cmd)
 		print('Windowed run complete')

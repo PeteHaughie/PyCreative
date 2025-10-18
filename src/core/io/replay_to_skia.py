@@ -366,32 +366,10 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
                         if shape_fill is not None:
                             # build a paint from shape_fill and optional alpha
                             pf = _make_paint_from_color(shape_fill, fill=True, alpha=shape_alpha)
-                            # Debug: print resolved RGBA for triangle paint
-                            try:
-                                if isinstance(shape_fill, (tuple, list)):
-                                    rr, gg, bb = [float(v)/255.0 for v in shape_fill[:3]]
-                                else:
-                                    vv = float(shape_fill)/255.0
-                                    rr = gg = bb = vv
-                                aa = 1.0 if shape_alpha is None else float(shape_alpha)
-                            except Exception:
-                                rr = gg = bb = 0.0
-                                aa = 1.0
-                            # debug logging removed to reduce noise during normal runs
+                            # draw triangle with per-shape paint
                             canvas.drawPath(path, pf)
                         elif current_fill is not None:
-                            # Debug: print current fill color used
-                            try:
-                                if isinstance(current_fill, (tuple, list)):
-                                    rr, gg, bb = [float(v)/255.0 for v in current_fill[:3]]
-                                else:
-                                    vv = float(current_fill)/255.0
-                                    rr = gg = bb = vv
-                                aa = 1.0 if current_fill_alpha is None else float(current_fill_alpha)
-                            except Exception:
-                                rr = gg = bb = 0.0
-                                aa = 1.0
-                            # debug logging removed to reduce noise during normal runs
+                            # draw triangle using current fill paint
                             canvas.drawPath(path, fill_p)
                         if stroke_p is not None:
                             canvas.drawPath(path, stroke_p)

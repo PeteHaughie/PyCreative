@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
-from typing import Optional, Any, Sequence
+from typing import Any, Optional, Sequence
 
 
 class SkiaGLPresenter:

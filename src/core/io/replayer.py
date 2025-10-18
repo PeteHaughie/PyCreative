@@ -6,6 +6,7 @@ developers can visualise recorded commands without opening a GL window.
 from __future__ import annotations
 
 from typing import Any
+
 from PIL import Image, ImageDraw
 
 

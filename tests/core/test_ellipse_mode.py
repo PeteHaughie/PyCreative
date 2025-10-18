@@ -1,4 +1,3 @@
-from core.shape import ellipse
 from core.engine.impl import Engine
 
 

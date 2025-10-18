@@ -7,11 +7,11 @@ mechanisms to load modules by absolute path.
 """
 from __future__ import annotations
 
-from importlib import util
-from types import ModuleType
-from pathlib import Path
-from typing import Optional, Any
 import sys
+from importlib import util
+from pathlib import Path
+from types import ModuleType
+from typing import Any, Optional
 
 
 def load_module_from_path(path: str, module_name: Optional[str] = None) -> ModuleType:

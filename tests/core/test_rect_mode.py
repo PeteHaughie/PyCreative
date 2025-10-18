@@ -1,4 +1,3 @@
-from core.shape import rect
 from core.engine.impl import Engine
 
 

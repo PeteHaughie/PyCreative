@@ -3,9 +3,8 @@
 These functions accept an `engine` as the first argument to remain
 implementation-focused and avoid import-time cycles with the Engine.
 """
-from typing import Any
-from typing import Optional
 import logging
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 

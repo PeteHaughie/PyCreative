@@ -8,13 +8,15 @@ Not a production implementation — replace with real Engine when ready.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
-from core.graphics import GraphicsBuffer
-from .api_registry import APIRegistry
-from core.adapters.skia_gl_present import SkiaGLPresenter
-from contextlib import redirect_stderr
 import os
+from contextlib import redirect_stderr
+from typing import Any, Callable, Optional
+
+from core.adapters.skia_gl_present import SkiaGLPresenter
+from core.graphics import GraphicsBuffer
+
 from .api import SimpleSketchAPI
+from .api_registry import APIRegistry
 
 
 class Engine:
@@ -70,7 +72,11 @@ class Engine:
         # Register default API functions so SimpleSketchAPI delegates work
         # and class-based sketch instances can be bound to these helpers.
         try:
-            from core.engine.registrations import register_shape_apis, register_random_and_noise, register_math
+            from core.engine.registrations import (
+                register_math,
+                register_random_and_noise,
+                register_shape_apis,
+            )
             try:
                 register_shape_apis(self)
             except Exception:
@@ -137,7 +143,10 @@ class Engine:
 
         # Register default API functions so SimpleSketchAPI delegates work
         try:
-            from core.engine.registrations import register_shape_apis, register_random_and_noise
+            from core.engine.registrations import (
+                register_random_and_noise,
+                register_shape_apis,
+            )
             try:
                 register_shape_apis(self)
             except Exception:
@@ -259,6 +268,12 @@ class Engine:
                         def _make_mouse_button_prop():
                             return property(lambda self_obj: getattr(self_obj._engine, 'mouse_button', None))
 
+                        def _make_key_prop():
+                            return property(lambda self_obj: getattr(self_obj._engine, 'key', None))
+
+                        def _make_key_code_prop():
+                            return property(lambda self_obj: getattr(self_obj._engine, 'key_code', None))
+
                         # Create a descriptor that exposes a read-only boolean
                         # view of engine.mouse_pressed while still allowing
                         # the user-defined `mouse_pressed()` handler to be
@@ -319,6 +334,15 @@ class Engine:
                                 orig_mouse_pressed = m
                         except Exception:
                             orig_mouse_pressed = None
+
+                        # Capture the original unbound key_pressed function if present
+                        orig_key_pressed = None
+                        try:
+                            k = getattr(cls, 'key_pressed', None)
+                            if callable(k):
+                                orig_key_pressed = k
+                        except Exception:
+                            orig_key_pressed = None
 
                         # Provide a __getattr__ on the dynamic subclass to forward
                         # missing convenience methods to the SimpleSketchAPI facade
@@ -381,8 +405,62 @@ class Engine:
                             'pmouse_y': _make_pmouse_y_prop(),
                             'mouse_button': _make_mouse_button_prop(),
                             'mouse_pressed': _MousePressedProxy(handler=orig_mouse_pressed),
+                            # Expose key and key_code as read-only properties backed by the engine
+                            'key': _make_key_prop(),
+                            'key_code': _make_key_code_prop(),
+                            # key_pressed mirrors Processing semantics: proxy that is bool-like and callable
+                            'key_pressed': None,
                             '__getattr__': _make_getattr(api),
                         })
+                        # Attach a KeyPressed proxy descriptor after Dynamic creation so
+                        # we can reuse the same pattern as mouse_pressed while allowing
+                        # the descriptor to capture the original unbound handler.
+                        try:
+                            class _KeyPressedProxy:
+                                def __init__(self, handler=None):
+                                    self._handler = handler
+
+                                def __get__(self, instance, owner=None):
+                                    if instance is None:
+                                        return self
+
+                                    class _Bound:
+                                        def __init__(self, inst, handler):
+                                            self._inst = inst
+                                            self._handler = handler
+
+                                        def __bool__(self):
+                                            try:
+                                                return bool(getattr(self._inst._engine, 'key_pressed', False))
+                                            except Exception:
+                                                return False
+
+                                        def __int__(self):
+                                            return 1 if bool(self) else 0
+
+                                        def __call__(self, *a, **kw):
+                                            if callable(self._handler):
+                                                try:
+                                                    return self._handler(self._inst, *a, **kw)
+                                                except Exception:
+                                                    if getattr(self._inst._engine, '_debug_handler_exceptions', False):
+                                                        raise
+                                                    return None
+                                            return None
+
+                                        def __repr__(self):
+                                            try:
+                                                return f"<key_pressed proxy {bool(self)}>"
+                                            except Exception:
+                                                return "<key_pressed proxy>"
+
+                                    return _Bound(instance, self._handler)
+
+                            # set the descriptor on the Dynamic class
+                            setattr(Dynamic, 'key_pressed', _KeyPressedProxy(handler=orig_key_pressed))
+                        except Exception:
+                            # ignore failures to attach descriptor
+                            pass
                         try:
                             inst.__class__ = Dynamic
                         except Exception:
@@ -930,7 +1008,8 @@ class Engine:
                 # Create window; cast to Any for static checking so mypy
                 # does not attempt to verify pyglet's internal abstract base
                 # classes here.
-                from typing import cast, Any as _Any
+                from typing import Any as _Any
+                from typing import cast
                 _win = pyglet.window.Window(width=self.width, height=self.height, vsync=True)  # type: ignore
                 # cast to Any to avoid mypy attempting to validate pyglet's
                 # abstract base classes in this context.
@@ -940,6 +1019,29 @@ class Engine:
                 devnull.close()
             except Exception:
                 pass
+
+        # Some test harnesses provide a lightweight Dummy window that does not
+        # implement pyglet's `@window.event` decorator. Provide a best-effort
+        # fallback that emulates an `.event` decorator by attaching the
+        # function to the window object under the function name. This keeps
+        # tests that monkeypatch `pyglet.window.Window` from erroring on
+        # attribute access.
+        try:
+            if not hasattr(self._window, 'event'):
+                def _event_decorator(fn):
+                    # attach as an attribute so callers can still access it
+                    try:
+                        setattr(self._window, fn.__name__, fn)
+                    except Exception:
+                        pass
+                    return fn
+
+                try:
+                    setattr(self._window, 'event', _event_decorator)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         # Apply any window title requested during setup()/before the window
         # existed. This ensures calls to this.window_title(...) in setup are
         # persisted and applied once the window is available.
@@ -1052,7 +1154,7 @@ class Engine:
                 # Present failures are non-fatal; previous frame contents may
                 # still be visible. Do not spam stdout in normal runs.
                 pass
-        
+
         # Register input event handlers on the created window so real
         # pyglet-driven events update engine state and dispatch sketch
         # handlers. Import adapters lazily so headless tests remain import-safe.
@@ -1177,6 +1279,8 @@ class Engine:
                         if getattr(self, '_debug_handler_exceptions', False):
                             raise
 
+
+
             @self._window.event
             def on_mouse_drag(x, y, dx, dy, buttons, modifiers):
                 try:
@@ -1222,11 +1326,96 @@ class Engine:
                     except Exception:
                         if getattr(self, '_debug_handler_exceptions', False):
                             raise
+            @self._window.event
+            def on_key_press(symbol, modifiers):
+                """Pyglet key press bridge: normalize event, update system vars
+                and call sketch.key_pressed if present."""
+                try:
+                    try:
+                        from core.adapters.pyglet_keyboard import (
+                            normalize_event as _normalize,
+                        )
+                    except Exception:
+                        def _normalize(event: Any) -> dict[str, Any]:
+                            return {}
+                    ev = _normalize({'symbol': symbol, 'modifiers': modifiers})
+                    try:
+                        self.key = ev.get('key', None)
+                    except Exception:
+                        pass
+                    try:
+                        self.key_code = ev.get('key_code', None)
+                    except Exception:
+                        pass
+                    try:
+                        self.key_pressed = True
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+                handler = getattr(self.sketch, 'key_pressed', None)
+                if callable(handler):
+                    try:
+                        try:
+                            handler()
+                        except TypeError:
+                            try:
+                                handler(ev)
+                            except TypeError:
+                                this = SimpleSketchAPI(self)
+                                self._call_sketch_method(handler, this)
+                    except Exception:
+                        if getattr(self, '_debug_handler_exceptions', False):
+                            raise
+
+            @self._window.event
+            def on_key_release(symbol, modifiers):
+                """Pyglet key release bridge: normalize event, update system vars
+                and call sketch.key_released if present."""
+                try:
+                    try:
+                        from core.adapters.pyglet_keyboard import (
+                            normalize_event as _normalize,
+                        )
+                    except Exception:
+                        def _normalize(event: Any) -> dict[str, Any]:
+                            return {}
+                    ev = _normalize({'symbol': symbol, 'modifiers': modifiers})
+                    try:
+                        self.key = ev.get('key', None)
+                    except Exception:
+                        pass
+                    try:
+                        self.key_code = ev.get('key_code', None)
+                    except Exception:
+                        pass
+                    try:
+                        self.key_pressed = False
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+                handler = getattr(self.sketch, 'key_released', None)
+                if callable(handler):
+                    try:
+                        try:
+                            handler()
+                        except TypeError:
+                            try:
+                                handler(ev)
+                            except TypeError:
+                                this = SimpleSketchAPI(self)
+                                self._call_sketch_method(handler, this)
+                    except Exception:
+                        if getattr(self, '_debug_handler_exceptions', False):
+                            raise
+
         except Exception:
             # Best-effort only: do not fail window creation if handlers cannot
             # be registered for platform-specific reasons.
             pass
-        
+
         # Note: we intentionally avoid creating a pyglet Image backed by
         # the presenter's GL texture. Wrapping an external GL texture in a
         # pyglet.image.Texture can cause GL_INVALID_OPERATION depending on
@@ -1549,7 +1738,8 @@ class Engine:
                 try:
                     # Use a dynamic Any-typed variable so int() overload
                     # resolution succeeds in static analysis.
-                    from typing import Any as _Any, cast
+                    from typing import Any as _Any
+                    from typing import cast
                     _val: _Any = _maybe
                     # Cast to an int-compatible type for static checkers, then
                     # coerce at runtime. This is a conservative local workaround
@@ -1588,6 +1778,93 @@ class Engine:
                     return self._call_sketch_method(handler, this)
             except Exception:
                 pass
+
+    def simulate_key_press(self, key: Optional[str] = None, key_code: Optional[str] = None, event: Optional[object] = None):
+        """Simulate a key press. Accepts either primitives (key,key_code)
+        or an event-like object. Ensures setup() ran and dispatches
+        sketch.key_pressed() if present.
+        """
+        # Lazy normalize event-like objects
+        try:
+            from core.adapters.pyglet_keyboard import normalize_event
+        except Exception:
+            def normalize_event(event: Any) -> dict[str, Any]:
+                return {}
+        ev = normalize_event(event) if event is not None else {}
+        k = ev.get('key', key)
+        kc = ev.get('key_code', key_code)
+
+        self._ensure_setup()
+        # Update key system variables
+        try:
+            self.key = k
+        except Exception:
+            pass
+        try:
+            self.key_code = kc
+        except Exception:
+            pass
+        try:
+            self.key_pressed = True
+        except Exception:
+            pass
+
+        # Dispatch handler on sketch if present
+        handler = getattr(self.sketch, 'key_pressed', None)
+        if callable(handler):
+            try:
+                try:
+                    return handler()
+                except TypeError:
+                    try:
+                        return handler(ev)
+                    except TypeError:
+                        this = SimpleSketchAPI(self)
+                        return self._call_sketch_method(handler, this)
+            except Exception:
+                if getattr(self, '_debug_handler_exceptions', False):
+                    raise
+                return None
+
+    def simulate_key_release(self, key: Optional[str] = None, key_code: Optional[str] = None, event: Optional[object] = None):
+        """Simulate a key release and dispatch sketch.key_released()."""
+        try:
+            from core.adapters.pyglet_keyboard import normalize_event
+        except Exception:
+            def normalize_event(event: Any) -> dict[str, Any]:
+                return {}
+        ev = normalize_event(event) if event is not None else {}
+        k = ev.get('key', key)
+        kc = ev.get('key_code', key_code)
+
+        self._ensure_setup()
+        try:
+            self.key = k
+        except Exception:
+            pass
+        try:
+            self.key_code = kc
+        except Exception:
+            pass
+        try:
+            self.key_pressed = False
+        except Exception:
+            pass
+
+        handler = getattr(self.sketch, 'key_released', None)
+        if callable(handler):
+            try:
+                try:
+                    handler()
+                except TypeError:
+                    try:
+                        handler(ev)
+                    except TypeError:
+                        this = SimpleSketchAPI(self)
+                        self._call_sketch_method(handler, this)
+            except Exception:
+                if getattr(self, '_debug_handler_exceptions', False):
+                    raise
 
 
     # --- 2D Transform / matrix stack helpers ----------------------------
