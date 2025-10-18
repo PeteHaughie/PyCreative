@@ -162,6 +162,22 @@ class SimpleSketchAPI:
         if fn:
             return fn(x, y, **kwargs)
 
+    # shape recording helpers
+    def begin_shape(self, mode: str = 'POLYGON'):
+        fn = self._engine.api.get('begin_shape')
+        if fn:
+            return fn(mode)
+
+    def vertex(self, x, y):
+        fn = self._engine.api.get('vertex')
+        if fn:
+            return fn(x, y)
+
+    def end_shape(self, close: bool = False):
+        fn = self._engine.api.get('end_shape')
+        if fn:
+            return fn(close)
+
     # new drawing state helpers
     def fill(self, *args):
         """Set fill color respecting color_mode (RGB or HSB). Delegates to core.color.fill."""

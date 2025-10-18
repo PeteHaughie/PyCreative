@@ -67,7 +67,59 @@ class Engine:
         self.snapshot_backend: Optional[Callable[[str, int, int, "Engine"], None]] = None
 
         # Normalize sketch: if a module contains a `Sketch` class, instantiate it
+        # Register default API functions so SimpleSketchAPI delegates work
+        # and class-based sketch instances can be bound to these helpers.
+        try:
+            from core.engine.registrations import register_shape_apis, register_random_and_noise, register_math
+            try:
+                register_shape_apis(self)
+            except Exception:
+                pass
+            try:
+                register_random_and_noise(self)
+            except Exception:
+                pass
+            try:
+                register_math(self)
+            except Exception:
+                pass
+        except Exception:
+            # best-effort only; continue if registrations can't be imported
+            pass
+
+        # Normalize sketch: if a module contains a `Sketch` class, instantiate it
         self._normalize_sketch()
+
+        # If the user provided a direct sketch instance (not a module with a
+        # `Sketch` class), attempt to attach convenience API functions as
+        # bound methods on the instance. This mirrors the behaviour when the
+        # engine instantiates a Sketch class and keeps tests/examples that
+        # construct an instance directly working.
+        try:
+            s = getattr(self, 'sketch', None)
+            if s is not None:
+                try:
+                    from core.engine.bindings import SKETCH_CONVENIENCE_METHODS
+                    _sketch_methods = list(SKETCH_CONVENIENCE_METHODS)
+                except Exception:
+                    _sketch_methods = []
+
+                for name in _sketch_methods:
+                    # don't overwrite user-defined members
+                    if hasattr(s, name):
+                        continue
+                    try:
+                        fn = self.api.get(name)
+                        if callable(fn):
+                            try:
+                                setattr(s, name, fn)
+                            except Exception:
+                                # best-effort only
+                                pass
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
         # Debugging toggle: when True, exceptions raised by user handlers
         # will be re-raised instead of swallowed. Can be enabled via

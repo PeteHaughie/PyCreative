@@ -69,35 +69,34 @@ def main(argv: list[str] | None = None) -> int:
 			eng.run_frames(frames, ignore_no_loop=True)
 		print(f'Ran sketch for {frames} frame(s); recorded commands: {len(eng.graphics.commands)}')
 		if getattr(eng, '_verbose', False):
+			# Print recorded commands once (do not produce a replay per-command)
 			for cmd in eng.graphics.commands:
 				print(cmd)
-				# produce an offscreen PNG replay for easier debugging (optional)
-				# Prefer a Skia-backed snapshot if available (authoritative);
-				# otherwise fall back to the Pillow rasteriser.
-				repr_path = 'render_debug.png'
-				backend_written = False
+			# Optionally produce a single offscreen PNG replay for debugging
+			repr_path = 'render_debug.png'
+			backend_written = False
+			try:
+				from core.io.skia_replayer import replay_to_image_skia as _rsi
 				try:
-					from core.io.skia_replayer import replay_to_image_skia as _rsi
+					_rsi(eng, repr_path)
+					print(f'Wrote Skia offscreen replay to {repr_path}')
+					backend_written = True
+				except Exception as _err:
+					print(f'Skia replayer failed: {_err}')
+			except Exception:
+				# skia-python not available or import failed; try Pillow replayer
+				try:
+					from core.io.replayer import replay_to_image as _rti
 					try:
-						_rsi(eng, repr_path)
-						print(f'Wrote Skia offscreen replay to {repr_path}')
+						_rti(eng, repr_path)
+						print(f'Wrote Pillow offscreen replay to {repr_path}')
 						backend_written = True
 					except Exception as _err:
-						print(f'Skia replayer failed: {_err}')
+						print(f'Pillow replayer failed: {_err}')
 				except Exception:
-					# skia-python not available or import failed; try Pillow replayer
-					try:
-						from core.io.replayer import replay_to_image as _rti
-						try:
-							_rti(eng, repr_path)
-							print(f'Wrote Pillow offscreen replay to {repr_path}')
-							backend_written = True
-						except Exception as _err:
-							print(f'Pillow replayer failed: {_err}')
-					except Exception:
-						print('Offscreen replayer not available (Pillow missing?)')
-				if not backend_written:
-					print('No offscreen snapshot could be written')
+					print('Offscreen replayer not available (Pillow missing?)')
+			if not backend_written:
+				print('No offscreen snapshot could be written')
 	else:
 		# windowed mode: start() will block until the frames complete; omit
 		# max_frames for an interactive session that stays open until closed.

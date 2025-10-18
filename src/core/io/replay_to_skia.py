@@ -15,6 +15,54 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
         import skia
     except Exception:
         raise
+    # Maintain a simple drawing state so sequential ops like `fill()` and
+    # `stroke()` affect later `shape` commands. This mirrors how sketches
+    # set a current fill/stroke before emitting vertices.
+    current_fill = None
+    current_fill_alpha = None
+    current_stroke = None
+    current_stroke_alpha = None
+    current_stroke_weight = 1.0
+
+    def _make_paint_from_color(col, fill=True, stroke_weight=1.0, alpha=None):
+        p = skia.Paint()
+        p.setAntiAlias(True)
+        if fill:
+            p.setStyle(skia.Paint.kFill_Style)
+        else:
+            p.setStyle(skia.Paint.kStroke_Style)
+            p.setStrokeWidth(float(stroke_weight))
+        if col is None:
+            return p
+        try:
+            # Normalize alpha to 0..1 if provided; default to 1.0
+            a = 1.0
+            if alpha is not None:
+                try:
+                    a = float(alpha)
+                except Exception:
+                    a = 1.0
+            # clamp alpha
+            if a < 0.0:
+                a = 0.0
+            if a > 1.0:
+                a = 1.0
+            if isinstance(col, (tuple, list)):
+                r, g, b = [float(v)/255.0 for v in col[:3]]
+                try:
+                    p.setColor(skia.Color4f(r, g, b, a))
+                except Exception:
+                    # fallback to integer color (alpha not supported here)
+                    p.setColor((int(r*255)<<16)|(int(g*255)<<8)|int(b*255))
+            else:
+                v = float(col)/255.0
+                try:
+                    p.setColor(skia.Color4f(v, v, v, a))
+                except Exception:
+                    p.setColor(int(v*255))
+        except Exception:
+            pass
+        return p
 
     for cmd in commands:
         op = cmd.get('op')
@@ -272,27 +320,134 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
                         canvas.drawCircle(x, y, r, p)
                     except Exception:
                         pass
-                elif stroke is not None and sw > 0:
-                    p = skia.Paint()
-                    p.setAntiAlias(True)
-                    p.setStyle(skia.Paint.kStroke_Style)
-                    p.setStrokeWidth(sw)
-                    if isinstance(stroke, (tuple, list)):
-                        rr, gg, bb = [float(v)/255.0 for v in stroke[:3]]
-                        try:
-                            p.setColor(skia.Color4f(rr, gg, bb, 1.0))
-                        except Exception:
-                            p.setColor((int(rr*255)<<16)|(int(gg*255)<<8)|int(bb*255))
-                    else:
-                        v = float(stroke)/255.0
-                        try:
-                            p.setColor(skia.Color4f(v, v, v, 1.0))
-                        except Exception:
-                            p.setColor(int(v*255))
+            elif op == 'fill':
+                # record current fill color for subsequent shape ops
+                current_fill = args.get('color') or args.get('fill') or None
+                # keep alpha information for later paint construction
+                current_fill_alpha = args.get('fill_alpha', None)
+                continue
+            elif op == 'no_fill':
+                current_fill = None
+                continue
+            elif op == 'stroke':
+                current_stroke = args.get('color') or args.get('stroke') or None
+                current_stroke_alpha = args.get('stroke_alpha', None)
+                continue
+            elif op == 'no_stroke':
+                current_stroke = None
+                continue
+            elif op == 'stroke_weight':
+                try:
+                    current_stroke_weight = float(args.get('weight', args.get('w', 1)))
+                except Exception:
+                    current_stroke_weight = 1.0
+                continue
+            elif op == 'shape':
+                verts = args.get('vertices', []) or []
+                mode = str(args.get('mode', 'POLYGON')).upper()
+                close = bool(args.get('close', False))
+                # Build paints from current state, preserving any recorded alpha
+                fill_p = _make_paint_from_color(current_fill, fill=True, alpha=current_fill_alpha)
+                stroke_p = None
+                if current_stroke is not None and current_stroke_weight > 0:
+                    stroke_p = _make_paint_from_color(current_stroke, fill=False, stroke_weight=current_stroke_weight, alpha=current_stroke_alpha)
+
+                # Helper: draw a triangle given three points
+                def _draw_triangle(a, b, c):
                     try:
-                        canvas.drawCircle(x, y, r, p)
+                        path = skia.Path()
+                        path.moveTo(a[0], a[1])
+                        path.lineTo(b[0], b[1])
+                        path.lineTo(c[0], c[1])
+                        path.close()
+                        # prefer per-shape fill if provided in args
+                        shape_fill = args.get('fill', None)
+                        shape_alpha = args.get('fill_alpha', None)
+                        if shape_fill is not None:
+                            # build a paint from shape_fill and optional alpha
+                            pf = _make_paint_from_color(shape_fill, fill=True, alpha=shape_alpha)
+                            # Debug: print resolved RGBA for triangle paint
+                            try:
+                                if isinstance(shape_fill, (tuple, list)):
+                                    rr, gg, bb = [float(v)/255.0 for v in shape_fill[:3]]
+                                else:
+                                    vv = float(shape_fill)/255.0
+                                    rr = gg = bb = vv
+                                aa = 1.0 if shape_alpha is None else float(shape_alpha)
+                            except Exception:
+                                rr = gg = bb = 0.0
+                                aa = 1.0
+                            # debug logging removed to reduce noise during normal runs
+                            canvas.drawPath(path, pf)
+                        elif current_fill is not None:
+                            # Debug: print current fill color used
+                            try:
+                                if isinstance(current_fill, (tuple, list)):
+                                    rr, gg, bb = [float(v)/255.0 for v in current_fill[:3]]
+                                else:
+                                    vv = float(current_fill)/255.0
+                                    rr = gg = bb = vv
+                                aa = 1.0 if current_fill_alpha is None else float(current_fill_alpha)
+                            except Exception:
+                                rr = gg = bb = 0.0
+                                aa = 1.0
+                            # debug logging removed to reduce noise during normal runs
+                            canvas.drawPath(path, fill_p)
+                        if stroke_p is not None:
+                            canvas.drawPath(path, stroke_p)
                     except Exception:
                         pass
+
+                # POLYGON: draw as a single closed path
+                if mode == 'POLYGON':
+                    try:
+                        if len(verts) >= 2:
+                            path = skia.Path()
+                            path.moveTo(verts[0][0], verts[0][1])
+                            for v in verts[1:]:
+                                path.lineTo(v[0], v[1])
+                            if close:
+                                path.close()
+                            if current_fill is not None:
+                                canvas.drawPath(path, fill_p)
+                            if stroke_p is not None:
+                                canvas.drawPath(path, stroke_p)
+                    except Exception:
+                        pass
+                elif mode == 'TRIANGLE_FAN':
+                    # fan: verts[0] is center; triangles are (v0, vi, vi+1)
+                    try:
+                        if len(verts) >= 3:
+                            v0 = verts[0]
+                            for i in range(1, len(verts) - 1):
+                                _draw_triangle(v0, verts[i], verts[i+1])
+                    except Exception:
+                        pass
+                elif mode == 'TRIANGLES':
+                    try:
+                        for i in range(0, len(verts) - 2, 3):
+                            _draw_triangle(verts[i], verts[i+1], verts[i+2])
+                    except Exception:
+                        pass
+                elif mode == 'LINES':
+                    try:
+                        for i in range(0, len(verts) - 1, 2):
+                            a = verts[i]
+                            b = verts[i+1]
+                            if stroke_p is not None:
+                                canvas.drawLine(a[0], a[1], b[0], b[1], stroke_p)
+                    except Exception:
+                        pass
+                elif mode == 'POINTS':
+                    try:
+                        for v in verts:
+                            if current_fill is not None:
+                                canvas.drawCircle(float(v[0]), float(v[1]), max(1.0, current_stroke_weight / 2.0), fill_p)
+                            elif stroke_p is not None:
+                                canvas.drawCircle(float(v[0]), float(v[1]), max(1.0, current_stroke_weight / 2.0), stroke_p)
+                    except Exception:
+                        pass
+                continue
             elif op == 'ellipse':
                 x = float(args.get('x', 0))
                 y = float(args.get('y', 0))

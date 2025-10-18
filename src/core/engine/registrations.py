@@ -24,6 +24,13 @@ def register_shape_apis(engine: Any):
             engine.api.register('circle', lambda *a, **k: getattr(_shape, 'circle')(engine, *a, **k))
         if hasattr(_shape, 'ellipse'):
             engine.api.register('ellipse', lambda *a, **k: getattr(_shape, 'ellipse')(engine, *a, **k))
+        # expose shape recording helpers so sketches can call begin_shape/vertex/end_shape
+        if hasattr(_shape, 'begin_shape'):
+            engine.api.register('begin_shape', lambda *a, **k: getattr(_shape, 'begin_shape')(engine, *a, **k))
+        if hasattr(_shape, 'vertex'):
+            engine.api.register('vertex', lambda *a, **k: getattr(_shape, 'vertex')(engine, *a, **k))
+        if hasattr(_shape, 'end_shape'):
+            engine.api.register('end_shape', lambda *a, **k: getattr(_shape, 'end_shape')(engine, *a, **k))
     except Exception:
         # best-effort only
         pass
@@ -55,5 +62,21 @@ def register_random_and_noise(engine: Any):
             engine.api.register('noise_detail', lambda *a, **k: _noise_detail(engine, *a, **k))
         except Exception:
             pass
+    except Exception:
+        pass
+
+
+def register_math(engine: Any):
+    """Expose the small core.math helpers via the engine API so sketches
+    can access them as `self.sin`, `self.cos`, `self.radians`, etc.
+    """
+    try:
+        import core.math as _m
+        # Register a small subset commonly used in sketches
+        for name in ('sin', 'cos', 'tan', 'radians', 'degrees', 'sqrt', 'pow', 'abs_', 'floor', 'ceil'):
+            if hasattr(_m, name):
+                # Normalize names: core.math uses names like abs_ and map_
+                target_name = name.rstrip('_')
+                engine.api.register(target_name, lambda *a, _n=name, **k: getattr(_m, _n)(*a, **k))
     except Exception:
         pass

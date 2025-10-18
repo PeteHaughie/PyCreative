@@ -16,11 +16,15 @@ SKETCH_CONVENIENCE_METHODS = (
     # `self.map()`, `self.lerp()`, `self.norm()`, etc.
     'abs', 'ceil', 'floor', 'constrain', 'dist', 'lerp', 'mag', 'map',
     'sq', 'sqrt', 'pow', 'max', 'min', 'round', 'exp', 'log', 'norm',
+    # trig & angle helpers
+    'sin', 'cos', 'tan', 'radians', 'degrees',
     'point', 'random', 'random_seed', "random_gaussian",
     'uniform',
     'pcvector',
     'noise', 'noise_seed', 'noise_detail',
     'no_fill', 'no_stroke',
+    # Shape recording helpers
+    'begin_shape', 'vertex', 'end_shape',
     # Transform helpers (2D)
     'translate', 'rotate', 'scale', 'push_matrix', 'pop_matrix', 'pushMatrix', 'popMatrix',
     'shear_x', 'shear_y', 'reset_matrix', 'apply_matrix',
