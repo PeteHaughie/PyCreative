@@ -7,8 +7,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from PIL import Image, ImageDraw
-
 
 def replay_to_image(engine: Any, path: str) -> None:
     """Replay engine.graphics.commands to a PNG saved at `path`.
@@ -17,6 +15,13 @@ def replay_to_image(engine: Any, path: str) -> None:
     as (r,g,b) tuples in 0-255 range. Coordinates are treated as top-left
     origin (to match sketch API).
     """
+    # Lazy-import Pillow so importing `core.io` doesn't require PIL at package
+    # import time. This keeps headless CI/dev environments lightweight.
+    try:
+        from PIL import Image, ImageDraw
+    except Exception:
+        raise
+
     w = int(getattr(engine, 'width', 200))
     h = int(getattr(engine, 'height', 200))
     img = Image.new('RGBA', (w, h), (200, 200, 200, 255))
