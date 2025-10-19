@@ -459,6 +459,34 @@ def setup_window_loop(
         # Best-effort only
         pass
 
+    # Apply any one-time window flags requested by the sketch (e.g. no_cursor)
+    try:
+        if getattr(engine, '_no_cursor', False):
+            try:
+                # Preferred API: pyglet Window.set_mouse_visible(False)
+                win = getattr(engine, '_window', None)
+                if win is not None and hasattr(win, 'set_mouse_visible'):
+                    try:
+                        win.set_mouse_visible(False)
+                    except Exception:
+                        # Some pyglet versions expose mouse_visible as attribute
+                        try:
+                            win.mouse_visible = False
+                        except Exception:
+                            pass
+                else:
+                    # Record intent via environment helper
+                    try:
+                        from core.environment.window import no_cursor as _nc
+
+                        _nc(engine)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     # whether start() was given an explicit max_frames
     engine._ignore_no_loop = False if max_frames is None else True
 
