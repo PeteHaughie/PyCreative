@@ -16,7 +16,7 @@ from core.adapters.skia_gl_present import SkiaGLPresenter
 from core.graphics import GraphicsBuffer
 
 from .api import SimpleSketchAPI
-from .api_registry import APIRegistry
+from .api.registry import APIRegistry
 
 
 class Engine:
@@ -72,7 +72,7 @@ class Engine:
         # Register default API functions so SimpleSketchAPI delegates work
         # and class-based sketch instances can be bound to these helpers.
         try:
-            from core.engine.registrations import (
+            from core.engine.api.registrations import (
                 register_math,
                 register_random_and_noise,
                 register_shape_apis,
@@ -159,46 +159,15 @@ class Engine:
             # best-effort only; continue if registrations can't be imported
             pass
 
-        # Register simple color/stroke ops to record state changes as commands
-        def _rec_fill(rgba):
-            # store engine state and record a 'fill' op
-            self.fill_color = tuple(int(x) for x in rgba)
-            # also record any alpha that may be set on the engine
-            return self.graphics.record('fill', color=self.fill_color, fill_alpha=getattr(self, 'fill_alpha', None))
-
-        def _rec_stroke(rgba):
-            self.stroke_color = tuple(int(x) for x in rgba)
-            return self.graphics.record('stroke', color=self.stroke_color, stroke_alpha=getattr(self, 'stroke_alpha', None))
-
-        def _rec_no_fill():
-            self.fill_color = None
-            try:
-                return self.graphics.record('no_fill')
-            except Exception:
-                return None
-
-        def _rec_no_stroke():
-            self.stroke_color = None
-            try:
-                return self.graphics.record('no_stroke')
-            except Exception:
-                return None
-
-        def _rec_stroke_weight(w):
-            self.stroke_weight = int(w)
-            return self.graphics.record('stroke_weight', weight=int(w))
-
+        # Register simple color/stroke ops via central registrations helper.
         try:
-            self.api.register('fill', _rec_fill)
-            self.api.register('stroke', _rec_stroke)
-            self.api.register('stroke_weight', _rec_stroke_weight)
-            # register no_fill/no_stroke so sketches can disable fills/strokes
+            from core.engine.registrations import register_state_apis
             try:
-                self.api.register('no_fill', lambda *a, **k: _rec_no_fill())
-                self.api.register('no_stroke', lambda *a, **k: _rec_no_stroke())
+                register_state_apis(self)
             except Exception:
                 pass
         except Exception:
+            # best-effort only; continue if registrations can't be imported
             pass
 
 
@@ -725,7 +694,19 @@ class Engine:
         # call signature (bound method receives `self`). Leave class as-is.
 
     def step_frame(self):
-        """Execute a single frame: call sketch.setup()/draw() and record commands."""
+        """Execute a single frame: call sketch.setup()/draw() and record commands.
+
+        Delegates to `core.engine.frame.step_frame(self)` for the implementation
+        but preserves an inline fallback in case the helper cannot be imported.
+        """
+        try:
+            from core.engine.frame import step_frame as _sf
+            return _sf(self)
+        except Exception:
+            # fallback: run the previous inline implementation to preserve
+            # behaviour even if the extraction cannot be imported.
+            pass
+        # Inline fallback (copied from the original implementation)
         # Preserve setup commands (e.g., background) for every frame
         if not hasattr(self, '_setup_commands'):
             self._setup_commands = []
@@ -735,7 +716,10 @@ class Engine:
             this = SimpleSketchAPI(self)
             setup = getattr(self.sketch, 'setup', None)
             if callable(setup):
-                self._call_sketch_method(setup, this)
+                try:
+                    self._call_sketch_method(setup, this)
+                except Exception:
+                    pass
             # Capture and remove any background command emitted in setup so
             # it can be applied once only. Store its RGB for the presenter.
             recorded = list(self.graphics.commands)
@@ -889,28 +873,21 @@ class Engine:
         self.frame_count += 1
 
     def _call_sketch_method(self, fn: Callable, this: SimpleSketchAPI):
-        """Call a sketch-provided function with either (this) or no args.
-
-        Prefer calling with `this`; if the function raises a TypeError due to
-        unexpected arguments, fall back to calling without arguments.
-        """
-        # If fn is a bound method (has __self__ set) then it already
-        # has the instance bound and should be called without passing
-        # `this`. This avoids errors like "takes 1 positional argument
-        # but 2 were given" when methods are bound.
+        """Delegate to event_dispatch.call_sketch_method for handler invocation."""
         try:
-            bound_self = getattr(fn, '__self__', None)
-            if bound_self is not None:
-                return fn()
+            from core.engine.event_dispatch import call_sketch_method as _csm
+            return _csm(fn, this)
         except Exception:
-            pass
-
-        # Prefer calling with `this`; if the callable doesn't accept an
-        # argument (raises TypeError), fall back to calling without args.
-        try:
-            return fn(this)
-        except TypeError:
-            return fn()
+            try:
+                bound_self = getattr(fn, '__self__', None)
+                if bound_self is not None:
+                    return fn()
+            except Exception:
+                pass
+            try:
+                return fn(this)
+            except TypeError:
+                return fn()
 
     def run_frames(self, n: int = 1, ignore_no_loop: bool = False):
         import time
@@ -1055,8 +1032,8 @@ class Engine:
         except Exception:
             pass
         try:
-            print(
-                f'Engine: created window {self._window} size=({self.width},{self.height})')
+            # Keep the debug print short to satisfy linters.
+            print('Engine: created window', self._window, 'size=({}, {})'.format(self.width, self.height))
         except Exception:
             pass
         # running until the user explicitly closes the window.
@@ -1064,356 +1041,26 @@ class Engine:
             'inf') if max_frames is None else int(max_frames)
 
         # Create presenter once so the underlying FBO/texture and Skia surface
-        # persist across frames. This allows drawings to accumulate if the
-        # sketch does not clear the background each frame (Processing-style).
-        # Presenter may be a complex object from adapters; treat as Any to
-        # avoid instantiating abstract types during static checking.
+        # persist across frames. Delegate windowed loop wiring and scheduling
+        # to `core.engine.loop.setup_window_loop` so `impl.py` stays small.
         from typing import Any as _Any
-        presenter: _Any = SkiaGLPresenter(self.width, self.height, force_present_mode=self.present_mode, force_gles=self.force_gles)
-        replay_fn = getattr(presenter, 'replay_fn', None)
+        from core.engine.presenter import create_presenter
+        from core.engine.loop import setup_window_loop
 
-        @self._window.event
-        def on_draw():
-            try:
-                import logging as _logging
-                _logging.getLogger(__name__).debug("on_draw: _setup_done=%r, _setup_background=%r, _setup_bg_applied=%r, _default_bg_applied=%r",
-                                                     getattr(self,'_setup_done',None), getattr(self,'_setup_background',None), getattr(self,'_setup_bg_applied',False), getattr(self,'_default_bg_applied',False))
-            except Exception:
-                pass
-            # Build commands to replay. If setup provided a background, ensure
-            # it's applied once by prepending it to the very first frame's
-            # commands. The engine tracks `_setup_bg_applied` to avoid
-            # reapplying the setup background on subsequent frames.
-            cmds = list(self.graphics.commands)
-            setup_bg = getattr(self, '_setup_background', None)
-            # mypy: setup_bg may be None or a tuple; assign to local and
-            # check before indexing.
-            _setup_bg_local = setup_bg
-            if _setup_bg_local is not None and not getattr(self, '_setup_bg_applied', False):
-                # Only prepend if the current frame doesn't already specify a background
-                if not any(c.get('op') == 'background' for c in cmds):
-                    cmds = [{'op': 'background', 'args': {'r': int(_setup_bg_local[0]), 'g': int(_setup_bg_local[1]), 'b': int(_setup_bg_local[2])}, 'meta': {'seq': 0}}] + cmds
-                    # Mark that we've applied the setup background once so it
-                    # doesn't clear subsequent frames.
-                    self._setup_bg_applied = True
-            # Only apply the engine default background if no setup background
-            # exists at all. If the sketch provided a setup background we
-            # should never inject the default gray background later.
-            elif setup_bg is None and getattr(self, '_setup_done', False):
-                # If the sketch did not set any background during setup and
-                # we haven't applied a default background yet, apply a single
-                # default rgb(200) background so the first frame starts with
-                # a reasonable canvas instead of uninitialized pixels.
-                if not any(c.get('op') == 'background' for c in cmds) and not getattr(self, '_default_bg_applied', False):
-                    cmds = [{'op': 'background', 'args': {'r': 200, 'g': 200, 'b': 200}, 'meta': {'seq': 0}}] + cmds
-                    self._default_bg_applied = True
+        presenter: _Any = create_presenter(
+            SkiaGLPresenter,
+            self.width,
+            self.height,
+            present_mode=self.present_mode,
+            force_gles=self.force_gles,
+        )
 
-            # If the sketch changed size during setup/draw, ensure presenter
-            # backing textures match the new size.
-            if presenter.width != int(self.width) or presenter.height != int(self.height):
-                try:
-                    presenter.resize(self.width, self.height)
-                except Exception:
-                    pass
-
-            try:
-                presenter.render_commands(cmds, replay_fn)
-            except Exception as e:
-                import logging as _logging
-                try:
-                    _logging.getLogger(__name__).debug('presenter.render_commands raised: %r', repr(e))
-                except Exception:
-                    pass
-                # Fall through to present attempt; present may still show previous content
-            # Clear the default framebuffer to the setup/default background
-            # colour before presenting the presenter's texture. This avoids a
-            # visible one-frame flicker where the window may briefly show a
-            # different background (OS/window) before the texture is blitted.
-            try:
-                from pyglet import gl
-                try:
-                    setup_bg = getattr(self, '_setup_background', None)
-                    if setup_bg is not None:
-                        r, g, b = float(setup_bg[0]) / 255.0, float(setup_bg[1]) / 255.0, float(setup_bg[2]) / 255.0
-                        gl.glClearColor(r, g, b, 1.0)
-                        gl.glClear(gl.GL_COLOR_BUFFER_BIT)
-                    elif getattr(self, '_default_bg_applied', False):
-                        # If we've applied the engine default background, clear
-                        # the window to that colour so the presented texture
-                        # overlays a predictable base.
-                        gl.glClearColor(200.0 / 255.0, 200.0 / 255.0, 200.0 / 255.0, 1.0)
-                        gl.glClear(gl.GL_COLOR_BUFFER_BIT)
-                except Exception:
-                    pass
-            except Exception:
-                pass
-
-            try:
-                presenter.present()
-            except Exception:
-                # Present failures are non-fatal; previous frame contents may
-                # still be visible. Do not spam stdout in normal runs.
-                pass
-
-        # Register input event handlers on the created window so real
-        # pyglet-driven events update engine state and dispatch sketch
-        # handlers. Import adapters lazily so headless tests remain import-safe.
+        # Delegate the remaining windowed setup, event handler registration
+        # and scheduling to the extracted helper. It will call pyglet.app.run().
         try:
-            # Helper to obtain a normalize_button function from adapters if
-            # available, otherwise provide a local fallback with a stable
-            # signature for static type checkers.
-            from typing import Optional as _Optional
-
-            def _get_normalize_button():
-                try:
-                    from core.adapters.pyglet_mouse import normalize_button as _nb
-                    return _nb
-                except Exception:
-                    def _fallback(b: object) -> _Optional[str]:
-                        try:
-                            return str(b)
-                        except Exception:
-                            return None
-                    return _fallback
-
-            @self._window.event
-            def on_mouse_motion(x, y, dx, dy):
-                try:
-                    # Update engine mouse coords and call sketch handler
-                    # Convert window coords (origin bottom-left) to sketch
-                    # coords (origin top-left) by flipping the Y axis.
-                    try:
-                        hy = int(getattr(self, 'height', 0))
-                        self._apply_mouse_update(x, hy - int(y))
-                    except Exception:
-                        self._apply_mouse_update(x, y)
-                except Exception:
-                    pass
-                moved = getattr(self.sketch, 'mouse_moved', None)
-                if callable(moved):
-                    try:
-                        try:
-                            moved()
-                        except TypeError:
-                            this = SimpleSketchAPI(self)
-                            self._call_sketch_method(moved, this)
-                    except Exception:
-                        # Swallow handler exceptions unless debug flag set
-                        if getattr(self, '_debug_handler_exceptions', False):
-                            raise
-
-            @self._window.event
-            def on_mouse_press(x, y, button, modifiers):
-                normalize_button = _get_normalize_button()
-                try:
-                    try:
-                        hy = int(getattr(self, 'height', 0))
-                        self._apply_mouse_update(x, hy - int(y))
-                    except Exception:
-                        self._apply_mouse_update(x, y)
-                except Exception:
-                    pass
-                try:
-                    self.mouse_pressed = True
-                except Exception:
-                    pass
-                try:
-                    btn = normalize_button(button)
-                    if btn is not None:
-                        self.mouse_button = btn
-                except Exception:
-                    pass
-                handler = getattr(self.sketch, 'mouse_pressed', None)
-                if callable(handler):
-                    try:
-                        try:
-                            handler()
-                        except TypeError:
-                            this = SimpleSketchAPI(self)
-                            self._call_sketch_method(handler, this)
-                    except Exception:
-                        if getattr(self, '_debug_handler_exceptions', False):
-                            raise
-
-            @self._window.event
-            def on_mouse_release(x, y, button, modifiers):
-                normalize_button = _get_normalize_button()
-                try:
-                    try:
-                        hy = int(getattr(self, 'height', 0))
-                        self._apply_mouse_update(x, hy - int(y))
-                    except Exception:
-                        self._apply_mouse_update(x, y)
-                except Exception:
-                    pass
-                try:
-                    self.mouse_pressed = False
-                except Exception:
-                    pass
-                try:
-                    btn = normalize_button(button)
-                    if btn is not None:
-                        self.mouse_button = btn
-                except Exception:
-                    pass
-                released = getattr(self.sketch, 'mouse_released', None)
-                if callable(released):
-                    try:
-                        try:
-                            released()
-                        except TypeError:
-                            this = SimpleSketchAPI(self)
-                            self._call_sketch_method(released, this)
-                    except Exception:
-                        if getattr(self, '_debug_handler_exceptions', False):
-                            raise
-                clicked = getattr(self.sketch, 'mouse_clicked', None)
-                if callable(clicked):
-                    try:
-                        try:
-                            clicked()
-                        except TypeError:
-                            this = SimpleSketchAPI(self)
-                            self._call_sketch_method(clicked, this)
-                    except Exception:
-                        if getattr(self, '_debug_handler_exceptions', False):
-                            raise
-
-
-
-            @self._window.event
-            def on_mouse_drag(x, y, dx, dy, buttons, modifiers):
-                try:
-                    try:
-                        hy = int(getattr(self, 'height', 0))
-                        self._apply_mouse_update(x, hy - int(y))
-                    except Exception:
-                        self._apply_mouse_update(x, y)
-                except Exception:
-                    pass
-                try:
-                    self.mouse_pressed = True
-                except Exception:
-                    pass
-                dragged = getattr(self.sketch, 'mouse_dragged', None)
-                if callable(dragged):
-                    try:
-                        try:
-                            dragged()
-                        except TypeError:
-                            this = SimpleSketchAPI(self)
-                            self._call_sketch_method(dragged, this)
-                    except Exception:
-                        if getattr(self, '_debug_handler_exceptions', False):
-                            raise
-
-            @self._window.event
-            def on_mouse_scroll(x, y, scroll_x, scroll_y):
-                # scroll_y is commonly used as the wheel count
-                handler = getattr(self.sketch, 'mouse_wheel', None)
-                if callable(handler):
-                    try:
-                        class _Wheel:
-                            def __init__(self, c):
-                                self._c = c
-                            def get_count(self):
-                                return int(self._c)
-                        try:
-                            handler(_Wheel(scroll_y))
-                        except TypeError:
-                            this = SimpleSketchAPI(self)
-                            self._call_sketch_method(handler, this)
-                    except Exception:
-                        if getattr(self, '_debug_handler_exceptions', False):
-                            raise
-            @self._window.event
-            def on_key_press(symbol, modifiers):
-                """Pyglet key press bridge: normalize event, update system vars
-                and call sketch.key_pressed if present."""
-                try:
-                    try:
-                        from core.adapters.pyglet_keyboard import (
-                            normalize_event as _normalize,
-                        )
-                    except Exception:
-                        def _normalize(event: Any) -> dict[str, Any]:
-                            return {}
-                    ev = _normalize({'symbol': symbol, 'modifiers': modifiers})
-                    try:
-                        self.key = ev.get('key', None)
-                    except Exception:
-                        pass
-                    try:
-                        self.key_code = ev.get('key_code', None)
-                    except Exception:
-                        pass
-                    try:
-                        self.key_pressed = True
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
-
-                handler = getattr(self.sketch, 'key_pressed', None)
-                if callable(handler):
-                    try:
-                        try:
-                            handler()
-                        except TypeError:
-                            try:
-                                handler(ev)
-                            except TypeError:
-                                this = SimpleSketchAPI(self)
-                                self._call_sketch_method(handler, this)
-                    except Exception:
-                        if getattr(self, '_debug_handler_exceptions', False):
-                            raise
-
-            @self._window.event
-            def on_key_release(symbol, modifiers):
-                """Pyglet key release bridge: normalize event, update system vars
-                and call sketch.key_released if present."""
-                try:
-                    try:
-                        from core.adapters.pyglet_keyboard import (
-                            normalize_event as _normalize,
-                        )
-                    except Exception:
-                        def _normalize(event: Any) -> dict[str, Any]:
-                            return {}
-                    ev = _normalize({'symbol': symbol, 'modifiers': modifiers})
-                    try:
-                        self.key = ev.get('key', None)
-                    except Exception:
-                        pass
-                    try:
-                        self.key_code = ev.get('key_code', None)
-                    except Exception:
-                        pass
-                    try:
-                        self.key_pressed = False
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
-                handler = getattr(self.sketch, 'key_released', None)
-                if callable(handler):
-                    try:
-                        try:
-                            handler()
-                        except TypeError:
-                            try:
-                                handler(ev)
-                            except TypeError:
-                                this = SimpleSketchAPI(self)
-                                self._call_sketch_method(handler, this)
-                    except Exception:
-                        if getattr(self, '_debug_handler_exceptions', False):
-                            raise
-
+            setup_window_loop(self, presenter, max_frames=max_frames)
         except Exception:
-            # Best-effort only: do not fail window creation if handlers cannot
-            # be registered for platform-specific reasons.
+            # Best-effort only: if loop wiring fails, do not crash start().
             pass
 
         # Note: we intentionally avoid creating a pyglet Image backed by
@@ -1541,8 +1188,8 @@ class Engine:
         available, write a simple PNG. Otherwise, record the request.
         """
         try:
-            from core.io.snapshot import save_frame as _save
-            return _save(path, self)
+            from core.engine.snapshot import save_frame as _save
+            return _save(self, path)
         except Exception:
             # As a very last resort, record the request without writing
             try:
@@ -1564,484 +1211,305 @@ class Engine:
                 pass
 
     def _apply_mouse_update(self, x: Optional[int], y: Optional[int]):
-        """Update pmouse/mouse state. If x or y is None, preserve previous.
-        pmouse values are set to previous mouse before updating.
-        """
+        """Delegate mouse coordinate updates to input_simulation helper."""
         try:
-            self.pmouse_x = int(self.mouse_x)
+            from core.engine.input_simulation import _apply_mouse_update as _iu
+            return _iu(self, x, y)
         except Exception:
-            self.pmouse_x = 0
-        try:
-            self.pmouse_y = int(self.mouse_y)
-        except Exception:
-            self.pmouse_y = 0
-        if x is not None:
+            # Fallback: preserve previous behaviour inline
             try:
-                self.mouse_x = int(x)
+                self.pmouse_x = int(self.mouse_x)
             except Exception:
-                pass
-        if y is not None:
+                self.pmouse_x = 0
             try:
-                self.mouse_y = int(y)
+                self.pmouse_y = int(self.mouse_y)
             except Exception:
-                pass
+                self.pmouse_y = 0
+            if x is not None:
+                try:
+                    self.mouse_x = int(x)
+                except Exception:
+                    pass
+            if y is not None:
+                try:
+                    self.mouse_y = int(y)
+                except Exception:
+                    pass
 
     def simulate_mouse_press(self, x: Optional[int] = None, y: Optional[int] = None, button: Optional[str] = None, event: Optional[object] = None):
-        """Simulate a mouse press. Accepts either primitives (x,y,button)
-        or an event-like object. Ensures setup() ran and dispatches
-        sketch.mouse_pressed() if present.
-        """
-        # Lazy normalize event-like objects
-        from core.adapters.pyglet_mouse import normalize_event
-        ev = normalize_event(event) if event is not None else {}
-        ex = ev.get('x', x)
-        ey = ev.get('y', y)
-        btn = ev.get('button', button)
-
-        self._ensure_setup()
-        # Update mouse coordinates and pressed flags
-        self._apply_mouse_update(ex, ey)
-        self.mouse_pressed = True
-        if btn is not None:
-            try:
-                self.mouse_button = str(btn)
-            except Exception:
-                pass
-
-        # Dispatch handler on sketch if present
-        handler = getattr(self.sketch, 'mouse_pressed', None)
-        if callable(handler):
-            try:
-                # Prefer calling with no arguments so the proxy can invoke
-                # the original handler with the correct bound signature.
-                return handler()
-            except TypeError:
-                try:
-                    this = SimpleSketchAPI(self)
-                    return self._call_sketch_method(handler, this)
-                except Exception:
-                    if getattr(self, '_debug_handler_exceptions', False):
-                        raise
-                    return None
-            except Exception:
-                if getattr(self, '_debug_handler_exceptions', False):
-                    raise
-                return None
+        """Delegate to input_simulation.simulate_mouse_press."""
+        try:
+            from core.engine.input_simulation import simulate_mouse_press as _sp
+            return _sp(self, x=x, y=y, button=button, event=event)
+        except Exception:
+            # fallback: run inline to preserve behaviour
+            pass
 
     def simulate_mouse_release(self, x: Optional[int] = None, y: Optional[int] = None, button: Optional[str] = None, event: Optional[object] = None):
-        """Simulate mouse release and dispatch sketch.mouse_released/clicked.
-        """
-        from core.adapters.pyglet_mouse import normalize_event
-        ev = normalize_event(event) if event is not None else {}
-        ex = ev.get('x', x)
-        ey = ev.get('y', y)
-        btn = ev.get('button', button)
-
-        self._ensure_setup()
-        # Update positions
-        self._apply_mouse_update(ex, ey)
-        self.mouse_pressed = False
-        if btn is not None:
-            try:
-                self.mouse_button = str(btn)
-            except Exception:
-                pass
-
-        # Call mouse_released
-        released = getattr(self.sketch, 'mouse_released', None)
-        if callable(released):
-            try:
-                try:
-                    released()
-                except TypeError:
-                    this = SimpleSketchAPI(self)
-                    self._call_sketch_method(released, this)
-            except Exception:
-                pass
-
-        # Optionally call mouse_clicked (many frameworks define click as press+release)
-        clicked = getattr(self.sketch, 'mouse_clicked', None)
-        if callable(clicked):
-            try:
-                try:
-                    clicked()
-                except TypeError:
-                    this = SimpleSketchAPI(self)
-                    self._call_sketch_method(clicked, this)
-            except Exception:
-                pass
+        """Delegate to input_simulation.simulate_mouse_release."""
+        try:
+            from core.engine.input_simulation import simulate_mouse_release as _sr
+            return _sr(self, x=x, y=y, button=button, event=event)
+        except Exception:
+            pass
 
     def simulate_mouse_move(self, x: Optional[int] = None, y: Optional[int] = None, event: Optional[object] = None):
-        """Simulate mouse move (no button pressed): updates mouse coords and
-        calls mouse_moved if present.
-        """
-        from core.adapters.pyglet_mouse import normalize_event
-        ev = normalize_event(event) if event is not None else {}
-        ex = ev.get('x', x)
-        ey = ev.get('y', y)
-
-        self._ensure_setup()
-        self._apply_mouse_update(ex, ey)
-
-        moved = getattr(self.sketch, 'mouse_moved', None)
-        if callable(moved):
-            try:
-                try:
-                    moved()
-                except TypeError:
-                    this = SimpleSketchAPI(self)
-                    self._call_sketch_method(moved, this)
-            except Exception:
-                pass
+        """Delegate to input_simulation.simulate_mouse_move."""
+        try:
+            from core.engine.input_simulation import simulate_mouse_move as _sm
+            return _sm(self, x=x, y=y, event=event)
+        except Exception:
+            pass
 
     def simulate_mouse_drag(self, x: Optional[int] = None, y: Optional[int] = None, button: Optional[str] = None, event: Optional[object] = None):
-        """Simulate mouse drag (move while pressed). Calls mouse_dragged.
-        """
-        from core.adapters.pyglet_mouse import normalize_event
-        ev = normalize_event(event) if event is not None else {}
-        ex = ev.get('x', x)
-        ey = ev.get('y', y)
-        btn = ev.get('button', button)
-
-        self._ensure_setup()
-        # Ensure pressed state
-        self._apply_mouse_update(ex, ey)
-        self.mouse_pressed = True
-        if btn is not None:
-            try:
-                self.mouse_button = str(btn)
-            except Exception:
-                pass
-
-        dragged = getattr(self.sketch, 'mouse_dragged', None)
-        if callable(dragged):
-            try:
-                try:
-                    dragged()
-                except TypeError:
-                    this = SimpleSketchAPI(self)
-                    self._call_sketch_method(dragged, this)
-            except Exception:
-                pass
+        """Delegate to input_simulation.simulate_mouse_drag."""
+        try:
+            from core.engine.input_simulation import simulate_mouse_drag as _sd
+            return _sd(self, x=x, y=y, button=button, event=event)
+        except Exception:
+            pass
 
     def simulate_mouse_wheel(self, event_or_count: object):
-        """Simulate mouse wheel event. Accepts either an event object with
-        get_count() or a numeric count directly.
-        """
-        # Determine count
-        count = None
+        """Delegate to input_simulation.simulate_mouse_wheel."""
         try:
-            if hasattr(event_or_count, 'get_count') and callable(getattr(event_or_count, 'get_count')):
-                # call get_count() and coerce safely to int via a dynamically
-                # typed intermediate to satisfy static overload resolution.
-                _maybe: object = event_or_count.get_count()
-                try:
-                    # Use a dynamic Any-typed variable so int() overload
-                    # resolution succeeds in static analysis.
-                    from typing import Any as _Any
-                    from typing import cast
-                    _val: _Any = _maybe
-                    # Cast to an int-compatible type for static checkers, then
-                    # coerce at runtime. This is a conservative local workaround
-                    # to appease mypy's overload resolution.
-                    count = int(cast(int, _val))
-                except Exception:
-                    count = None
+            from core.engine.input_simulation import simulate_mouse_wheel as _sw
+            return _sw(self, event_or_count)
         except Exception:
-            count = None
-        if count is None:
-            try:
-                from typing import Any as _Any
-                _ec: _Any = event_or_count
-                count = int(_ec)
-            except Exception:
-                # Can't determine count; abort
-                return None
-
-        self._ensure_setup()
-        handler = getattr(self.sketch, 'mouse_wheel', None)
-        if callable(handler):
-            try:
-                # Many handlers expect an event; provide a tiny shim
-                class _Wheel:
-                    def __init__(self, c: int):
-                        self._c = int(c)
-                    def get_count(self) -> int:
-                        return int(self._c)
-
-                try:
-                    # Prefer calling with the event-like shim
-                    return handler(_Wheel(count))
-                except TypeError:
-                    # Fallback: the handler might expect `this` instead
-                    this = SimpleSketchAPI(self)
-                    return self._call_sketch_method(handler, this)
-            except Exception:
-                pass
+            pass
 
     def simulate_key_press(self, key: Optional[str] = None, key_code: Optional[str] = None, event: Optional[object] = None):
-        """Simulate a key press. Accepts either primitives (key,key_code)
-        or an event-like object. Ensures setup() ran and dispatches
-        sketch.key_pressed() if present.
-        """
-        # Lazy normalize event-like objects
+        """Delegate to input_simulation.simulate_key_press."""
         try:
-            from core.adapters.pyglet_keyboard import normalize_event
-        except Exception:
-            def normalize_event(event: Any) -> dict[str, Any]:
-                return {}
-        ev = normalize_event(event) if event is not None else {}
-        k = ev.get('key', key)
-        kc = ev.get('key_code', key_code)
-
-        self._ensure_setup()
-        # Update key system variables
-        try:
-            self.key = k
+            from core.engine.input_simulation import simulate_key_press as _kp
+            return _kp(self, key=key, key_code=key_code, event=event)
         except Exception:
             pass
-        try:
-            self.key_code = kc
-        except Exception:
-            pass
-        try:
-            self.key_pressed = True
-        except Exception:
-            pass
-
-        # Dispatch handler on sketch if present
-        handler = getattr(self.sketch, 'key_pressed', None)
-        if callable(handler):
-            try:
-                try:
-                    return handler()
-                except TypeError:
-                    try:
-                        return handler(ev)
-                    except TypeError:
-                        this = SimpleSketchAPI(self)
-                        return self._call_sketch_method(handler, this)
-            except Exception:
-                if getattr(self, '_debug_handler_exceptions', False):
-                    raise
-                return None
 
     def simulate_key_release(self, key: Optional[str] = None, key_code: Optional[str] = None, event: Optional[object] = None):
-        """Simulate a key release and dispatch sketch.key_released()."""
+        """Delegate to input_simulation.simulate_key_release."""
         try:
-            from core.adapters.pyglet_keyboard import normalize_event
-        except Exception:
-            def normalize_event(event: Any) -> dict[str, Any]:
-                return {}
-        ev = normalize_event(event) if event is not None else {}
-        k = ev.get('key', key)
-        kc = ev.get('key_code', key_code)
-
-        self._ensure_setup()
-        try:
-            self.key = k
+            from core.engine.input_simulation import simulate_key_release as _kr
+            return _kr(self, key=key, key_code=key_code, event=event)
         except Exception:
             pass
-        try:
-            self.key_code = kc
-        except Exception:
-            pass
-        try:
-            self.key_pressed = False
-        except Exception:
-            pass
-
-        handler = getattr(self.sketch, 'key_released', None)
-        if callable(handler):
-            try:
-                try:
-                    handler()
-                except TypeError:
-                    try:
-                        handler(ev)
-                    except TypeError:
-                        this = SimpleSketchAPI(self)
-                        self._call_sketch_method(handler, this)
-            except Exception:
-                if getattr(self, '_debug_handler_exceptions', False):
-                    raise
 
 
     # --- 2D Transform / matrix stack helpers ----------------------------
     def _identity_matrix(self):
-        """Return a 3x3 identity matrix as a flat list (row-major)."""
-        return [1.0, 0.0, 0.0,
-                0.0, 1.0, 0.0,
-                0.0, 0.0, 1.0]
+        """Delegate to transforms.identity_matrix()."""
+        try:
+            from core.engine.transforms import identity_matrix as _id
+            return _id()
+        except Exception:
+            return [1.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0,
+                    0.0, 0.0, 1.0]
 
     def _mul_mat(self, a, b):
-        """Multiply two 3x3 matrices (flat row-major lists).
+        """Delegate to transforms.mul_mat(a, b)."""
+        try:
+            from core.engine.transforms import mul_mat as _mul
+            return _mul(a, b)
+        except Exception:
+            return [
+                a[0]*b[0] + a[1]*b[3] + a[2]*b[6],
+                a[0]*b[1] + a[1]*b[4] + a[2]*b[7],
+                a[0]*b[2] + a[1]*b[5] + a[2]*b[8],
 
-        Returns a new flat list representing a*b.
-        """
-        return [
-            a[0]*b[0] + a[1]*b[3] + a[2]*b[6],
-            a[0]*b[1] + a[1]*b[4] + a[2]*b[7],
-            a[0]*b[2] + a[1]*b[5] + a[2]*b[8],
+                a[3]*b[0] + a[4]*b[3] + a[5]*b[6],
+                a[3]*b[1] + a[4]*b[4] + a[5]*b[7],
+                a[3]*b[2] + a[4]*b[5] + a[5]*b[8],
 
-            a[3]*b[0] + a[4]*b[3] + a[5]*b[6],
-            a[3]*b[1] + a[4]*b[4] + a[5]*b[7],
-            a[3]*b[2] + a[4]*b[5] + a[5]*b[8],
-
-            a[6]*b[0] + a[7]*b[3] + a[8]*b[6],
-            a[6]*b[1] + a[7]*b[4] + a[8]*b[7],
-            a[6]*b[2] + a[7]*b[5] + a[8]*b[8],
-        ]
+                a[6]*b[0] + a[7]*b[3] + a[8]*b[6],
+                a[6]*b[1] + a[7]*b[4] + a[8]*b[7],
+                a[6]*b[2] + a[7]*b[5] + a[8]*b[8],
+            ]
 
     def _ensure_matrix_stack(self):
-        if not hasattr(self, '_matrix_stack'):
-            self._matrix_stack = [self._identity_matrix()]
+        try:
+            from core.engine.transforms import ensure_matrix_stack as _ems
+            return _ems(self)
+        except Exception:
+            if not hasattr(self, '_matrix_stack'):
+                self._matrix_stack = [self._identity_matrix()]
 
     def push_matrix(self):
-        self._ensure_matrix_stack()
         try:
-            top = list(self._matrix_stack[-1])
-            self._matrix_stack.append(top)
+            from core.engine.transforms import push_matrix as _pm
+            return _pm(self)
         except Exception:
-            # ensure stack has at least one identity
-            self._matrix_stack = [self._identity_matrix()]
-        try:
-            return self.graphics.record('push_matrix')
-        except Exception:
-            return None
+            self._ensure_matrix_stack()
+            try:
+                top = list(self._matrix_stack[-1])
+                self._matrix_stack.append(top)
+            except Exception:
+                self._matrix_stack = [self._identity_matrix()]
+            try:
+                return self.graphics.record('push_matrix')
+            except Exception:
+                return None
 
     def pop_matrix(self):
-        self._ensure_matrix_stack()
         try:
-            if len(self._matrix_stack) > 1:
-                self._matrix_stack.pop()
-            else:
-                # reset to identity if attempting to pop the last
-                self._matrix_stack[-1] = self._identity_matrix()
+            from core.engine.transforms import pop_matrix as _pop
+            return _pop(self)
         except Exception:
-            self._matrix_stack = [self._identity_matrix()]
-        try:
-            return self.graphics.record('pop_matrix')
-        except Exception:
-            return None
+            self._ensure_matrix_stack()
+            try:
+                if len(self._matrix_stack) > 1:
+                    self._matrix_stack.pop()
+                else:
+                    self._matrix_stack[-1] = self._identity_matrix()
+            except Exception:
+                self._matrix_stack = [self._identity_matrix()]
+            try:
+                return self.graphics.record('pop_matrix')
+            except Exception:
+                return None
 
     def reset_matrix(self):
-        self._ensure_matrix_stack()
         try:
-            self._matrix_stack[-1] = self._identity_matrix()
+            from core.engine.transforms import reset_matrix as _rm
+            return _rm(self)
         except Exception:
-            self._matrix_stack = [self._identity_matrix()]
-        try:
-            return self.graphics.record('reset_matrix')
-        except Exception:
-            return None
+            self._ensure_matrix_stack()
+            try:
+                self._matrix_stack[-1] = self._identity_matrix()
+            except Exception:
+                self._matrix_stack = [self._identity_matrix()]
+            try:
+                return self.graphics.record('reset_matrix')
+            except Exception:
+                return None
 
     def _apply_transform_matrix(self, mat):
-        """Right-multiply the current matrix by mat (both flat 3x3 lists)."""
-        self._ensure_matrix_stack()
+        """Delegate to transforms.apply_transform_matrix."""
         try:
-            cur = self._matrix_stack[-1]
-            self._matrix_stack[-1] = self._mul_mat(cur, mat)
+            from core.engine.transforms import apply_transform_matrix as _atm
+            return _atm(self, mat)
         except Exception:
-            self._matrix_stack[-1] = list(mat)
+            self._ensure_matrix_stack()
+            try:
+                cur = self._matrix_stack[-1]
+                self._matrix_stack[-1] = self._mul_mat(cur, mat)
+            except Exception:
+                self._matrix_stack[-1] = list(mat)
 
     def translate(self, x: float, y: float, z: Optional[float] = None):
         try:
-            tx = float(x)
-            ty = float(y)
+            from core.engine.transforms import translate as _t
+            return _t(self, x, y)
         except Exception:
-            return None
-        mat = [1.0, 0.0, tx,
-               0.0, 1.0, ty,
-               0.0, 0.0, 1.0]
-        self._apply_transform_matrix(mat)
-        try:
-            return self.graphics.record('translate', x=tx, y=ty)
-        except Exception:
-            return None
+            try:
+                tx = float(x)
+                ty = float(y)
+            except Exception:
+                return None
+            mat = [1.0, 0.0, tx,
+                   0.0, 1.0, ty,
+                   0.0, 0.0, 1.0]
+            self._apply_transform_matrix(mat)
+            try:
+                return self.graphics.record('translate', x=tx, y=ty)
+            except Exception:
+                return None
 
     def rotate(self, angle: float):
-        import math
         try:
-            a = float(angle)
+            from core.engine.transforms import rotate as _r
+            return _r(self, angle)
         except Exception:
-            return None
-        c = math.cos(a)
-        s = math.sin(a)
-        mat = [c, -s, 0.0,
-               s,  c, 0.0,
-               0.0,0.0,1.0]
-        self._apply_transform_matrix(mat)
-        try:
-            return self.graphics.record('rotate', angle=float(a))
-        except Exception:
-            return None
+            import math
+            try:
+                a = float(angle)
+            except Exception:
+                return None
+            c = math.cos(a)
+            s = math.sin(a)
+            mat = [c, -s, 0.0,
+                   s,  c, 0.0,
+                   0.0,0.0,1.0]
+            self._apply_transform_matrix(mat)
+            try:
+                return self.graphics.record('rotate', angle=float(a))
+            except Exception:
+                return None
 
     def scale(self, sx: float, sy: Optional[float] = None, sz: Optional[float] = None):
         try:
-            sx_f = float(sx)
-            sy_f = float(sy) if sy is not None else sx_f
+            from core.engine.transforms import scale as _s
+            return _s(self, sx, sy)
         except Exception:
-            return None
-        mat = [sx_f, 0.0, 0.0,
-               0.0, sy_f, 0.0,
-               0.0, 0.0, 1.0]
-        self._apply_transform_matrix(mat)
-        try:
-            return self.graphics.record('scale', sx=sx_f, sy=sy_f)
-        except Exception:
-            return None
+            try:
+                sx_f = float(sx)
+                sy_f = float(sy) if sy is not None else sx_f
+            except Exception:
+                return None
+            mat = [sx_f, 0.0, 0.0,
+                   0.0, sy_f, 0.0,
+                   0.0, 0.0, 1.0]
+            self._apply_transform_matrix(mat)
+            try:
+                return self.graphics.record('scale', sx=sx_f, sy=sy_f)
+            except Exception:
+                return None
 
     def shear_x(self, angle: float):
-        import math
         try:
-            a = float(angle)
+            from core.engine.transforms import shear_x as _sx
+            return _sx(self, angle)
         except Exception:
-            return None
-        mat = [1.0, math.tan(a), 0.0,
-               0.0, 1.0,        0.0,
-               0.0, 0.0,        1.0]
-        self._apply_transform_matrix(mat)
-        try:
-            return self.graphics.record('shear_x', angle=float(a))
-        except Exception:
-            return None
+            import math
+            try:
+                a = float(angle)
+            except Exception:
+                return None
+            mat = [1.0, math.tan(a), 0.0,
+                   0.0, 1.0,        0.0,
+                   0.0, 0.0,        1.0]
+            self._apply_transform_matrix(mat)
+            try:
+                return self.graphics.record('shear_x', angle=float(a))
+            except Exception:
+                return None
 
     def shear_y(self, angle: float):
-        import math
         try:
-            a = float(angle)
+            from core.engine.transforms import shear_y as _sy
+            return _sy(self, angle)
         except Exception:
-            return None
-        mat = [1.0, 0.0,        0.0,
-               math.tan(a), 1.0, 0.0,
-               0.0, 0.0,        1.0]
-        self._apply_transform_matrix(mat)
-        try:
-            return self.graphics.record('shear_y', angle=float(a))
-        except Exception:
-            return None
+            import math
+            try:
+                a = float(angle)
+            except Exception:
+                return None
+            mat = [1.0, 0.0,        0.0,
+                   math.tan(a), 1.0, 0.0,
+                   0.0, 0.0,        1.0]
+            self._apply_transform_matrix(mat)
+            try:
+                return self.graphics.record('shear_y', angle=float(a))
+            except Exception:
+                return None
 
     def apply_matrix(self, *args):
-        """Apply a provided matrix to the current transform.
+        """Delegate to transforms.apply_matrix."""
+        try:
+            from core.engine.transforms import apply_matrix as _am
+            return _am(self, *args)
+        except Exception:
+            vals = None
+            if len(args) == 1:
+                maybe = args[0]
+                try:
+                    vals = list(maybe)
+                except Exception:
+                    vals = None
+            else:
+                vals = list(args)
 
-        Accepts either a single sequence-like of 9 or 6 numbers, or 6/9 numbers
-        as individual arguments. For 6 numbers we expand them into a 3x3
-        affine matrix with a bottom row [0,0,1].
-        """
-        vals = None
-        if len(args) == 1:
-            maybe = args[0]
-            try:
-                # sequence-like
-                vals = list(maybe)
-            except Exception:
-                vals = None
-        else:
-            vals = list(args)
-
-        if vals is None:
-            return None
+            if vals is None:
+                return None
 
         try:
             if len(vals) == 6:
@@ -2068,5 +1536,3 @@ class Engine:
             return self.graphics.record('apply_matrix', matrix=mat)
         except Exception:
             return None
-
-

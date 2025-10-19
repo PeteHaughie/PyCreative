@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .impl import Engine
+    from ..impl import Engine
 
 
 class SimpleSketchAPI:

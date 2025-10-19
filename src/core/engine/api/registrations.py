@@ -1,7 +1,8 @@
-"""Small helpers to keep Engine.__init__ lean: register shape and random APIs.
+"""Engine API registrations moved into the api package.
 
-This module centralizes third-party or optional API registrations so the
-main Engine implementation stays compact and easier to review.
+This module contains helpers that register shape, random, and math
+functions onto an Engine's APIRegistry. It was moved from
+``core.engine.registrations`` to keep engine internals organized.
 """
 from typing import Any
 
@@ -87,55 +88,4 @@ def register_math(engine: Any):
                 target_name = name.rstrip('_')
                 engine.api.register(target_name, lambda *a, _n=name, **k: getattr(_m, _n)(*a, **k))
     except Exception:
-        pass
-
-
-def register_state_apis(engine: Any):
-    """Register simple color and stroke related APIs on the engine.
-
-    These functions mutate engine state (fill_color, stroke_color,
-    stroke_weight) and record corresponding graphics commands so sketches
-    that call `fill()`, `stroke()`, etc continue to work in headless
-    mode.
-    """
-    try:
-        def _rec_fill(rgba):
-            engine.fill_color = tuple(int(x) for x in rgba)
-            return engine.graphics.record('fill', color=engine.fill_color, fill_alpha=getattr(engine, 'fill_alpha', None))
-
-        def _rec_stroke(rgba):
-            engine.stroke_color = tuple(int(x) for x in rgba)
-            return engine.graphics.record('stroke', color=engine.stroke_color, stroke_alpha=getattr(engine, 'stroke_alpha', None))
-
-        def _rec_no_fill():
-            engine.fill_color = None
-            try:
-                return engine.graphics.record('no_fill')
-            except Exception:
-                return None
-
-        def _rec_no_stroke():
-            engine.stroke_color = None
-            try:
-                return engine.graphics.record('no_stroke')
-            except Exception:
-                return None
-
-        def _rec_stroke_weight(w):
-            engine.stroke_weight = int(w)
-            return engine.graphics.record('stroke_weight', weight=int(w))
-
-        try:
-            engine.api.register('fill', _rec_fill)
-            engine.api.register('stroke', _rec_stroke)
-            engine.api.register('stroke_weight', _rec_stroke_weight)
-            try:
-                engine.api.register('no_fill', lambda *a, **k: _rec_no_fill())
-                engine.api.register('no_stroke', lambda *a, **k: _rec_no_stroke())
-            except Exception:
-                pass
-        except Exception:
-            pass
-    except Exception:
-        # Best-effort only
         pass

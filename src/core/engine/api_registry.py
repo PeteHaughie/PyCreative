@@ -1,14 +1,11 @@
-from typing import Callable, Dict, Optional
+"""Compatibility shim: re-export APIRegistry from the new api package.
 
+This module previously contained the APIRegistry implementation directly
+but was moved into ``core.engine.api.registry`` during the package
+reorganization. Keep this shim to preserve the old import path while
+consumers migrate.
+"""
 
-class APIRegistry:
-    """Small registry for sketch API functions (rect, line, etc.)."""
+from .api.registry import APIRegistry
 
-    def __init__(self):
-        self._map: Dict[str, Callable] = {}
-
-    def register(self, name: str, fn: Callable):
-        self._map[name] = fn
-
-    def get(self, name: str) -> Optional[Callable]:
-        return self._map.get(name)
+__all__ = ["APIRegistry"]
