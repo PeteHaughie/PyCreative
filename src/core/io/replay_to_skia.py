@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 import os
+import logging
 
 
 def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
@@ -17,6 +18,7 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
     except Exception:
         raise
     dbg = os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1'
+    logger = logging.getLogger(__name__)
     # Maintain a simple drawing state so sequential ops like `fill()` and
     # `stroke()` affect later `shape` commands. This mirrors how sketches
     # set a current fill/stroke before emitting vertices.
@@ -25,8 +27,10 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
     current_stroke = None
     current_stroke_alpha = None
     current_stroke_weight = 1.0
+    current_stroke_cap = None
+    current_stroke_join = None
 
-    def _make_paint_from_color(col, fill=True, stroke_weight=1.0, alpha=None):
+    def _make_paint_from_color(col, fill=True, stroke_weight=1.0, alpha=None, cap=None, join=None):
         p = skia.Paint()
         p.setAntiAlias(True)
         if fill:
@@ -64,6 +68,36 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
                     p.setColor(int(v*255))
         except Exception:
             pass
+        # Apply stroke cap/join if requested (mapping to Skia enums)
+        try:
+            if (not fill) and cap is not None:
+                try:
+                    from core.shape.stroke_utils import map_stroke_cap
+                    mc = map_stroke_cap(skia, cap)
+                    if mc is not None:
+                        p.setStrokeCap(mc)
+                        if dbg:
+                            try:
+                                logger.debug("_make_paint_from_color applied stroke cap mapping: input=%s mapped=%s", cap, mc)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+            if (not fill) and join is not None:
+                try:
+                    from core.shape.stroke_utils import map_stroke_join
+                    mj = map_stroke_join(skia, join)
+                    if mj is not None:
+                        p.setStrokeJoin(mj)
+                        if dbg:
+                            try:
+                                logger.debug("_make_paint_from_color applied stroke join mapping: input=%s mapped=%s", join, mj)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
         return p
 
     for cmd in commands:
@@ -72,7 +106,7 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
         try:
             if dbg:
                 try:
-                    print(f"Lifecycle debug: replay_to_skia op={op} args={args}")
+                    logger.debug("replay_to_skia op=%s args=%s", op, args)
                 except Exception:
                     pass
         except Exception:
@@ -239,38 +273,16 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
                 stroke = args.get('stroke')
                 sw = float(args.get('stroke_weight', 1) or 1)
                 if fill is not None:
-                    p = skia.Paint()
-                    p.setAntiAlias(True)
-                    if isinstance(fill, (tuple, list)):
-                        r, g, b = [float(v)/255.0 for v in fill[:3]]
-                        try:
-                            p.setColor(skia.Color4f(r, g, b, 1.0))
-                        except Exception:
-                            p.setColor((int(r*255)<<16)|(int(g*255)<<8)|int(b*255))
-                    else:
-                        v = float(fill)/255.0
-                        try:
-                            p.setColor(skia.Color4f(v, v, v, 1.0))
-                        except Exception:
-                            p.setColor(int(v*255))
+                    eff_fill = fill
+                    eff_fill_alpha = args.get('fill_alpha', None)
+                    p = _make_paint_from_color(eff_fill, fill=True, alpha=eff_fill_alpha)
                     canvas.drawRect(skia.Rect.MakeLTRB(x, y, x + w, y + h), p)
                 if stroke is not None and sw > 0:
-                    p = skia.Paint()
-                    p.setStyle(skia.Paint.kStroke_Style)
-                    p.setStrokeWidth(sw)
-                    p.setAntiAlias(True)
-                    if isinstance(stroke, (tuple, list)):
-                        r, g, b = [float(v)/255.0 for v in stroke[:3]]
-                        try:
-                            p.setColor(skia.Color4f(r, g, b, 1.0))
-                        except Exception:
-                            p.setColor((int(r*255)<<16)|(int(g*255)<<8)|int(b*255))
-                    else:
-                        v = float(stroke)/255.0
-                        try:
-                            p.setColor(skia.Color4f(v, v, v, 1.0))
-                        except Exception:
-                            p.setColor(int(v*255))
+                    eff_stroke = stroke
+                    eff_stroke_alpha = args.get('stroke_alpha', None)
+                    eff_cap = args.get('stroke_cap', None) or current_stroke_cap
+                    eff_join = args.get('stroke_join', None) or current_stroke_join
+                    p = _make_paint_from_color(eff_stroke, fill=False, stroke_weight=sw, alpha=eff_stroke_alpha, cap=eff_cap, join=eff_join)
                     canvas.drawRect(skia.Rect.MakeLTRB(x, y, x + w, y + h), p)
             elif op == 'circle':
                 x = float(args.get('x', 0))
@@ -281,47 +293,23 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
                 sw = float(args.get('stroke_weight', 1) or 1)
                 # fill
                 if fill is not None:
-                    p = skia.Paint()
-                    p.setAntiAlias(True)
-                    p.setStyle(skia.Paint.kFill_Style)
-                    if isinstance(fill, (tuple, list)):
-                        rr, gg, bb = [float(v)/255.0 for v in fill[:3]]
-                        try:
-                            p.setColor(skia.Color4f(rr, gg, bb, 1.0))
-                        except Exception:
-                            p.setColor((int(rr*255)<<16)|(int(gg*255)<<8)|int(bb*255))
-                    else:
-                        v = float(fill)/255.0
-                        try:
-                            p.setColor(skia.Color4f(v, v, v, 1.0))
-                        except Exception:
-                            p.setColor(int(v*255))
+                    eff_fill = fill
+                    eff_fill_alpha = args.get('fill_alpha', None)
+                    p = _make_paint_from_color(eff_fill, fill=True, alpha=eff_fill_alpha)
                     try:
                         canvas.drawCircle(x, y, r/2.0, p)
                     except Exception:
                         try:
-                            # fallback: drawOval using Rect
                             canvas.drawOval(skia.Rect.MakeLTRB(x - r/2.0, y - r/2.0, x + r/2.0, y + r/2.0), p)
                         except Exception:
                             pass
                 # stroke
                 if stroke is not None and sw > 0:
-                    p = skia.Paint()
-                    p.setStyle(skia.Paint.kStroke_Style)
-                    p.setStrokeWidth(sw)
-                    p.setAntiAlias(True)
-                    if isinstance(stroke, (tuple, list)):
-                        rr, gg, bb = [float(v)/255.0 for v in stroke[:3]]
-                        try:
-                            p.setColor(skia.Color4f(rr, gg, bb, 1.0))
-                        except Exception:
-                            p.setColor((int(rr*255)<<16)|(int(gg*255)<<8)|int(bb*255))
-                    else:
-                        v = float(stroke)/255.0
-                        try:
-                            p.setColor(skia.Color4f(v, v, v, 1.0))
-                        except Exception:
-                            p.setColor(int(v*255))
+                    eff_stroke = stroke
+                    eff_stroke_alpha = args.get('stroke_alpha', None)
+                    eff_cap = args.get('stroke_cap', None) or current_stroke_cap
+                    eff_join = args.get('stroke_join', None) or current_stroke_join
+                    p = _make_paint_from_color(eff_stroke, fill=False, stroke_weight=sw, alpha=eff_stroke_alpha, cap=eff_cap, join=eff_join)
                     try:
                         canvas.drawCircle(x, y, r/2.0, p)
                     except Exception:
@@ -352,22 +340,22 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
                 # to fill semantics for `point` — this matches the Processing
                 # behavior expected by users: points are stroke-driven.
                 if eff_stroke is not None:
-                    p = skia.Paint()
-                    p.setAntiAlias(True)
-                    p.setStyle(skia.Paint.kFill_Style)
-                    if isinstance(eff_stroke, (tuple, list)):
-                        rr, gg, bb = [float(v)/255.0 for v in eff_stroke[:3]]
-                        try:
-                            p.setColor(skia.Color4f(rr, gg, bb, 1.0))
-                        except Exception:
-                            p.setColor((int(rr*255)<<16)|(int(gg*255)<<8)|int(bb*255))
-                    else:
-                        v = float(eff_stroke)/255.0
-                        try:
-                            p.setColor(skia.Color4f(v, v, v, 1.0))
-                        except Exception:
-                            p.setColor(int(v*255))
+                    eff_stroke_alpha = args.get('stroke_alpha', None) or current_stroke_alpha
+                    eff_cap = args.get('stroke_cap', None) or current_stroke_cap
+                    eff_join = args.get('stroke_join', None) or current_stroke_join
+                    # Use stroke-style paint so stroke caps/join apply to points
+                    p = _make_paint_from_color(eff_stroke, fill=False, stroke_weight=sw, alpha=eff_stroke_alpha, cap=eff_cap, join=eff_join)
                     try:
+                        # If dbg, log the cap/join applied (the helper also logs, but inline paints
+                        # which set cap/join directly may reach here in other branches.)
+                        if dbg:
+                            try:
+                                from core.shape.stroke_utils import map_stroke_cap, map_stroke_join
+                                mc = map_stroke_cap(skia, eff_cap)
+                                mj = map_stroke_join(skia, eff_join)
+                                logger.debug("point draw applying cap=%s mapped=%s join=%s mapped=%s stroke_w=%s", eff_cap, mc, eff_join, mj, sw)
+                            except Exception:
+                                pass
                         canvas.drawCircle(x, y, r, p)
                     except Exception:
                         pass
@@ -376,6 +364,29 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
                 current_fill = args.get('color') or args.get('fill') or None
                 # keep alpha information for later paint construction
                 current_fill_alpha = args.get('fill_alpha', None)
+                continue
+            elif op == 'stroke_cap':
+                # record the stroke cap for later paint construction
+                try:
+                    current_stroke_cap = args.get('cap')
+                    if dbg:
+                        try:
+                            logger.debug("recorded stroke_cap op value=%s", current_stroke_cap)
+                        except Exception:
+                            pass
+                except Exception:
+                    current_stroke_cap = None
+                continue
+            elif op == 'stroke_join':
+                try:
+                    current_stroke_join = args.get('join')
+                    if dbg:
+                        try:
+                            logger.debug("recorded stroke_join op value=%s", current_stroke_join)
+                        except Exception:
+                            pass
+                except Exception:
+                    current_stroke_join = None
                 continue
             elif op == 'no_fill':
                 current_fill = None
@@ -512,6 +523,29 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
                     p.setStyle(skia.Paint.kStroke_Style)
                     p.setStrokeWidth(sw)
                     p.setAntiAlias(True)
+                    # apply any recorded cap/join from args or current state
+                    try:
+                        eff_cap = args.get('stroke_cap', None) or current_stroke_cap
+                        eff_join = args.get('stroke_join', None) or current_stroke_join
+                        from core.shape.stroke_utils import map_stroke_cap, map_stroke_join
+                        mc = map_stroke_cap(skia, eff_cap)
+                        if dbg:
+                            try:
+                                logger.debug("ellipse mapping cap=%s -> %s", eff_cap, mc)
+                            except Exception:
+                                pass
+                        if mc is not None:
+                            p.setStrokeCap(mc)
+                        mj = map_stroke_join(skia, eff_join)
+                        if dbg:
+                            try:
+                                logger.debug("ellipse mapping join=%s -> %s", eff_join, mj)
+                            except Exception:
+                                pass
+                        if mj is not None:
+                            p.setStrokeJoin(mj)
+                    except Exception:
+                        pass
                     if isinstance(stroke, (tuple, list)):
                         rr, gg, bb = [float(v)/255.0 for v in stroke[:3]]
                         try:
@@ -551,6 +585,29 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
                         p.setColor(skia.Color4f(v, v, v, 1.0))
                     except Exception:
                         p.setColor(int(v*255))
+                # apply cap/join if present
+                try:
+                    from core.shape.stroke_utils import map_stroke_cap, map_stroke_join
+                    eff_cap = args.get('stroke_cap', None) or current_stroke_cap
+                    eff_join = args.get('stroke_join', None) or current_stroke_join
+                    mc = map_stroke_cap(skia, eff_cap)
+                    if dbg:
+                        try:
+                            logger.debug("line mapping cap=%s -> %s", eff_cap, mc)
+                        except Exception:
+                            pass
+                    if mc is not None:
+                        p.setStrokeCap(mc)
+                    mj = map_stroke_join(skia, eff_join)
+                    if dbg:
+                        try:
+                            logger.debug("line mapping join=%s -> %s", eff_join, mj)
+                        except Exception:
+                            pass
+                    if mj is not None:
+                        p.setStrokeJoin(mj)
+                except Exception:
+                    pass
                 canvas.drawLine(x1, y1, x2, y2, p)
         except Exception:
             # best-effort: ignore commands that fail to draw

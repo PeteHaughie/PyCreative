@@ -1301,18 +1301,19 @@ class Engine:
             except Exception:
                 pass
         try:
-            if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                try:
-                    import threading
-                    ths = threading.enumerate()
-                    print('Lifecycle debug: threads after pyglet.app.run returned:')
-                    for t in ths:
-                        try:
-                            print('  ', t.name, 'daemon=', t.daemon)
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
+                if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                    try:
+                        import logging, threading
+                        logger = logging.getLogger(__name__)
+                        ths = threading.enumerate()
+                        logger.debug('threads after pyglet.app.run returned:')
+                        for t in ths:
+                            try:
+                                logger.debug('  %s daemon=%s', t.name, t.daemon)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
         except Exception:
             pass
         try:

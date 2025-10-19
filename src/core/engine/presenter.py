@@ -70,14 +70,16 @@ def render_and_present(
 
         if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
             try:
-                print('Lifecycle debug: render_and_present: presenting', len(list(cmds)), 'cmds')
+                import logging
+                logging.getLogger(__name__).debug('render_and_present: presenting %s cmds', len(list(cmds)))
             except Exception:
                 pass
         presenter.render_commands(list(cmds), replay_fn)
 
         if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
             try:
-                print('Lifecycle debug: render_and_present: calling present()')
+                import logging
+                logging.getLogger(__name__).debug('render_and_present: calling present()')
             except Exception:
                 pass
         presenter.present()

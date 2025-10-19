@@ -154,3 +154,13 @@ def __dir__():
 # Public shims
 # previously the public shim functions were defined below; they are now
 # replaced by the explicit implementations above.
+
+# Public constants for stroke caps/joins (documented API helpers).
+# Values are strings so examples can use the names unquoted and the
+# replayer/mapping helpers accept them.
+PROJECT = 'PROJECT'
+SQUARE = 'SQUARE'
+ROUND = 'ROUND'
+
+MITER = 'MITER'
+BEVEL = 'BEVEL'

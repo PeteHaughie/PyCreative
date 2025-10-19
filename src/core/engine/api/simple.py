@@ -267,6 +267,24 @@ class SimpleSketchAPI:
     def stroke_weight(self, w: int):
         self._engine.stroke_weight = int(w)
 
+    def stroke_cap(self, cap):
+        """Set stroke cap style (PROJECT, SQUARE, ROUND)."""
+        try:
+            fn = self._engine.api.get('stroke_cap')
+            if fn:
+                return fn(cap)
+        except Exception:
+            pass
+
+    def stroke_join(self, join):
+        """Set stroke join style (MITER, BEVEL, ROUND)."""
+        try:
+            fn = self._engine.api.get('stroke_join')
+            if fn:
+                return fn(join)
+        except Exception:
+            pass
+
     def random(self, *args):
         """Return a random float using the engine's RNG. See docs for overloads."""
         try:

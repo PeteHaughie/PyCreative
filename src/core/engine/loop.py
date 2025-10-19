@@ -141,11 +141,12 @@ def setup_window_loop(
             pass
 
         try:
-            if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                try:
-                    print('Lifecycle debug: on_draw presenting', len(cmds), 'cmds')
-                except Exception:
-                    pass
+                if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                    try:
+                        import logging
+                        logging.getLogger(__name__).debug('on_draw presenting %s cmds', len(cmds))
+                    except Exception:
+                        pass
             render_and_present(presenter, cmds, replay_fn)
         except Exception:
             # swallow non-fatal present errors to match previous behaviour
@@ -361,7 +362,11 @@ def setup_window_loop(
                     # Optional debug logging controlled by env var
                     try:
                         if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                            print('Lifecycle debug: Escape pressed, closing window')
+                            try:
+                                import logging
+                                logging.getLogger(__name__).debug('Escape pressed, closing window')
+                            except Exception:
+                                pass
                     except Exception:
                         pass
                     try:
@@ -371,27 +376,29 @@ def setup_window_loop(
                     try:
                         import pyglet
 
-                        if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                            try:
-                                import threading
-                                ths = threading.enumerate()
-                                print('Lifecycle debug: threads before app.exit (escape):')
-                                for t in ths:
-                                    try:
-                                        print('  ', t.name, 'daemon=', t.daemon)
-                                    except Exception:
-                                        pass
-                            except Exception:
-                                pass
+                            if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                                try:
+                                    import logging, threading
+                                    logger = logging.getLogger(__name__)
+                                    ths = threading.enumerate()
+                                    logger.debug('threads before app.exit (escape):')
+                                    for t in ths:
+                                        try:
+                                            logger.debug('  %s daemon=%s', t.name, t.daemon)
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
                         pyglet.app.exit()
                         if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
                             try:
-                                import threading
+                                import logging, threading
+                                logger = logging.getLogger(__name__)
                                 ths = threading.enumerate()
-                                print('Lifecycle debug: threads after app.exit (escape):')
+                                logger.debug('threads after app.exit (escape):')
                                 for t in ths:
                                     try:
-                                        print('  ', t.name, 'daemon=', t.daemon)
+                                        logger.debug('  %s daemon=%s', t.name, t.daemon)
                                     except Exception:
                                         pass
                             except Exception:
@@ -460,7 +467,11 @@ def setup_window_loop(
                     'meta': {'seq': 0},
                 }
                 if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                    print('Lifecycle debug: setup_window_loop applying initial setup background to presenter')
+                    try:
+                        import logging
+                        logging.getLogger(__name__).debug('setup_window_loop applying initial setup background to presenter')
+                    except Exception:
+                        pass
                 try:
                     # Ensure presenter's GL objects exist and clear its FBO to
                     # an opaque background color before replaying the Skia
@@ -532,17 +543,22 @@ def setup_window_loop(
                 if hasattr(presenter, 'teardown'):
                     try:
                         if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                            print('Lifecycle debug: on_close handler invoked; calling presenter.teardown()')
+                            try:
+                                import logging
+                                logging.getLogger(__name__).debug('on_close handler invoked; calling presenter.teardown()')
+                            except Exception:
+                                pass
                         presenter.teardown()
                         if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                            print('Lifecycle debug: presenter.teardown() returned')
                             try:
-                                import threading
+                                import logging, threading
+                                logger = logging.getLogger(__name__)
+                                logger.debug('presenter.teardown() returned')
                                 ths = threading.enumerate()
-                                print('Lifecycle debug: threads after teardown:')
+                                logger.debug('threads after teardown:')
                                 for t in ths:
                                     try:
-                                        print('  ', t.name, 'daemon=', t.daemon)
+                                        logger.debug('  %s daemon=%s', t.name, t.daemon)
                                     except Exception:
                                         pass
                             except Exception:
@@ -562,14 +578,15 @@ def setup_window_loop(
             # Always attempt to exit the pyglet app loop after close
             try:
                 if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                    print('Lifecycle debug: on_close calling pyglet.app.exit()')
                     try:
-                        import threading
+                        import logging, threading
+                        logger = logging.getLogger(__name__)
+                        logger.debug('on_close calling pyglet.app.exit()')
                         ths = threading.enumerate()
-                        print('Lifecycle debug: threads before app.exit:')
+                        logger.debug('threads before app.exit:')
                         for t in ths:
                             try:
-                                print('  ', t.name, 'daemon=', t.daemon)
+                                logger.debug('  %s daemon=%s', t.name, t.daemon)
                             except Exception:
                                 pass
                     except Exception:
@@ -585,14 +602,18 @@ def setup_window_loop(
 
             try:
                 if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                    import threading
-                    ths = threading.enumerate()
-                    print('Lifecycle debug: threads after app.exit:')
-                    for t in ths:
-                        try:
-                            print('  ', t.name, 'daemon=', t.daemon)
-                        except Exception:
-                            pass
+                    try:
+                        import logging, threading
+                        logger = logging.getLogger(__name__)
+                        ths = threading.enumerate()
+                        logger.debug('threads after app.exit:')
+                        for t in ths:
+                            try:
+                                logger.debug('  %s daemon=%s', t.name, t.daemon)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
             except Exception:
                 pass
     except Exception:
@@ -655,10 +676,18 @@ def setup_window_loop(
             if hasattr(presenter, 'teardown'):
                 try:
                     if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                        print('Lifecycle debug: setup_window_loop calling presenter.teardown() after app.run()')
+                        try:
+                            import logging
+                            logging.getLogger(__name__).debug('setup_window_loop calling presenter.teardown() after app.run()')
+                        except Exception:
+                            pass
                     presenter.teardown()
                     if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                        print('Lifecycle debug: setup_window_loop presenter.teardown() returned')
+                        try:
+                            import logging
+                            logging.getLogger(__name__).debug('setup_window_loop presenter.teardown() returned')
+                        except Exception:
+                            pass
                 except Exception:
                     # best-effort only
                     try:

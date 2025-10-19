@@ -153,7 +153,10 @@ class SkiaGLPresenter:
             gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
             try:
                 if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                    print('Lifecycle debug: ensure_resources created tex_id=', self.tex_id)
+                    try:
+                        logging.getLogger(__name__).debug('ensure_resources created tex_id=%s', self.tex_id)
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -173,7 +176,10 @@ class SkiaGLPresenter:
                     pass
             try:
                 if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                    print('Lifecycle debug: ensure_resources created fbo_id=', self.fbo_id)
+                    try:
+                        logging.getLogger(__name__).debug('ensure_resources created fbo_id=%s', self.fbo_id)
+                    except Exception:
+                        pass
             except Exception:
                 pass
             # check completeness
@@ -211,7 +217,10 @@ class SkiaGLPresenter:
         try:
             try:
                 if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                    print('Lifecycle debug: create_skia_surface: entry fbo=', self.fbo_id, 'tex=', self.tex_id)
+                    try:
+                        logging.getLogger(__name__).debug('create_skia_surface: entry fbo=%s tex=%s', self.fbo_id, self.tex_id)
+                    except Exception:
+                        pass
             except Exception:
                 pass
             # Create GrDirectContext bound to current GL context
@@ -220,9 +229,12 @@ class SkiaGLPresenter:
             # than recreating a new Skia surface each frame.
             if getattr(self, 'surface', None) is not None and getattr(self, 'gr_context', None) is not None and self._surface_size == (int(self.width), int(self.height)):
                 try:
-                    if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                        print('Lifecycle debug: create_skia_surface: reusing existing GPU surface')
-                    return self.surface
+                        if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                            try:
+                                logging.getLogger(__name__).debug('create_skia_surface: reusing existing GPU surface')
+                            except Exception:
+                                pass
+                        return self.surface
                 except Exception:
                     return self.surface
 
@@ -230,7 +242,10 @@ class SkiaGLPresenter:
             if ctx is None:
                 try:
                     if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                        print('Lifecycle debug: create_skia_surface: GrDirectContext.MakeGL() returned None')
+                        try:
+                            logging.getLogger(__name__).debug('create_skia_surface: GrDirectContext.MakeGL() returned None')
+                        except Exception:
+                            pass
                 except Exception:
                     pass
                 return None
@@ -253,8 +268,11 @@ class SkiaGLPresenter:
             )
             if surf is None:
                 try:
-                    if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                        print('Lifecycle debug: create_skia_surface: MakeFromBackendRenderTarget returned None')
+                        if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                            try:
+                                logging.getLogger(__name__).debug('create_skia_surface: MakeFromBackendRenderTarget returned None')
+                            except Exception:
+                                pass
                 except Exception:
                     pass
                 return None
@@ -267,7 +285,10 @@ class SkiaGLPresenter:
                 self._surface_size = None
             try:
                 if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                    print('Lifecycle debug: create_skia_surface: created GPU surface', 'fbo=', self.fbo_id, 'tex=', self.tex_id, 'size=', self.width, self.height)
+                    try:
+                        logging.getLogger(__name__).debug('create_skia_surface: created GPU surface fbo=%s tex=%s size=%s %s', self.fbo_id, self.tex_id, self.width, self.height)
+                    except Exception:
+                        pass
             except Exception:
                 pass
             return surf
@@ -282,7 +303,10 @@ class SkiaGLPresenter:
         """
         try:
             if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                print('Lifecycle debug: render_commands: entry commands=', len(commands))
+                try:
+                    logging.getLogger(__name__).debug('render_commands: entry commands=%s', len(commands))
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -315,7 +339,10 @@ class SkiaGLPresenter:
         if canvas is None:
             try:
                 if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                    print('Lifecycle debug: render_commands: surface.getCanvas() returned None')
+                    try:
+                        logging.getLogger(__name__).debug('render_commands: surface.getCanvas() returned None')
+                    except Exception:
+                        pass
             except Exception:
                 pass
             raise RuntimeError('Skia surface does not provide a canvas')
@@ -327,11 +354,14 @@ class SkiaGLPresenter:
         # cleared by `background()`.
 
         # Call the replay function provided by the engine to draw recorded ops
-        try:
-            if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                print('Lifecycle debug: render_commands: calling replay_fn with', len(commands), 'commands')
-        except Exception:
-            pass
+            try:
+                if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                    try:
+                        logging.getLogger(__name__).debug('render_commands: calling replay_fn with %s commands', len(commands))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         replay_fn(commands, canvas)
 
         # Flush/submit
@@ -342,7 +372,10 @@ class SkiaGLPresenter:
 
         try:
             if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                print('Lifecycle debug: render_commands: surf.flush() completed')
+                try:
+                    logging.getLogger(__name__).debug('render_commands: surf.flush() completed')
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -374,11 +407,11 @@ class SkiaGLPresenter:
                     try:
                         img = surf.makeImageSnapshot()
                     except Exception as e:
-                        print('Lifecycle debug: makeImageSnapshot() raised', repr(e))
+                        logging.getLogger(__name__).debug('makeImageSnapshot() raised %r', repr(e))
                         img = None
 
                     if img is None:
-                        print('Lifecycle debug: makeImageSnapshot() returned None')
+                        logging.getLogger(__name__).debug('makeImageSnapshot() returned None')
                     else:
                         data = None
                         try:
@@ -386,44 +419,44 @@ class SkiaGLPresenter:
                             # implement and which returns a skia.Data wrapper.
                             data = img.encodeToData()
                         except Exception as e:
-                            print('Lifecycle debug: img.encodeToData() raised', repr(e))
+                            logging.getLogger(__name__).debug('img.encodeToData() raised %r', repr(e))
                             data = None
 
                         if data is None:
-                            print('Lifecycle debug: encodeToData returned None; falling back to glReadPixels')
+                            logging.getLogger(__name__).debug('encodeToData returned None; falling back to glReadPixels')
                             # Fallback: read pixels from the bound FBO using glReadPixels
                             try:
                                 from pyglet import gl as _gl
                                 import io as _io
                                 # Diagnostic: report what is attached to the FBO before readback
-                                try:
-                                    if hasattr(_gl, 'glGetFramebufferAttachmentParameteriv'):
-                                        try:
-                                            atype = _gl.GLint()
-                                            aname = _gl.GLint()
-                                            _gl.glGetFramebufferAttachmentParameteriv(_gl.GL_FRAMEBUFFER, _gl.GL_COLOR_ATTACHMENT0, _gl.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, ctypes.byref(atype))
-                                            _gl.glGetFramebufferAttachmentParameteriv(_gl.GL_FRAMEBUFFER, _gl.GL_COLOR_ATTACHMENT0, _gl.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, ctypes.byref(aname))
-                                            print('Lifecycle debug: FBO attachment object_type=', int(atype.value), 'object_name=', int(aname.value))
-                                        except Exception as e:
-                                            print('Lifecycle debug: FBO attachment query raised', repr(e))
-                                except Exception:
-                                    pass
+                                            try:
+                                                if hasattr(_gl, 'glGetFramebufferAttachmentParameteriv'):
+                                                    try:
+                                                        atype = _gl.GLint()
+                                                        aname = _gl.GLint()
+                                                        _gl.glGetFramebufferAttachmentParameteriv(_gl.GL_FRAMEBUFFER, _gl.GL_COLOR_ATTACHMENT0, _gl.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, ctypes.byref(atype))
+                                                        _gl.glGetFramebufferAttachmentParameteriv(_gl.GL_FRAMEBUFFER, _gl.GL_COLOR_ATTACHMENT0, _gl.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, ctypes.byref(aname))
+                                                        logging.getLogger(__name__).debug('FBO attachment object_type=%s object_name=%s', int(atype.value), int(aname.value))
+                                                    except Exception as e:
+                                                        logging.getLogger(__name__).debug('FBO attachment query raised %r', repr(e))
+                                            except Exception:
+                                                pass
                                 try:
                                     # Ensure our FBO is bound (we bound earlier when using_gpu)
                                     _gl.glBindFramebuffer(_gl.GL_FRAMEBUFFER, int(self.fbo_id or 0))
                                 except Exception:
-                                    pass
-                                try:
-                                    buf = (_gl.GLubyte * (self.width * self.height * 4))()
-                                    _gl.glReadPixels(0, 0, int(self.width), int(self.height), _gl.GL_RGBA, _gl.GL_UNSIGNED_BYTE, buf)
-                                    raw = bytes(buf)
-                                    # Report any GL error after readpixels
-                                    try:
-                                        err = int(_gl.glGetError())
-                                        if err != 0:
-                                            print('Lifecycle debug: glReadPixels reported glGetError=', err)
-                                    except Exception:
-                                        pass
+                                        try:
+                                            img_p = _Image.frombytes('RGBA', (int(self.width), int(self.height)), raw)
+                                            img_p = img_p.transpose(_Image.FLIP_TOP_BOTTOM)
+                                            bio = _io.BytesIO()
+                                            img_p.save(bio, 'PNG')
+                                            png_bytes = bio.getvalue()
+                                            path = '/tmp/pycreative_debug_frame.png'
+                                            with open(path, 'wb') as f:
+                                                f.write(png_bytes)
+                                            logging.getLogger(__name__).debug('wrote Skia snapshot (glReadPixels) to %s', path)
+                                        except Exception as e:
+                                            logging.getLogger(__name__).debug('glReadPixels -> Pillow failed %r', repr(e))
                                     # Try to use Pillow to flip and write PNG
                                     try:
                                         from PIL import Image as _Image
@@ -435,13 +468,13 @@ class SkiaGLPresenter:
                                         path = '/tmp/pycreative_debug_frame.png'
                                         with open(path, 'wb') as f:
                                             f.write(png_bytes)
-                                        print('Lifecycle debug: wrote Skia snapshot (glReadPixels) to', path)
+                                        logging.getLogger(__name__).debug('wrote Skia snapshot (glReadPixels) to %s', path)
                                     except Exception as e:
-                                        print('Lifecycle debug: glReadPixels -> Pillow failed', repr(e))
+                                        logging.getLogger(__name__).debug('glReadPixels -> Pillow failed %r', repr(e))
                                 except Exception as e:
-                                    print('Lifecycle debug: glReadPixels failed', repr(e))
+                                    logging.getLogger(__name__).debug('glReadPixels failed %r', repr(e))
                             except Exception as e:
-                                print('Lifecycle debug: glReadPixels fallback unavailable', repr(e))
+                                logging.getLogger(__name__).debug('glReadPixels fallback unavailable %r', repr(e))
                         else:
                             b = None
                             try:
@@ -458,21 +491,21 @@ class SkiaGLPresenter:
                                     except Exception:
                                         b = None
                             except Exception as e:
-                                print('Lifecycle debug: extracting bytes from skia.Data raised', repr(e))
+                                logging.getLogger(__name__).debug('extracting bytes from skia.Data raised %r', repr(e))
                                 b = None
 
                             if not b:
-                                print('Lifecycle debug: no bytes extracted from encoded data')
+                                logging.getLogger(__name__).debug('no bytes extracted from encoded data')
                             else:
                                 path = '/tmp/pycreative_debug_frame.png'
                                 try:
                                     with open(path, 'wb') as f:
                                         f.write(b)
-                                    print('Lifecycle debug: wrote Skia snapshot to', path)
+                                    logging.getLogger(__name__).debug('wrote Skia snapshot to %s', path)
                                 except Exception as e:
-                                    print('Lifecycle debug: failed writing snapshot', repr(e))
+                                    logging.getLogger(__name__).debug('failed writing snapshot %r', repr(e))
                 except Exception as e:
-                    print('Lifecycle debug: snapshot dump internal error', repr(e))
+                    logging.getLogger(__name__).debug('snapshot dump internal error %r', repr(e))
         except Exception:
             pass
 
@@ -708,7 +741,7 @@ class SkiaGLPresenter:
                 try:
                     if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
                         try:
-                            print('Lifecycle debug: present used mode=', getattr(self, '_last_present_mode', None), 'viewport=', vw, vh)
+                            logging.getLogger(__name__).debug('present used mode=%s viewport=%s %s', getattr(self, '_last_present_mode', None), vw, vh)
                         except Exception:
                             pass
                 except Exception:
@@ -745,17 +778,17 @@ class SkiaGLPresenter:
                             path = '/tmp/pycreative_post_present.png'
                             img_p.save(path, 'PNG')
                             try:
-                                print('Lifecycle debug: wrote post-present snapshot to', path)
+                                logging.getLogger(__name__).debug('wrote post-present snapshot to %s', path)
                             except Exception:
                                 pass
                         except Exception as e:
                             try:
-                                print('Lifecycle debug: post-present Pillow write failed', repr(e))
+                                logging.getLogger(__name__).debug('post-present Pillow write failed %r', repr(e))
                             except Exception:
                                 pass
                     except Exception as e:
                         try:
-                            print('Lifecycle debug: post-present readback failed', repr(e))
+                            logging.getLogger(__name__).debug('post-present readback failed %r', repr(e))
                         except Exception:
                             pass
             except Exception:

@@ -125,10 +125,37 @@ def register_state_apis(engine: Any):
             engine.stroke_weight = int(w)
             return engine.graphics.record('stroke_weight', weight=int(w))
 
+        def _rec_stroke_cap(cap):
+            try:
+                engine.stroke_cap = cap
+            except Exception:
+                pass
+            try:
+                return engine.graphics.record('stroke_cap', cap=cap)
+            except Exception:
+                return None
+
+        def _rec_stroke_join(join):
+            try:
+                engine.stroke_join = join
+            except Exception:
+                pass
+            try:
+                return engine.graphics.record('stroke_join', join=join)
+            except Exception:
+                return None
+
         try:
             engine.api.register('fill', _rec_fill)
             engine.api.register('stroke', _rec_stroke)
             engine.api.register('stroke_weight', _rec_stroke_weight)
+            # register cap/join recorders so sketches calling stroke_cap()/stroke_join()
+            # during setup record the current state into the graphics buffer.
+            try:
+                engine.api.register('stroke_cap', _rec_stroke_cap)
+                engine.api.register('stroke_join', _rec_stroke_join)
+            except Exception:
+                pass
             try:
                 engine.api.register('no_fill', lambda *a, **k: _rec_no_fill())
                 engine.api.register('no_stroke', lambda *a, **k: _rec_no_stroke())

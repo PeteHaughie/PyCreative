@@ -65,6 +65,10 @@ def rect(engine: Any, x: float, y: float, w: float, h: float, **kwargs):
         kwargs['stroke'] = getattr(engine, 'stroke_color', None)
     if 'stroke_weight' not in kwargs:
         kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
+    if 'stroke_cap' not in kwargs:
+        kwargs['stroke_cap'] = getattr(engine, 'stroke_cap', None)
+    if 'stroke_join' not in kwargs:
+        kwargs['stroke_join'] = getattr(engine, 'stroke_join', None)
     return engine.graphics.record('rect', x=x_tl, y=y_tl, w=w_w, h=h_h, **kwargs)
 
 
@@ -74,6 +78,10 @@ def line(engine: Any, x1: float, y1: float, x2: float, y2: float, **kwargs):
         kwargs['stroke'] = getattr(engine, 'stroke_color', None)
     if 'stroke_weight' not in kwargs:
         kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
+    if 'stroke_cap' not in kwargs:
+        kwargs['stroke_cap'] = getattr(engine, 'stroke_cap', None)
+    if 'stroke_join' not in kwargs:
+        kwargs['stroke_join'] = getattr(engine, 'stroke_join', None)
     return engine.graphics.record('line', x1=x1, y1=y1, x2=x2, y2=y2, **kwargs)
 
 
@@ -90,6 +98,10 @@ def circle(engine: Any, x: float, y: float, r: float, **kwargs):
         kwargs['stroke'] = getattr(engine, 'stroke_color', None)
     if 'stroke_weight' not in kwargs:
         kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
+    if 'stroke_cap' not in kwargs:
+        kwargs['stroke_cap'] = getattr(engine, 'stroke_cap', None)
+    if 'stroke_join' not in kwargs:
+        kwargs['stroke_join'] = getattr(engine, 'stroke_join', None)
     return engine.graphics.record('circle', x=x, y=y, r=r, **kwargs)
 
 
@@ -152,6 +164,10 @@ def ellipse(engine: Any, x: float, y: float, w: float, h: Optional[float] = None
         kwargs['stroke'] = getattr(engine, 'stroke_color', None)
     if 'stroke_weight' not in kwargs:
         kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
+    if 'stroke_cap' not in kwargs:
+        kwargs['stroke_cap'] = getattr(engine, 'stroke_cap', None)
+    if 'stroke_join' not in kwargs:
+        kwargs['stroke_join'] = getattr(engine, 'stroke_join', None)
     return engine.graphics.record('ellipse', x=ex, y=ey, w=ew, h=eh, **kwargs)
 
 
@@ -171,6 +187,10 @@ def point(engine: Any, x: float, y: float, **kwargs):
         kwargs['stroke'] = getattr(engine, 'stroke_color', None)
     if 'stroke_weight' not in kwargs:
         kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
+    if 'stroke_cap' not in kwargs:
+        kwargs['stroke_cap'] = getattr(engine, 'stroke_cap', None)
+    if 'stroke_join' not in kwargs:
+        kwargs['stroke_join'] = getattr(engine, 'stroke_join', None)
     return engine.graphics.record('point', x=x, y=y, **kwargs)
 
 
