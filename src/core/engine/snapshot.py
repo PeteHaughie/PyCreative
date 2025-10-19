@@ -22,6 +22,63 @@ def save_frame(engine: Any, path: str) -> None:
     - Otherwise delegate to `core.io.snapshot.save_frame` which will try
       Pillow and fall back to recording the request.
     """
+    # Normalize path: if a relative path was provided, and we can determine
+    # the sketch's folder from the engine, resolve the path so files are
+    # written into the sketch's directory by default (Processing behaviour).
+    try:
+        if not os.path.isabs(path):
+            sketch_dir = None
+            # Prefer the original sketch module the CLI passed (if present)
+            try:
+                smod = getattr(engine, '_sketch_module', None)
+                if smod is not None:
+                    sf = getattr(smod, '__file__', None)
+                    if sf:
+                        sketch_dir = os.path.dirname(os.path.abspath(sf))
+            except Exception:
+                sketch_dir = None
+
+            # If CLI-provided sketch not available, fall back to normalized sketch
+            if sketch_dir is None:
+                try:
+                    s = getattr(engine, 'sketch', None)
+                    if s is not None:
+                        sf = getattr(s, '__file__', None)
+                        if sf:
+                            sketch_dir = os.path.dirname(os.path.abspath(sf))
+                        else:
+                            try:
+                                mod = getattr(s.__class__, '__module__', None)
+                                if mod:
+                                    import sys as _sys
+
+                                    mod_obj = _sys.modules.get(mod)
+                                    if mod_obj is not None:
+                                        mf = getattr(mod_obj, '__file__', None)
+                                        if mf:
+                                            sketch_dir = os.path.dirname(os.path.abspath(mf))
+                            except Exception:
+                                pass
+                except Exception:
+                    sketch_dir = None
+
+            if sketch_dir is None:
+                # Fall back to current working directory
+                sketch_dir = os.getcwd()
+
+            # join and normalize
+            try:
+                path = os.path.abspath(os.path.join(sketch_dir, path))
+            except Exception:
+                path = os.path.abspath(path)
+
+    except Exception:
+        # best-effort only; continue with provided path on failure
+        try:
+            path = os.path.abspath(path)
+        except Exception:
+            pass
+
     # 1) If engine provides a custom backend, prefer it
     try:
         backend = getattr(engine, 'snapshot_backend', None)

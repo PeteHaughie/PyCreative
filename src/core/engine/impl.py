@@ -36,6 +36,11 @@ class Engine:
         force_gles: bool = False,
     ):
         self._no_loop_drawn = False
+        # store original sketch module passed to the Engine (if any).
+        # This keeps a stable reference to the file the CLI loaded so
+        # snapshot/save_frame can resolve relative paths to the sketch
+        # folder even after `self.sketch` is normalized/instantiated.
+        self._sketch_module = sketch_module
         self.sketch = sketch_module
         self.headless = headless
         self.api = APIRegistry()
