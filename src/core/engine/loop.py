@@ -8,13 +8,14 @@ import-safe.
 from __future__ import annotations
 
 from typing import Any, Optional
+import os
 
 
 def setup_window_loop(
     engine: Any,
     presenter: Any,
     max_frames: Optional[int] = None,
-) -> None:
+) -> bool:
     """Register handlers on `engine._window`, schedule updates, and run the app.
 
     This mirrors the behaviour previously implemented in
@@ -291,6 +292,58 @@ def setup_window_loop(
                     if getattr(engine, '_debug_handler_exceptions', False):
                         raise
 
+            # Special handling: treat Escape (or ESCAPE key_code) as a request
+            # to close the window and exit the app. This ensures the process
+            # doesn't keep running after the user closes the UI.
+            try:
+                k = getattr(engine, 'key', None)
+                kc = getattr(engine, 'key_code', None)
+                if (isinstance(k, str) and k.lower() == 'escape') or (
+                    isinstance(kc, str) and kc.upper() == 'ESCAPE'
+                ):
+                    # Optional debug logging controlled by env var
+                    try:
+                        if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                            print('Lifecycle debug: Escape pressed, closing window')
+                    except Exception:
+                        pass
+                    try:
+                        engine._window.close()
+                    except Exception:
+                        pass
+                    try:
+                        import pyglet
+
+                        if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                            try:
+                                import threading
+                                ths = threading.enumerate()
+                                print('Lifecycle debug: threads before app.exit (escape):')
+                                for t in ths:
+                                    try:
+                                        print('  ', t.name, 'daemon=', t.daemon)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                        pyglet.app.exit()
+                        if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                            try:
+                                import threading
+                                ths = threading.enumerate()
+                                print('Lifecycle debug: threads after app.exit (escape):')
+                                for t in ths:
+                                    try:
+                                        print('  ', t.name, 'daemon=', t.daemon)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
         @engine._window.event
         def on_key_release(symbol, modifiers):
             try:
@@ -337,6 +390,82 @@ def setup_window_loop(
     # whether start() was given an explicit max_frames
     engine._ignore_no_loop = False if max_frames is None else True
 
+    # on_close: ensure presenter teardown and exit when the window is closed
+    try:
+        @engine._window.event
+        def on_close():
+            # Best-effort teardown of presenter resources if available
+            try:
+                if hasattr(presenter, 'teardown'):
+                    try:
+                        if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                            print('Lifecycle debug: on_close handler invoked; calling presenter.teardown()')
+                        presenter.teardown()
+                        if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                            print('Lifecycle debug: presenter.teardown() returned')
+                            try:
+                                import threading
+                                ths = threading.enumerate()
+                                print('Lifecycle debug: threads after teardown:')
+                                for t in ths:
+                                    try:
+                                        print('  ', t.name, 'daemon=', t.daemon)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                    except Exception:
+                        # Print minimal debug if requested
+                        try:
+                            if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                                import traceback
+                                traceback.print_exc()
+                        except Exception:
+                            pass
+            except Exception:
+                # Swallow to keep close best-effort
+                pass
+
+            # Always attempt to exit the pyglet app loop after close
+            try:
+                if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                    print('Lifecycle debug: on_close calling pyglet.app.exit()')
+                    try:
+                        import threading
+                        ths = threading.enumerate()
+                        print('Lifecycle debug: threads before app.exit:')
+                        for t in ths:
+                            try:
+                                print('  ', t.name, 'daemon=', t.daemon)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            try:
+                import pyglet
+                pyglet.app.exit()
+            except Exception:
+                pass
+
+            try:
+                if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                    import threading
+                    ths = threading.enumerate()
+                    print('Lifecycle debug: threads after app.exit:')
+                    for t in ths:
+                        try:
+                            print('  ', t.name, 'daemon=', t.daemon)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+    except Exception:
+        # Best-effort only
+        pass
+
     def update(dt):
         if (
             not engine._ignore_no_loop
@@ -372,14 +501,39 @@ def setup_window_loop(
     else:
         pyglet.clock.schedule_interval(update, interval)
 
-    # run app (suppress noisy stderr)
+    # run app (suppress noisy stderr). Return True to indicate we ran the
+    # app loop so callers can avoid duplicating scheduling/run logic.
+    ran_app = False
     try:
         devnull = open(__import__('os').devnull, 'w')
         from contextlib import redirect_stderr
         with redirect_stderr(devnull):
+            ran_app = True
             pyglet.app.run()
     finally:
         try:
             devnull.close()
         except Exception:
             pass
+    # If we ran the app loop, attempt a best-effort presenter teardown
+    # here so callers (e.g., Engine.start) don't need to duplicate logic.
+    if ran_app:
+        try:
+            if hasattr(presenter, 'teardown'):
+                try:
+                    if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                        print('Lifecycle debug: setup_window_loop calling presenter.teardown() after app.run()')
+                    presenter.teardown()
+                    if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                        print('Lifecycle debug: setup_window_loop presenter.teardown() returned')
+                except Exception:
+                    # best-effort only
+                    try:
+                        if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                            import traceback; traceback.print_exc()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    return ran_app

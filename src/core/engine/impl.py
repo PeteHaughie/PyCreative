@@ -1202,11 +1202,25 @@ class Engine:
         )
 
         # Delegate the remaining windowed setup, event handler registration
-        # and scheduling to the extracted helper. It will call pyglet.app.run().
+        # and scheduling to the extracted helper. It may call pyglet.app.run()
+        # and return True to indicate it ran the app loop. If it did, avoid
+        # duplicating scheduling/run logic below.
+        # Delegate windowed setup, event handler registration and scheduling
+        # to the extracted helper. The helper may run the app loop and will
+        # return True to indicate it did so. If it ran the loop, return
+        # early so we don't schedule/run a second app loop here.
         try:
-            setup_window_loop(self, presenter, max_frames=max_frames)
+            ran_app = False
+            try:
+                ran_app = bool(setup_window_loop(self, presenter, max_frames=max_frames))
+            except Exception:
+                ran_app = False
+            if ran_app:
+                # The helper handled the run and teardown; finish start().
+                return
         except Exception:
-            # Best-effort only: if loop wiring fails, do not crash start().
+            # Best-effort only: if loop wiring fails, continue to scheduling
+            # and running below so the engine still attempts to run.
             pass
 
         # Note: we intentionally avoid creating a pyglet Image backed by
@@ -1286,6 +1300,21 @@ class Engine:
                 devnull.close()
             except Exception:
                 pass
+        try:
+            if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                try:
+                    import threading
+                    ths = threading.enumerate()
+                    print('Lifecycle debug: threads after pyglet.app.run returned:')
+                    for t in ths:
+                        try:
+                            print('  ', t.name, 'daemon=', t.daemon)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
         try:
             print('Engine: pyglet.app.run() returned')
         except Exception:
