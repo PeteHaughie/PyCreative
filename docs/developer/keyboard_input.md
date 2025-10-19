@@ -137,8 +137,3 @@ def key_pressed(self):
 - Tests: `tests/core/adapters/test_pyglet_keyboard.py`,
   `tests/core/input/test_keyboard_integration.py`
 
-
----
-Document created automatically by the development script. If you want more
-details (examples of pyglet event objects or a short recipe for preserving
-`key_code` alongside numeric `key` values), tell me and I'll add them.

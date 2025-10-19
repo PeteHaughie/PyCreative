@@ -26,7 +26,13 @@ def step_frame(engine: Any) -> None:
             engine.graphics.clear()
         except Exception:
             pass
-        this = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI']).SimpleSketchAPI(engine)
+        # Lazily create SimpleSketchAPI to avoid top-level imports
+        def _make_simple_api(e: Any):
+            # Lazily import to avoid top-level dependency on API module
+            mod = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI'])
+            return mod.SimpleSketchAPI(e)
+
+        this = _make_simple_api(engine)
         setup = getattr(engine.sketch, 'setup', None)
         if callable(setup):
             try:
@@ -45,7 +51,10 @@ def step_frame(engine: Any) -> None:
             try:
                 if cmd.get('op') == 'background' and setup_bg is None:
                     args = cmd.get('args', {})
-                    setup_bg = (int(args.get('r', 200)), int(args.get('g', 200)), int(args.get('b', 200)))
+                    r = int(args.get('r', 200))
+                    g = int(args.get('g', 200))
+                    b = int(args.get('b', 200))
+                    setup_bg = (r, g, b)
                 else:
                     remaining.append(cmd)
             except Exception:
@@ -69,12 +78,17 @@ def step_frame(engine: Any) -> None:
             pass
         try:
             import logging as _logging
-            _logging.getLogger(__name__).debug('Playing setup commands: %r', engine._setup_commands)
+            _logging.getLogger(__name__).debug(
+                'Playing setup commands: %r', engine._setup_commands
+            )
         except Exception:
             pass
         try:
             import logging as _logging
-            _logging.getLogger(__name__).debug('step_frame: captured setup_background=%r', getattr(engine, '_setup_background', None))
+            _logging.getLogger(__name__).debug(
+                'step_frame: captured setup_background=%r',
+                getattr(engine, '_setup_background', None),
+            )
         except Exception:
             pass
 
@@ -97,10 +111,18 @@ def step_frame(engine: Any) -> None:
         # Headless: ensure the first recorded frame contains a background.
         if getattr(engine, 'headless', False):
             _bg_local = getattr(engine, '_setup_background', None)
-            if _bg_local is not None and not getattr(engine, '_setup_bg_applied_headless', False):
+            applied = getattr(engine, '_setup_bg_applied_headless', False)
+            if _bg_local is not None and not applied:
                 bg = _bg_local
                 try:
-                    engine.graphics.commands.insert(0, {'op': 'background', 'args': {'r': int(bg[0]), 'g': int(bg[1]), 'b': int(bg[2])}, 'meta': {'seq': 0}})
+                    engine.graphics.commands.insert(
+                        0,
+                        {
+                            'op': 'background',
+                            'args': {'r': int(bg[0]), 'g': int(bg[1]), 'b': int(bg[2])},
+                            'meta': {'seq': 0},
+                        },
+                    )
                 except Exception:
                     pass
                 try:
@@ -116,14 +138,24 @@ def step_frame(engine: Any) -> None:
         should_draw = True
     elif not engine.looping and getattr(engine, '_ignore_no_loop', False):
         should_draw = True
-    elif not engine.looping and not getattr(engine, '_no_loop_drawn', False) and getattr(engine, 'frame_count', 0) == 0:
+    elif (
+        not engine.looping
+        and not getattr(engine, '_no_loop_drawn', False)
+        and getattr(engine, 'frame_count', 0) == 0
+    ):
         should_draw = True
 
     if not should_draw:
         return
 
     # Only call update() then draw() once per frame.
-    this = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI']).SimpleSketchAPI(engine)
+    # create SimpleSketchAPI lazily
+    def _make_simple_api(e: Any):
+        # Lazily import to avoid top-level dependency on API module
+        mod = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI'])
+        return mod.SimpleSketchAPI(e)
+
+    this = _make_simple_api(engine)
     update_fn = getattr(engine.sketch, 'update', None)
     if callable(update_fn):
         try:

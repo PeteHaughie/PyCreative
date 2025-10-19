@@ -35,7 +35,13 @@ def _apply_mouse_update(engine: Any, x: Optional[int], y: Optional[int]) -> None
             pass
 
 
-def simulate_mouse_press(engine: Any, x: Optional[int] = None, y: Optional[int] = None, button: Optional[str] = None, event: Optional[object] = None):
+def simulate_mouse_press(
+    engine: Any,
+    x: Optional[int] = None,
+    y: Optional[int] = None,
+    button: Optional[str] = None,
+    event: Optional[object] = None,
+):
     from core.adapters.pyglet_mouse import normalize_event
     ev = normalize_event(event) if event is not None else {}
     ex = ev.get('x', x)
@@ -69,7 +75,13 @@ def simulate_mouse_press(engine: Any, x: Optional[int] = None, y: Optional[int] 
             return None
 
 
-def simulate_mouse_release(engine: Any, x: Optional[int] = None, y: Optional[int] = None, button: Optional[str] = None, event: Optional[object] = None):
+def simulate_mouse_release(
+    engine: Any,
+    x: Optional[int] = None,
+    y: Optional[int] = None,
+    button: Optional[str] = None,
+    event: Optional[object] = None,
+):
     from core.adapters.pyglet_mouse import normalize_event
     ev = normalize_event(event) if event is not None else {}
     ex = ev.get('x', x)
@@ -108,7 +120,12 @@ def simulate_mouse_release(engine: Any, x: Optional[int] = None, y: Optional[int
             pass
 
 
-def simulate_mouse_move(engine: Any, x: Optional[int] = None, y: Optional[int] = None, event: Optional[object] = None):
+def simulate_mouse_move(
+    engine: Any,
+    x: Optional[int] = None,
+    y: Optional[int] = None,
+    event: Optional[object] = None,
+):
     from core.adapters.pyglet_mouse import normalize_event
     ev = normalize_event(event) if event is not None else {}
     ex = ev.get('x', x)
@@ -129,7 +146,13 @@ def simulate_mouse_move(engine: Any, x: Optional[int] = None, y: Optional[int] =
             pass
 
 
-def simulate_mouse_drag(engine: Any, x: Optional[int] = None, y: Optional[int] = None, button: Optional[str] = None, event: Optional[object] = None):
+def simulate_mouse_drag(
+    engine: Any,
+    x: Optional[int] = None,
+    y: Optional[int] = None,
+    button: Optional[str] = None,
+    event: Optional[object] = None,
+):
     from core.adapters.pyglet_mouse import normalize_event
     ev = normalize_event(event) if event is not None else {}
     ex = ev.get('x', x)
@@ -161,7 +184,10 @@ def simulate_mouse_wheel(engine: Any, event_or_count: object):
     # Determine count
     count = None
     try:
-        if hasattr(event_or_count, 'get_count') and callable(getattr(event_or_count, 'get_count')):
+        if (
+            hasattr(event_or_count, 'get_count')
+            and callable(getattr(event_or_count, 'get_count'))
+        ):
             _maybe: object = event_or_count.get_count()
             try:
                 from typing import Any as _Any
@@ -200,7 +226,12 @@ def simulate_mouse_wheel(engine: Any, event_or_count: object):
             pass
 
 
-def simulate_key_press(engine: Any, key: Optional[str] = None, key_code: Optional[str] = None, event: Optional[object] = None):
+def simulate_key_press(
+    engine: Any,
+    key: Optional[str] = None,
+    key_code: Optional[str] = None,
+    event: Optional[object] = None,
+):
     try:
         from core.adapters.pyglet_keyboard import normalize_event
     except Exception:
@@ -241,7 +272,12 @@ def simulate_key_press(engine: Any, key: Optional[str] = None, key_code: Optiona
             return None
 
 
-def simulate_key_release(engine: Any, key: Optional[str] = None, key_code: Optional[str] = None, event: Optional[object] = None):
+def simulate_key_release(
+    engine: Any,
+    key: Optional[str] = None,
+    key_code: Optional[str] = None,
+    event: Optional[object] = None,
+):
     try:
         from core.adapters.pyglet_keyboard import normalize_event
     except Exception:

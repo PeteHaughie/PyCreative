@@ -10,7 +10,11 @@ from __future__ import annotations
 from typing import Any, Optional
 
 
-def setup_window_loop(engine: Any, presenter: Any, max_frames: Optional[int] = None) -> None:
+def setup_window_loop(
+    engine: Any,
+    presenter: Any,
+    max_frames: Optional[int] = None,
+) -> None:
     """Register handlers on `engine._window`, schedule updates, and run the app.
 
     This mirrors the behaviour previously implemented in
@@ -41,13 +45,32 @@ def setup_window_loop(engine: Any, presenter: Any, max_frames: Optional[int] = N
         cmds = list(engine.graphics.commands)
         setup_bg = getattr(engine, '_setup_background', None)
         _setup_bg_local = setup_bg
-        if _setup_bg_local is not None and not getattr(engine, '_setup_bg_applied', False):
+        applied = getattr(engine, '_setup_bg_applied', False)
+        if _setup_bg_local is not None and not applied:
             if not any(c.get('op') == 'background' for c in cmds):
-                cmds = [{'op': 'background', 'args': {'r': int(_setup_bg_local[0]), 'g': int(_setup_bg_local[1]), 'b': int(_setup_bg_local[2])}, 'meta': {'seq': 0}}] + cmds
+                bg_cmd = {
+                    'op': 'background',
+                    'args': {
+                        'r': int(_setup_bg_local[0]),
+                        'g': int(_setup_bg_local[1]),
+                        'b': int(_setup_bg_local[2]),
+                    },
+                    'meta': {'seq': 0},
+                }
+                cmds = [bg_cmd] + cmds
                 engine._setup_bg_applied = True
         elif setup_bg is None and getattr(engine, '_setup_done', False):
-            if not any(c.get('op') == 'background' for c in cmds) and not getattr(engine, '_default_bg_applied', False):
-                cmds = [{'op': 'background', 'args': {'r': 200, 'g': 200, 'b': 200}, 'meta': {'seq': 0}}] + cmds
+            if (
+                not any(c.get('op') == 'background' for c in cmds)
+                and not getattr(engine, '_default_bg_applied', False)
+            ):
+                cmds = [
+                    {
+                        'op': 'background',
+                        'args': {'r': 200, 'g': 200, 'b': 200},
+                        'meta': {'seq': 0},
+                    }
+                ] + cmds
                 engine._default_bg_applied = True
 
         # Best-effort GL clear to avoid flicker
@@ -56,7 +79,9 @@ def setup_window_loop(engine: Any, presenter: Any, max_frames: Optional[int] = N
             try:
                 setup_bg = getattr(engine, '_setup_background', None)
                 if setup_bg is not None:
-                    r, g, b = float(setup_bg[0]) / 255.0, float(setup_bg[1]) / 255.0, float(setup_bg[2]) / 255.0
+                    r = float(setup_bg[0]) / 255.0
+                    g = float(setup_bg[1]) / 255.0
+                    b = float(setup_bg[2]) / 255.0
                     gl.glClearColor(r, g, b, 1.0)
                     gl.glClear(gl.GL_COLOR_BUFFER_BIT)
                 elif getattr(engine, '_default_bg_applied', False):
@@ -72,6 +97,11 @@ def setup_window_loop(engine: Any, presenter: Any, max_frames: Optional[int] = N
         except Exception:
             # swallow non-fatal present errors to match previous behaviour
             pass
+
+    # helper to create a SimpleSketchAPI instance without repeating long imports
+    def _make_simple_api(e: Any):
+        mod = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI'])
+        return mod.SimpleSketchAPI(e)
 
     # Helper to get normalize_button from adapters if available
     def _get_normalize_button():
@@ -101,7 +131,7 @@ def setup_window_loop(engine: Any, presenter: Any, max_frames: Optional[int] = N
                     try:
                         moved()
                     except TypeError:
-                        this = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI']).SimpleSketchAPI(engine)
+                        this = _make_simple_api(engine)
                         engine._call_sketch_method(moved, this)
                 except Exception:
                     if getattr(engine, '_debug_handler_exceptions', False):
@@ -132,7 +162,7 @@ def setup_window_loop(engine: Any, presenter: Any, max_frames: Optional[int] = N
                     try:
                         handler()
                     except TypeError:
-                        this = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI']).SimpleSketchAPI(engine)
+                        this = _make_simple_api(engine)
                         engine._call_sketch_method(handler, this)
                 except Exception:
                     if getattr(engine, '_debug_handler_exceptions', False):
@@ -161,7 +191,7 @@ def setup_window_loop(engine: Any, presenter: Any, max_frames: Optional[int] = N
                     try:
                         released()
                     except TypeError:
-                        this = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI']).SimpleSketchAPI(engine)
+                        this = _make_simple_api(engine)
                         engine._call_sketch_method(released, this)
                 except Exception:
                     if getattr(engine, '_debug_handler_exceptions', False):
@@ -172,7 +202,7 @@ def setup_window_loop(engine: Any, presenter: Any, max_frames: Optional[int] = N
                     try:
                         clicked()
                     except TypeError:
-                        this = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI']).SimpleSketchAPI(engine)
+                        this = _make_simple_api(engine)
                         engine._call_sketch_method(clicked, this)
                 except Exception:
                     if getattr(engine, '_debug_handler_exceptions', False):
@@ -195,7 +225,7 @@ def setup_window_loop(engine: Any, presenter: Any, max_frames: Optional[int] = N
                     try:
                         dragged()
                     except TypeError:
-                        this = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI']).SimpleSketchAPI(engine)
+                        this = _make_simple_api(engine)
                         engine._call_sketch_method(dragged, this)
                 except Exception:
                     if getattr(engine, '_debug_handler_exceptions', False):
@@ -214,7 +244,7 @@ def setup_window_loop(engine: Any, presenter: Any, max_frames: Optional[int] = N
                     try:
                         handler(_Wheel(scroll_y))
                     except TypeError:
-                        this = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI']).SimpleSketchAPI(engine)
+                        this = _make_simple_api(engine)
                         engine._call_sketch_method(handler, this)
                 except Exception:
                     if getattr(engine, '_debug_handler_exceptions', False):
@@ -224,7 +254,9 @@ def setup_window_loop(engine: Any, presenter: Any, max_frames: Optional[int] = N
         def on_key_press(symbol, modifiers):
             try:
                 try:
-                    from core.adapters.pyglet_keyboard import normalize_event as _normalize
+                    from core.adapters.pyglet_keyboard import (
+                        normalize_event as _normalize,
+                    )
                 except Exception:
                     def _normalize(event: Any) -> dict:
                         return {}
@@ -253,7 +285,7 @@ def setup_window_loop(engine: Any, presenter: Any, max_frames: Optional[int] = N
                         try:
                             handler(ev)
                         except TypeError:
-                            this = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI']).SimpleSketchAPI(engine)
+                            this = _make_simple_api(engine)
                             engine._call_sketch_method(handler, this)
                 except Exception:
                     if getattr(engine, '_debug_handler_exceptions', False):
@@ -263,7 +295,9 @@ def setup_window_loop(engine: Any, presenter: Any, max_frames: Optional[int] = N
         def on_key_release(symbol, modifiers):
             try:
                 try:
-                    from core.adapters.pyglet_keyboard import normalize_event as _normalize
+                    from core.adapters.pyglet_keyboard import (
+                        normalize_event as _normalize,
+                    )
                 except Exception:
                     def _normalize(event: Any) -> dict:
                         return {}
@@ -291,7 +325,7 @@ def setup_window_loop(engine: Any, presenter: Any, max_frames: Optional[int] = N
                         try:
                             handler(ev)
                         except TypeError:
-                            this = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI']).SimpleSketchAPI(engine)
+                            this = _make_simple_api(engine)
                             engine._call_sketch_method(handler, this)
                 except Exception:
                     if getattr(engine, '_debug_handler_exceptions', False):
@@ -304,7 +338,11 @@ def setup_window_loop(engine: Any, presenter: Any, max_frames: Optional[int] = N
     engine._ignore_no_loop = False if max_frames is None else True
 
     def update(dt):
-        if not engine._ignore_no_loop and not engine.looping and getattr(engine, '_no_loop_drawn', False):
+        if (
+            not engine._ignore_no_loop
+            and not engine.looping
+            and getattr(engine, '_no_loop_drawn', False)
+        ):
             return
         engine.step_frame()
         if getattr(engine, '_verbose', False):

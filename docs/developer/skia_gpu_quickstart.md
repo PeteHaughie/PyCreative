@@ -42,9 +42,3 @@ Troubleshooting notes
   warnings; they're expected in short-run tests but can be suppressed by
   longer-lived windows or graceful teardown.
 
-Next actions
-------------
-- Implement `src/core/adapters/skia_gl.py` with rendering helpers and a
-  `render_to_png` convenience function.
-- Add an example `examples/skia_demo.py` and a CLI flag `--skia-snapshot` to
-  automate snapshot production.

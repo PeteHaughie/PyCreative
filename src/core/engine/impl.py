@@ -28,7 +28,13 @@ class Engine:
     - expose minimal helpers: size, no_loop, loop, redraw, save_frame
     """
 
-    def __init__(self, sketch_module: Optional[Any] = None, headless: bool = True, present_mode: Optional[str] = None, force_gles: bool = False):
+    def __init__(
+        self,
+        sketch_module: Optional[Any] = None,
+        headless: bool = True,
+        present_mode: Optional[str] = None,
+        force_gles: bool = False,
+    ):
         self._no_loop_drawn = False
         self.sketch = sketch_module
         self.headless = headless
@@ -66,7 +72,8 @@ class Engine:
         self.color_mode = 'RGB'
         # pluggable snapshot backend: callable(path, width, height, engine)
         # default is None (the engine will attempt a Pillow-based write)
-        self.snapshot_backend: Optional[Callable[[str, int, int, "Engine"], None]] = None
+        # Keep un-annotated to avoid long type expressions in this file.
+        self.snapshot_backend = None
 
         # Normalize sketch: if a module contains a `Sketch` class, instantiate it
         # Register default API functions so SimpleSketchAPI delegates work
@@ -131,7 +138,9 @@ class Engine:
         # will be re-raised instead of swallowed. Can be enabled via
         # environment variable PYCREATIVE_DEBUG_HANDLER_EXCEPTIONS.
         try:
-            self._debug_handler_exceptions = bool(int(os.getenv('PYCREATIVE_DEBUG_HANDLER_EXCEPTIONS', '0')))
+            self._debug_handler_exceptions = bool(
+                int(os.getenv('PYCREATIVE_DEBUG_HANDLER_EXCEPTIONS', '0'))
+            )
         except Exception:
             self._debug_handler_exceptions = False
 
@@ -217,31 +226,58 @@ class Engine:
                     cls = inst.__class__
                     if not hasattr(cls, 'width') and not hasattr(cls, 'height'):
                         def _make_width_prop():
-                            return property(lambda self_obj: int(getattr(self_obj._engine, 'width', 0)))
+                            def _getter(self_obj):
+                                return int(getattr(self_obj._engine, 'width', 0))
+
+                            return property(_getter)
 
                         def _make_height_prop():
-                            return property(lambda self_obj: int(getattr(self_obj._engine, 'height', 0)))
+                            def _getter(self_obj):
+                                return int(getattr(self_obj._engine, 'height', 0))
+
+                            return property(_getter)
 
                         def _make_mouse_x_prop():
-                            return property(lambda self_obj: int(getattr(self_obj._engine, 'mouse_x', 0)))
+                            def _getter(self_obj):
+                                return int(getattr(self_obj._engine, 'mouse_x', 0))
+
+                            return property(_getter)
 
                         def _make_mouse_y_prop():
-                            return property(lambda self_obj: int(getattr(self_obj._engine, 'mouse_y', 0)))
+                            def _getter(self_obj):
+                                return int(getattr(self_obj._engine, 'mouse_y', 0))
+
+                            return property(_getter)
 
                         def _make_pmouse_x_prop():
-                            return property(lambda self_obj: int(getattr(self_obj._engine, 'pmouse_x', 0)))
+                            def _getter(self_obj):
+                                return int(getattr(self_obj._engine, 'pmouse_x', 0))
+
+                            return property(_getter)
 
                         def _make_pmouse_y_prop():
-                            return property(lambda self_obj: int(getattr(self_obj._engine, 'pmouse_y', 0)))
+                            def _getter(self_obj):
+                                return int(getattr(self_obj._engine, 'pmouse_y', 0))
+
+                            return property(_getter)
 
                         def _make_mouse_button_prop():
-                            return property(lambda self_obj: getattr(self_obj._engine, 'mouse_button', None))
+                            def _getter(self_obj):
+                                return getattr(self_obj._engine, 'mouse_button', None)
+
+                            return property(_getter)
 
                         def _make_key_prop():
-                            return property(lambda self_obj: getattr(self_obj._engine, 'key', None))
+                            def _getter(self_obj):
+                                return getattr(self_obj._engine, 'key', None)
+
+                            return property(_getter)
 
                         def _make_key_code_prop():
-                            return property(lambda self_obj: getattr(self_obj._engine, 'key_code', None))
+                            def _getter(self_obj):
+                                return getattr(self_obj._engine, 'key_code', None)
+
+                            return property(_getter)
 
                         # Create a descriptor that exposes a read-only boolean
                         # view of engine.mouse_pressed while still allowing
@@ -249,7 +285,8 @@ class Engine:
                         # invoked if the developer calls it as a function.
                         class _MousePressedProxy:
                             def __init__(self, handler=None):
-                                # handler is the original unbound function from the user's class (may be None)
+                                # handler is the original unbound function from the
+                                # user's class (may be None)
                                 self._handler = handler
 
                             def __get__(self, instance, owner=None):
@@ -265,11 +302,15 @@ class Engine:
 
                                     def __bool__(self):
                                         try:
-                                            return bool(getattr(self._inst._engine, 'mouse_pressed', False))
+                                            inst_ref = self._inst
+                                            eng_attr = '_engine'
+                                            e = getattr(inst_ref, eng_attr, None)
+                                            val = getattr(e, 'mouse_pressed', False)
+                                            return bool(val)
                                         except Exception:
                                             return False
-
-                                    # allow int(self.mouse_pressed) or contexts that check truthiness
+                                    # allow int(self.mouse_pressed) or contexts that
+                                    # check truthiness
                                     def __int__(self):
                                         return 1 if bool(self) else 0
 
@@ -278,9 +319,19 @@ class Engine:
                                         # instance as first arg (bound semantics).
                                         if callable(self._handler):
                                             try:
-                                                return self._handler(self._inst, *a, **kw)
+                                                handler_fn = self._handler
+                                                args_tuple = (self._inst,) + a
+                                                return handler_fn(*args_tuple, **kw)
                                             except Exception:
-                                                if getattr(self._inst._engine, '_debug_handler_exceptions', False):
+                                                e = getattr(self._inst, '_engine', None)
+                                                dbg = False
+                                                if e is not None:
+                                                    dbg = getattr(
+                                                        e,
+                                                        '_debug_handler_exceptions',
+                                                        False,
+                                                    )
+                                                if dbg:
                                                     raise
                                                 return None
                                         # no handler defined: noop
@@ -288,7 +339,8 @@ class Engine:
 
                                     def __repr__(self):
                                         try:
-                                            return f"<mouse_pressed proxy {bool(self)}>"
+                                            b = bool(self)
+                                            return "<mouse_pressed proxy %s>" % b
                                         except Exception:
                                             return "<mouse_pressed proxy>"
 
@@ -365,7 +417,13 @@ class Engine:
                                 raise AttributeError(name)
                             return __getattr__
 
-                        Dynamic = type(f"{cls.__name__}_WithEnv", (cls,), {
+                        # create a short-lived proxy instance to avoid an overly long
+                        # literal expression when inserting into the attrs dict
+                        _mouse_pressed_proxy = _MousePressedProxy(
+                            handler=orig_mouse_pressed,
+                        )
+
+                        attrs = {
                             'width': _make_width_prop(),
                             'height': _make_height_prop(),
                             'mouse_x': _make_mouse_x_prop(),
@@ -373,14 +431,15 @@ class Engine:
                             'pmouse_x': _make_pmouse_x_prop(),
                             'pmouse_y': _make_pmouse_y_prop(),
                             'mouse_button': _make_mouse_button_prop(),
-                            'mouse_pressed': _MousePressedProxy(handler=orig_mouse_pressed),
-                            # Expose key and key_code as read-only properties backed by the engine
+                            'mouse_pressed': _mouse_pressed_proxy,
+                            # read-only properties backed by the engine
                             'key': _make_key_prop(),
                             'key_code': _make_key_code_prop(),
-                            # key_pressed mirrors Processing semantics: proxy that is bool-like and callable
+                            # key_pressed: proxy object (bool-like, callable)
                             'key_pressed': None,
                             '__getattr__': _make_getattr(api),
-                        })
+                        }
+                        Dynamic = type(f"{cls.__name__}_WithEnv", (cls,), attrs)
                         # Attach a KeyPressed proxy descriptor after Dynamic creation so
                         # we can reuse the same pattern as mouse_pressed while allowing
                         # the descriptor to capture the original unbound handler.
@@ -400,7 +459,10 @@ class Engine:
 
                                         def __bool__(self):
                                             try:
-                                                return bool(getattr(self._inst._engine, 'key_pressed', False))
+                                                inst_ref = self._inst
+                                                e = getattr(inst_ref, '_engine', None)
+                                                val = getattr(e, 'key_pressed', False)
+                                                return bool(val)
                                             except Exception:
                                                 return False
 
@@ -410,23 +472,38 @@ class Engine:
                                         def __call__(self, *a, **kw):
                                             if callable(self._handler):
                                                 try:
-                                                    return self._handler(self._inst, *a, **kw)
+                                                    handler_fn = self._handler
+                                                    args_tuple = (self._inst,) + a
+                                                    return handler_fn(*args_tuple, **kw)
                                                 except Exception:
-                                                    if getattr(self._inst._engine, '_debug_handler_exceptions', False):
+                                                    inst_ref = self._inst
+                                                    # short local for getattr
+                                                    _ga = getattr
+                                                    e = _ga(inst_ref, '_engine', None)
+                                                    dbg = False
+                                                    if e is not None:
+                                                        dbg = getattr(
+                                                            e,
+                                                            '_debug_handler_exceptions',
+                                                            False,
+                                                        )
+                                                    if dbg:
                                                         raise
                                                     return None
                                             return None
 
                                         def __repr__(self):
                                             try:
-                                                return f"<key_pressed proxy {bool(self)}>"
+                                                b = bool(self)
+                                                return "<key_pressed proxy %s>" % b
                                             except Exception:
                                                 return "<key_pressed proxy>"
 
                                     return _Bound(instance, self._handler)
 
                             # set the descriptor on the Dynamic class
-                            setattr(Dynamic, 'key_pressed', _KeyPressedProxy(handler=orig_key_pressed))
+                            _kp = _KeyPressedProxy(handler=orig_key_pressed)
+                            setattr(Dynamic, 'key_pressed', _kp)
                         except Exception:
                             # ignore failures to attach descriptor
                             pass
@@ -452,13 +529,28 @@ class Engine:
                     _sketch_methods = list(SKETCH_CONVENIENCE_METHODS)
                 except Exception:
                     _sketch_methods = [
-                        'size', 'background', 'window_title', 'no_loop', 'loop', 'redraw', 'save_frame',
-                        'rect', 'line', 'circle', 'square', 'frame_rate',
-                        'fill', 'stroke', 'stroke_weight',
+                        'size',
+                        'background',
+                        'window_title',
+                        'no_loop',
+                        'loop',
+                        'redraw',
+                        'save_frame',
+                        'rect',
+                        'line',
+                        'circle',
+                        'square',
+                        'frame_rate',
+                        'fill',
+                        'stroke',
+                        'stroke_weight',
                         # engine-level helpers
                         'color_mode',
                         # common convenience shims used by examples
-                        'rect_mode', 'no_cursor', 'no_stroke', 'no_fill',
+                        'rect_mode',
+                        'no_cursor',
+                        'no_stroke',
+                        'no_fill',
                     ]
 
                 for name in _sketch_methods:
@@ -484,7 +576,10 @@ class Engine:
                     # registration or bindings import failed.
                     try:
                         if name == 'size':
-                            setattr(inst, 'size', lambda w, h: inst._engine._set_size(int(w), int(h)))
+                            def _size_fn(w, h):
+                                inst._engine._set_size(int(w), int(h))
+
+                            setattr(inst, 'size', _size_fn)
                             continue
                         if name == 'background':
                             def _fb_background(*args, **kwargs):
@@ -498,12 +593,22 @@ class Engine:
                                         # Expect either a single grayscale, or r,g,b
                                         if len(args) == 1:
                                             v = int(args[0])
-                                            inst._engine.graphics.record('background', r=v, g=v, b=v)
+                                            try:
+                                                inst._engine.graphics.record(
+                                                    'background', r=v, g=v, b=v
+                                                )
+                                            except Exception:
+                                                pass
                                         else:
                                             r = int(args[0])
                                             g = int(args[1])
                                             b = int(args[2])
-                                            inst._engine.graphics.record('background', r=r, g=g, b=b)
+                                            try:
+                                                inst._engine.graphics.record(
+                                                    'background', r=r, g=g, b=b
+                                                )
+                                            except Exception:
+                                                pass
                                     except Exception:
                                         # Best-effort only
                                         pass
@@ -573,18 +678,23 @@ class Engine:
                                     t1 = float(start2)
                                     t2 = float(stop2)
                                     if s2 == s1:
-                                        raise ValueError('map: start1 and stop1 cannot be equal')
-                                    return t1 + (v - s1) * (t2 - t1) / (s2 - s1)
+                                        raise ValueError('map: start/stop equal')
+                                    num = (v - s1) * (t2 - t1)
+                                    den = (s2 - s1)
+                                    return t1 + num / den
                                 except Exception:
                                     return value
                             setattr(inst, 'map', _fb_map)
                             continue
                         if name == 'lerp':
                             def _fb_lerp(a, b, amt):
-                                try:
-                                    return (1.0 - float(amt)) * float(a) + float(amt) * float(b)
-                                except Exception:
-                                    return a
+                                    try:
+                                        a_f = float(a)
+                                        b_f = float(b)
+                                        amt_f = float(amt)
+                                        return (1.0 - amt_f) * a_f + amt_f * b_f
+                                    except Exception:
+                                        return a
                             setattr(inst, 'lerp', _fb_lerp)
                             continue
                         if name == 'norm':
@@ -594,7 +704,7 @@ class Engine:
                                     s = float(start)
                                     t = float(stop)
                                     if t == s:
-                                        raise ValueError('norm: start and stop cannot be equal')
+                                        raise ValueError('norm: start==stop')
                                     return (v - s) / (t - s)
                                 except Exception:
                                     return 0.0
@@ -613,7 +723,7 @@ class Engine:
                             continue
                         if name == 'noise':
                             def _fb_noise(v, *rest):
-                                # best-effort fallback: use Python's random for smooth-ish output
+                                # fallback: use Python's random for smooth-ish output
                                 try:
                                     import random as _r
                                     # single-value noise: map random to [0,1]
@@ -651,7 +761,9 @@ class Engine:
                                     if len(a) == 1:
                                         return _r.random() * float(a[0])
                                     if len(a) == 2:
-                                        return float(a[0]) + _r.random() * (float(a[1]) - float(a[0]))
+                                        lo = float(a[0])
+                                        hi = float(a[1])
+                                        return lo + _r.random() * (hi - lo)
                                     raise TypeError('random() expects 0,1 or 2 args')
                             setattr(inst, 'random', _fb_random)
                             continue
@@ -678,7 +790,10 @@ class Engine:
                 # are available as methods on the instance in edge cases where
                 # the previous attach logic did not succeed.
                 try:
-                    if hasattr(api, 'color_mode') and not hasattr(self.sketch, 'color_mode'):
+                    if (
+                        hasattr(api, 'color_mode')
+                        and not hasattr(self.sketch, 'color_mode')
+                    ):
                         try:
                             setattr(self.sketch, 'color_mode', api.color_mode)
                         except Exception:
@@ -727,9 +842,11 @@ class Engine:
             remaining = []
             for cmd in recorded:
                 if cmd.get('op') == 'background' and setup_bg is None:
-                    # capture the first background command from setup
                     args = cmd.get('args', {})
-                    setup_bg = (int(args.get('r', 200)), int(args.get('g', 200)), int(args.get('b', 200)))
+                    r = int(args.get('r', 200))
+                    g = int(args.get('g', 200))
+                    b = int(args.get('b', 200))
+                    setup_bg = (r, g, b)
                 else:
                     remaining.append(cmd)
             # store the background captured during setup (or None)
@@ -739,11 +856,16 @@ class Engine:
             self._setup_done = True
             import logging as _logging
             try:
-                _logging.getLogger(__name__).debug('Playing setup commands: %r', self._setup_commands)
+                _logging.getLogger(__name__).debug(
+                    'Playing setup commands: %r', self._setup_commands
+                )
             except Exception:
                 pass
             try:
-                _logging.getLogger(__name__).debug('step_frame: captured setup_background=%r', self._setup_background)
+                _logging.getLogger(__name__).debug(
+                    'step_frame: captured setup_background=%r',
+                    self._setup_background,
+                )
             except Exception:
                 pass
         # If no_loop and already drawn, return immediately before any draw logic
@@ -761,11 +883,24 @@ class Engine:
             # and tests see an initialized canvas.
             if getattr(self, 'headless', False):
                 _bg_local = getattr(self, '_setup_background', None)
-                if _bg_local is not None and not getattr(self, '_setup_bg_applied_headless', False):
+                if _bg_local is not None and not getattr(
+                    self, '_setup_bg_applied_headless', False
+                ):
                     bg = _bg_local
-                    # prepend a background command so it appears before other setup commands
-                    self.graphics.commands.insert(0, {'op': 'background', 'args': {'r': int(bg[0]), 'g': int(bg[1]), 'b': int(bg[2])}, 'meta': {'seq': 0}})
-                    self._setup_bg_applied_headless = True
+                    # prepend background so it appears before other setup commands
+                    try:
+                        self.graphics.commands.insert(0, {
+                            'op': 'background',
+                            'args': {
+                                'r': int(bg[0]),
+                                'g': int(bg[1]),
+                                'b': int(bg[2]),
+                            },
+                            'meta': {'seq': 0},
+                        })
+                        self._setup_bg_applied_headless = True
+                    except Exception:
+                        pass
                 # Note: do not insert a default background automatically for headless
                 # runs. Tests expect recorded command order to reflect only what the
                 # sketch emitted. If a default background is desired for snapshots,
@@ -900,7 +1035,11 @@ class Engine:
         while frame_counter < n:
             # Stop if no_loop has already drawn, unless caller requested we
             # ignore no_loop semantics (for example, CLI --max-frames override).
-            if not getattr(self, '_ignore_no_loop', False) and not self.looping and getattr(self, '_no_loop_drawn', False):
+            if (
+                not getattr(self, '_ignore_no_loop', False)
+                and not self.looping
+                and getattr(self, '_no_loop_drawn', False)
+            ):
                 break
             start = time.perf_counter()
             self.step_frame()
@@ -967,7 +1106,10 @@ class Engine:
                 for cmd in recorded:
                     if cmd.get('op') == 'background' and setup_bg is None:
                         args = cmd.get('args', {})
-                        setup_bg = (int(args.get('r', 200)), int(args.get('g', 200)), int(args.get('b', 200)))
+                        r = int(args.get('r', 200))
+                        g = int(args.get('g', 200))
+                        b = int(args.get('b', 200))
+                        setup_bg = (r, g, b)
                     else:
                         remaining.append(cmd)
                 self._setup_background = setup_bg
@@ -987,7 +1129,10 @@ class Engine:
                 # classes here.
                 from typing import Any as _Any
                 from typing import cast
-                _win = pyglet.window.Window(width=self.width, height=self.height, vsync=True)  # type: ignore
+                # create window with explicit keyword args broken across lines
+                _win = pyglet.window.Window(
+                    width=self.width, height=self.height, vsync=True  # type: ignore
+                )
                 # cast to Any to avoid mypy attempting to validate pyglet's
                 # abstract base classes in this context.
                 self._window = cast(_Any, _win)
@@ -1033,7 +1178,8 @@ class Engine:
             pass
         try:
             # Keep the debug print short to satisfy linters.
-            print('Engine: created window', self._window, 'size=({}, {})'.format(self.width, self.height))
+            s = 'size=({}, {})'.format(self.width, self.height)
+            print('Engine: created window', self._window, s)
         except Exception:
             pass
         # running until the user explicitly closes the window.
@@ -1078,9 +1224,13 @@ class Engine:
         def update(dt):
             # Stop if no_loop has already drawn unless we're explicitly
             # ignoring no_loop for this run.
-            if not self._ignore_no_loop and not self.looping and getattr(self, '_no_loop_drawn', False):
+            if (
+                not self._ignore_no_loop
+                and not self.looping
+                and getattr(self, '_no_loop_drawn', False)
+            ):
                 return
-            # print(f"[DEBUG] Engine.update() called. dt={dt}, frames_left={self._frames_left}")
+            # debug: Engine.update() called (dt, frames_left)
             self.step_frame()
             # verbose: echo recorded commands to stdout for debugging
             if getattr(self, '_verbose', False):
@@ -1236,7 +1386,13 @@ class Engine:
                 except Exception:
                     pass
 
-    def simulate_mouse_press(self, x: Optional[int] = None, y: Optional[int] = None, button: Optional[str] = None, event: Optional[object] = None):
+    def simulate_mouse_press(
+        self,
+        x: Optional[int] = None,
+        y: Optional[int] = None,
+        button: Optional[str] = None,
+        event: Optional[object] = None,
+    ):
         """Delegate to input_simulation.simulate_mouse_press."""
         try:
             from core.engine.input_simulation import simulate_mouse_press as _sp
@@ -1245,7 +1401,13 @@ class Engine:
             # fallback: run inline to preserve behaviour
             pass
 
-    def simulate_mouse_release(self, x: Optional[int] = None, y: Optional[int] = None, button: Optional[str] = None, event: Optional[object] = None):
+    def simulate_mouse_release(
+        self,
+        x: Optional[int] = None,
+        y: Optional[int] = None,
+        button: Optional[str] = None,
+        event: Optional[object] = None,
+    ):
         """Delegate to input_simulation.simulate_mouse_release."""
         try:
             from core.engine.input_simulation import simulate_mouse_release as _sr
@@ -1253,7 +1415,12 @@ class Engine:
         except Exception:
             pass
 
-    def simulate_mouse_move(self, x: Optional[int] = None, y: Optional[int] = None, event: Optional[object] = None):
+    def simulate_mouse_move(
+        self,
+        x: Optional[int] = None,
+        y: Optional[int] = None,
+        event: Optional[object] = None,
+    ):
         """Delegate to input_simulation.simulate_mouse_move."""
         try:
             from core.engine.input_simulation import simulate_mouse_move as _sm
@@ -1261,7 +1428,13 @@ class Engine:
         except Exception:
             pass
 
-    def simulate_mouse_drag(self, x: Optional[int] = None, y: Optional[int] = None, button: Optional[str] = None, event: Optional[object] = None):
+    def simulate_mouse_drag(
+        self,
+        x: Optional[int] = None,
+        y: Optional[int] = None,
+        button: Optional[str] = None,
+        event: Optional[object] = None,
+    ):
         """Delegate to input_simulation.simulate_mouse_drag."""
         try:
             from core.engine.input_simulation import simulate_mouse_drag as _sd
@@ -1277,7 +1450,12 @@ class Engine:
         except Exception:
             pass
 
-    def simulate_key_press(self, key: Optional[str] = None, key_code: Optional[str] = None, event: Optional[object] = None):
+    def simulate_key_press(
+        self,
+        key: Optional[str] = None,
+        key_code: Optional[str] = None,
+        event: Optional[object] = None,
+    ):
         """Delegate to input_simulation.simulate_key_press."""
         try:
             from core.engine.input_simulation import simulate_key_press as _kp
@@ -1285,7 +1463,12 @@ class Engine:
         except Exception:
             pass
 
-    def simulate_key_release(self, key: Optional[str] = None, key_code: Optional[str] = None, event: Optional[object] = None):
+    def simulate_key_release(
+        self,
+        key: Optional[str] = None,
+        key_code: Optional[str] = None,
+        event: Optional[object] = None,
+    ):
         """Delegate to input_simulation.simulate_key_release."""
         try:
             from core.engine.input_simulation import simulate_key_release as _kr

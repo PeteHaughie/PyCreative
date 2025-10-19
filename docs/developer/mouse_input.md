@@ -132,9 +132,3 @@ forms.
   the testing helpers (for end-users writing tests). This can be a
   small note linking to `docs/developer/mouse_input.md`.
 
----
-
-If you want, I can add the small cross-reference note to the public API
-docs now (one-liner under `docs/api/input/mouse/`), or update the
-`SimpleSketchAPI` to surface simulation helpers onto the `Sketch` instance
-itself for convenience.

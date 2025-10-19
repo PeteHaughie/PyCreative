@@ -45,4 +45,3 @@ Next steps (short-term)
 Notes
  - Keep log volume reasonable; tests expect deterministic buffers and should not rely on logs for behavior. Ensure logs remain optional and configurable via environment or application-level configuration.
 
-If you'd like, I can implement the short-term step (add module-level loggers and a few debug/info logs to Engine and GraphicsBuffer) and run tests to ensure nothing breaks. Which would you like me to do next?
