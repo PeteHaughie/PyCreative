@@ -88,7 +88,8 @@ def render_and_present(
         # Guard the helper itself from crashing callers.
         try:
             if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                import traceback; traceback.print_exc()
+                import traceback
+                traceback.print_exc()
         except Exception:
             pass
         return

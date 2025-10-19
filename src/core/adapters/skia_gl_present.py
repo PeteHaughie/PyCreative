@@ -135,7 +135,10 @@ class SkiaGLPresenter:
                         # Fill with RGBA tuples
                         idx = 0
                         for _ in range(w * h):
-                            buf[idx] = r; buf[idx+1] = g; buf[idx+2] = b; buf[idx+3] = 255
+                            buf[idx] = r
+                            buf[idx + 1] = g
+                            buf[idx + 2] = b
+                            buf[idx + 3] = 255
                             idx += 4
                         # Upload as full texture data
                         try:
@@ -402,7 +405,6 @@ class SkiaGLPresenter:
         try:
             if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE_DUMP', '') == '1':
                 try:
-                    import skia as _skia
                     # surf is a skia.Surface; makeImageSnapshot returns an Image
                     try:
                         img = surf.makeImageSnapshot()
@@ -424,55 +426,52 @@ class SkiaGLPresenter:
 
                         if data is None:
                             logging.getLogger(__name__).debug('encodeToData returned None; falling back to glReadPixels')
-                            # Fallback: read pixels from the bound FBO using glReadPixels
+                            # Fallback: read pixels from the bound FBO using glReadPixels.
+                            # This is guarded and best-effort; failure here should not raise.
                             try:
                                 from pyglet import gl as _gl
                                 import io as _io
+                                from PIL import Image as _Image
+
                                 # Diagnostic: report what is attached to the FBO before readback
-                                            try:
-                                                if hasattr(_gl, 'glGetFramebufferAttachmentParameteriv'):
-                                                    try:
-                                                        atype = _gl.GLint()
-                                                        aname = _gl.GLint()
-                                                        _gl.glGetFramebufferAttachmentParameteriv(_gl.GL_FRAMEBUFFER, _gl.GL_COLOR_ATTACHMENT0, _gl.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, ctypes.byref(atype))
-                                                        _gl.glGetFramebufferAttachmentParameteriv(_gl.GL_FRAMEBUFFER, _gl.GL_COLOR_ATTACHMENT0, _gl.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, ctypes.byref(aname))
-                                                        logging.getLogger(__name__).debug('FBO attachment object_type=%s object_name=%s', int(atype.value), int(aname.value))
-                                                    except Exception as e:
-                                                        logging.getLogger(__name__).debug('FBO attachment query raised %r', repr(e))
-                                            except Exception:
-                                                pass
+                                try:
+                                    if hasattr(_gl, 'glGetFramebufferAttachmentParameteriv'):
+                                        try:
+                                            atype = _gl.GLint()
+                                            aname = _gl.GLint()
+                                            _gl.glGetFramebufferAttachmentParameteriv(_gl.GL_FRAMEBUFFER, _gl.GL_COLOR_ATTACHMENT0, _gl.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, ctypes.byref(atype))
+                                            _gl.glGetFramebufferAttachmentParameteriv(_gl.GL_FRAMEBUFFER, _gl.GL_COLOR_ATTACHMENT0, _gl.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, ctypes.byref(aname))
+                                            logging.getLogger(__name__).debug('FBO attachment object_type=%s object_name=%s', int(atype.value), int(aname.value))
+                                        except Exception as e:
+                                            logging.getLogger(__name__).debug('FBO attachment query raised %r', repr(e))
+                                except Exception:
+                                    pass
+
                                 try:
                                     # Ensure our FBO is bound (we bound earlier when using_gpu)
                                     _gl.glBindFramebuffer(_gl.GL_FRAMEBUFFER, int(self.fbo_id or 0))
                                 except Exception:
-                                        try:
-                                            img_p = _Image.frombytes('RGBA', (int(self.width), int(self.height)), raw)
-                                            img_p = img_p.transpose(_Image.FLIP_TOP_BOTTOM)
-                                            bio = _io.BytesIO()
-                                            img_p.save(bio, 'PNG')
-                                            png_bytes = bio.getvalue()
-                                            path = '/tmp/pycreative_debug_frame.png'
-                                            with open(path, 'wb') as f:
-                                                f.write(png_bytes)
-                                            logging.getLogger(__name__).debug('wrote Skia snapshot (glReadPixels) to %s', path)
-                                        except Exception as e:
-                                            logging.getLogger(__name__).debug('glReadPixels -> Pillow failed %r', repr(e))
-                                    # Try to use Pillow to flip and write PNG
-                                    try:
-                                        from PIL import Image as _Image
-                                        img_p = _Image.frombytes('RGBA', (int(self.width), int(self.height)), raw)
-                                        img_p = img_p.transpose(_Image.FLIP_TOP_BOTTOM)
-                                        bio = _io.BytesIO()
-                                        img_p.save(bio, 'PNG')
-                                        png_bytes = bio.getvalue()
-                                        path = '/tmp/pycreative_debug_frame.png'
-                                        with open(path, 'wb') as f:
-                                            f.write(png_bytes)
-                                        logging.getLogger(__name__).debug('wrote Skia snapshot (glReadPixels) to %s', path)
-                                    except Exception as e:
-                                        logging.getLogger(__name__).debug('glReadPixels -> Pillow failed %r', repr(e))
+                                    # binding failed; continue and attempt readpixels anyway
+                                    pass
+
+                                try:
+                                    w = int(self.width)
+                                    h = int(self.height)
+                                    # Read pixels into a ctypes buffer (RGBA)
+                                    buf = (ctypes.c_ubyte * (w * h * 4))()
+                                    _gl.glReadPixels(0, 0, w, h, _gl.GL_RGBA, _gl.GL_UNSIGNED_BYTE, ctypes.byref(buf))
+                                    raw = bytes(buf)
+                                    img_p = _Image.frombytes('RGBA', (w, h), raw)
+                                    img_p = img_p.transpose(_Image.FLIP_TOP_BOTTOM)
+                                    bio = _io.BytesIO()
+                                    img_p.save(bio, 'PNG')
+                                    png_bytes = bio.getvalue()
+                                    path = '/tmp/pycreative_debug_frame.png'
+                                    with open(path, 'wb') as f:
+                                        f.write(png_bytes)
+                                    logging.getLogger(__name__).debug('wrote Skia snapshot (glReadPixels) to %s', path)
                                 except Exception as e:
-                                    logging.getLogger(__name__).debug('glReadPixels failed %r', repr(e))
+                                    logging.getLogger(__name__).debug('glReadPixels -> Pillow failed %r', repr(e))
                             except Exception as e:
                                 logging.getLogger(__name__).debug('glReadPixels fallback unavailable %r', repr(e))
                         else:
@@ -764,7 +763,6 @@ class SkiaGLPresenter:
             try:
                 if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE_DUMP', '') == '1':
                     try:
-                        import io as _io
                         from pyglet import gl as _gl
                         # read pixels from default framebuffer (0)
                         buf = (_gl.GLubyte * (int(vw) * int(vh) * 4))()

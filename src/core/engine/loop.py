@@ -25,10 +25,12 @@ def setup_window_loop(
     try:
         from core.engine.presenter import render_and_present
     except Exception:
-        def render_and_present(p, cmds, fn):
+        from typing import Iterable, Callable
+
+        def render_and_present(presenter: Any, cmds: Iterable[dict[Any, Any]], replay_fn: Callable[..., None] | None) -> None:
             try:
-                if callable(fn):
-                    fn(cmds)
+                if callable(replay_fn):
+                    replay_fn(cmds)
             except Exception:
                 pass
 
@@ -141,18 +143,19 @@ def setup_window_loop(
             pass
 
         try:
-                if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                    try:
-                        import logging
-                        logging.getLogger(__name__).debug('on_draw presenting %s cmds', len(cmds))
-                    except Exception:
-                        pass
+            if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                try:
+                    import logging
+                    logging.getLogger(__name__).debug('on_draw presenting %s cmds', len(cmds))
+                except Exception:
+                    pass
             render_and_present(presenter, cmds, replay_fn)
         except Exception:
             # swallow non-fatal present errors to match previous behaviour
             try:
                 if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                    import traceback; traceback.print_exc()
+                    import traceback
+                    traceback.print_exc()
             except Exception:
                 pass
             pass
@@ -173,6 +176,7 @@ def setup_window_loop(
                     return str(b)
                 except Exception:
                     return None
+
             return _fallback
 
     # Input handlers
@@ -317,8 +321,9 @@ def setup_window_loop(
                         normalize_event as _normalize,
                     )
                 except Exception:
-                    def _normalize(event: Any) -> dict:
+                    def _normalize(event: Any) -> dict[str, Any]:
                         return {}
+
                 ev = _normalize({'symbol': symbol, 'modifiers': modifiers})
                 try:
                     engine.key = ev.get('key', None)
@@ -376,23 +381,25 @@ def setup_window_loop(
                     try:
                         import pyglet
 
-                            if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                                try:
-                                    import logging, threading
-                                    logger = logging.getLogger(__name__)
-                                    ths = threading.enumerate()
-                                    logger.debug('threads before app.exit (escape):')
-                                    for t in ths:
-                                        try:
-                                            logger.debug('  %s daemon=%s', t.name, t.daemon)
-                                        except Exception:
-                                            pass
-                                except Exception:
-                                    pass
+                        if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                            try:
+                                import logging
+                                import threading
+                                logger = logging.getLogger(__name__)
+                                ths = threading.enumerate()
+                                logger.debug('threads before app.exit (escape):')
+                                for t in ths:
+                                    try:
+                                        logger.debug('  %s daemon=%s', t.name, t.daemon)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
                         pyglet.app.exit()
                         if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
                             try:
-                                import logging, threading
+                                import logging
+                                import threading
                                 logger = logging.getLogger(__name__)
                                 ths = threading.enumerate()
                                 logger.debug('threads after app.exit (escape):')
@@ -416,8 +423,9 @@ def setup_window_loop(
                         normalize_event as _normalize,
                     )
                 except Exception:
-                    def _normalize(event: Any) -> dict:
+                    def _normalize(event: Any) -> dict[str, Any]:
                         return {}
+
                 ev = _normalize({'symbol': symbol, 'modifiers': modifiers})
                 try:
                     engine.key = ev.get('key', None)
@@ -551,7 +559,8 @@ def setup_window_loop(
                         presenter.teardown()
                         if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
                             try:
-                                import logging, threading
+                                import logging
+                                import threading
                                 logger = logging.getLogger(__name__)
                                 logger.debug('presenter.teardown() returned')
                                 ths = threading.enumerate()
@@ -579,7 +588,8 @@ def setup_window_loop(
             try:
                 if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
                     try:
-                        import logging, threading
+                        import logging
+                        import threading
                         logger = logging.getLogger(__name__)
                         logger.debug('on_close calling pyglet.app.exit()')
                         ths = threading.enumerate()
@@ -603,7 +613,8 @@ def setup_window_loop(
             try:
                 if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
                     try:
-                        import logging, threading
+                        import logging
+                        import threading
                         logger = logging.getLogger(__name__)
                         ths = threading.enumerate()
                         logger.debug('threads after app.exit:')
@@ -692,7 +703,8 @@ def setup_window_loop(
                     # best-effort only
                     try:
                         if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                            import traceback; traceback.print_exc()
+                            import traceback
+                            traceback.print_exc()
                     except Exception:
                         pass
         except Exception:

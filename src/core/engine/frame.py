@@ -11,6 +11,13 @@ from __future__ import annotations
 from typing import Any
 
 
+# Reusable helper to create a SimpleSketchAPI instance without repeating imports.
+def _make_simple_api(e: Any):
+    # Lazily import to avoid top-level dependency on API module
+    mod = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI'])
+    return mod.SimpleSketchAPI(e)
+
+
 def step_frame(engine: Any) -> None:
     """Execute a single frame for the given engine instance.
 
@@ -27,11 +34,6 @@ def step_frame(engine: Any) -> None:
         except Exception:
             pass
         # Lazily create SimpleSketchAPI to avoid top-level imports
-        def _make_simple_api(e: Any):
-            # Lazily import to avoid top-level dependency on API module
-            mod = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI'])
-            return mod.SimpleSketchAPI(e)
-
         this = _make_simple_api(engine)
         setup = getattr(engine.sketch, 'setup', None)
         if callable(setup):
@@ -150,11 +152,6 @@ def step_frame(engine: Any) -> None:
 
     # Only call update() then draw() once per frame.
     # create SimpleSketchAPI lazily
-    def _make_simple_api(e: Any):
-        # Lazily import to avoid top-level dependency on API module
-        mod = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI'])
-        return mod.SimpleSketchAPI(e)
-
     this = _make_simple_api(engine)
     update_fn = getattr(engine.sketch, 'update', None)
     if callable(update_fn):

@@ -1303,7 +1303,8 @@ class Engine:
         try:
                 if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
                     try:
-                        import logging, threading
+                        import logging
+                        import threading
                         logger = logging.getLogger(__name__)
                         ths = threading.enumerate()
                         logger.debug('threads after pyglet.app.run returned:')
