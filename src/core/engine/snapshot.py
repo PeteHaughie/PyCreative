@@ -22,6 +22,39 @@ def save_frame(engine: Any, path: str) -> None:
     - Otherwise delegate to `core.io.snapshot.save_frame` which will try
       Pillow and fall back to recording the request.
     """
+    # Filename template handling: replace runs of '#' in the basename with
+    # a zero-padded representation of `engine.frame_count`. Also support an
+    # empty/None path by using the Processing-style default "screen-0000.png".
+    try:
+        try:
+            frame_val = int(getattr(engine, 'frame_count', 0))
+        except Exception:
+            frame_val = 0
+
+        if not path:
+            path = f"screen-{frame_val:04d}.png"
+        else:
+            # operate on the basename so directory components are preserved
+            import re
+
+            try:
+                dirpart = os.path.dirname(path)
+                base = os.path.basename(path)
+                if base and ('#' in base):
+                    def _rep(m):
+                        w = len(m.group(0))
+                        return f"{frame_val:0{w}d}"
+
+                    new_base = re.sub(r"#+", _rep, base)
+                    path = os.path.join(dirpart, new_base) if dirpart else new_base
+            except Exception:
+                # best-effort only; fall back to provided path
+                pass
+
+    except Exception:
+        # non-fatal; continue with provided path
+        pass
+
     # Normalize path: if a relative path was provided, and we can determine
     # the sketch's folder from the engine, resolve the path so files are
     # written into the sketch's directory by default (Processing behaviour).
