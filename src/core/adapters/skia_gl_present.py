@@ -680,8 +680,34 @@ class SkiaGLPresenter:
                     try:
                         # Ensure program and VBO exist (lazily created)
                         self._ensure_textured_quad_resources()
-                        # Draw using the shader and VBO
+                        # Draw using the shader and VBO. Temporarily disable
+                        # GL blending so any alpha in the presenter's texture
+                        # does not blend with the default framebuffer (which
+                        # could show as white). Remember previous state and
+                        # restore it afterwards.
+                        try:
+                            was_blend = False
+                            try:
+                                was_blend = bool(gl.glIsEnabled(gl.GL_BLEND))
+                            except Exception:
+                                was_blend = False
+                            try:
+                                gl.glDisable(gl.GL_BLEND)
+                            except Exception:
+                                pass
+                        except Exception:
+                            was_blend = False
+
                         self._draw_textured_quad_vbo(int(self.tex_id), flip_y=True)
+
+                        try:
+                            if was_blend:
+                                try:
+                                    gl.glEnable(gl.GL_BLEND)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
                         vbo_ok = True
                         try:
                             self._last_present_mode = 'vbo'
