@@ -4,6 +4,7 @@ Small helpers that create a presenter and render recorded commands.
 They are intentionally minimal so importing them is cheap in tests.
 """
 from typing import Any, Callable, Iterable, Optional
+import os
 
 
 def create_presenter(
@@ -39,25 +40,53 @@ def render_and_present(
     `width`/`height` attributes, then calls `render_commands` and `present`.
     """
     try:
+        # Only resize the presenter if its recorded width/height differ
+        # from the presenter's current backing size. Calling resize
+        # unconditionally would drop the Skia surface and GL resources
+        # each frame which prevents persistence of previous renders.
         if hasattr(presenter, "width") and hasattr(presenter, "height"):
             try:
-                presenter.resize(getattr(presenter, "width"), getattr(presenter, "height"))
+                req_w = int(getattr(presenter, "width"))
+                req_h = int(getattr(presenter, "height"))
+                cur_w = getattr(presenter, 'width', None)
+                cur_h = getattr(presenter, 'height', None)
+                # Some presenters may track backing size separately; if
+                # they expose `_surface_size` prefer that for comparison.
+                try:
+                    cur_surface = getattr(presenter, '_surface_size', None)
+                    if cur_surface is not None:
+                        cur_w, cur_h = cur_surface[0], cur_surface[1]
+                except Exception:
+                    pass
+                if cur_w is None or cur_h is None or int(cur_w) != req_w or int(cur_h) != req_h:
+                    try:
+                        presenter.resize(req_w, req_h)
+                    except Exception:
+                        # Best-effort: ignore resize failures
+                        pass
             except Exception:
-                # Best-effort: ignore resize failures
+                # ignore errors determining sizes
                 pass
 
-        try:
-            presenter.render_commands(list(cmds), replay_fn)
-        except Exception:
-            # Non-fatal: fall through to present attempt
-            pass
+        if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+            try:
+                print('Lifecycle debug: render_and_present: presenting', len(list(cmds)), 'cmds')
+            except Exception:
+                pass
+        presenter.render_commands(list(cmds), replay_fn)
 
-        try:
-            presenter.present()
-        except Exception:
-            # Non-fatal: ignore present errors
-            pass
+        if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+            try:
+                print('Lifecycle debug: render_and_present: calling present()')
+            except Exception:
+                pass
+        presenter.present()
 
     except Exception:
         # Guard the helper itself from crashing callers.
+        try:
+            if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                import traceback; traceback.print_exc()
+        except Exception:
+            pass
         return

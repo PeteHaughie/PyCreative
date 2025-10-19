@@ -45,21 +45,39 @@ def setup_window_loop(
     def on_draw():
         cmds = list(engine.graphics.commands)
         setup_bg = getattr(engine, '_setup_background', None)
-        _setup_bg_local = setup_bg
-        applied = getattr(engine, '_setup_bg_applied', False)
-        if _setup_bg_local is not None and not applied:
+        bg_inserted = False
+        default_bg_inserted = False
+        # If the sketch provided a setup background and it hasn't been
+        # applied yet, insert it for this draw only and mark it applied so
+        # it won't be reinserted on subsequent frames.
+        if setup_bg is not None and not getattr(engine, '_setup_bg_applied', False):
             if not any(c.get('op') == 'background' for c in cmds):
                 bg_cmd = {
                     'op': 'background',
                     'args': {
-                        'r': int(_setup_bg_local[0]),
-                        'g': int(_setup_bg_local[1]),
-                        'b': int(_setup_bg_local[2]),
+                        'r': int(setup_bg[0]),
+                        'g': int(setup_bg[1]),
+                        'b': int(setup_bg[2]),
                     },
                     'meta': {'seq': 0},
                 }
                 cmds = [bg_cmd] + cmds
                 engine._setup_bg_applied = True
+                bg_inserted = True
+                # Record the background color on the presenter so present()
+                # can clear the default framebuffer to the same color during
+                # composition. This prevents black/transparent windows when
+                # the presenter's texture contains transparent pixels.
+                try:
+                    if hasattr(presenter, '_setup_background_color') or True:
+                        try:
+                            setattr(presenter, '_setup_background_color', (int(setup_bg[0]), int(setup_bg[1]), int(setup_bg[2])))
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        # If no setup background was provided, insert a single default
+        # background once after setup has run.
         elif setup_bg is None and getattr(engine, '_setup_done', False):
             if (
                 not any(c.get('op') == 'background' for c in cmds)
@@ -73,20 +91,49 @@ def setup_window_loop(
                     }
                 ] + cmds
                 engine._default_bg_applied = True
+                default_bg_inserted = True
+                # Remember the default background on the presenter too so
+                # present() can clear the default framebuffer appropriately.
+                try:
+                    try:
+                        setattr(presenter, '_setup_background_color', (200, 200, 200))
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
 
-        # Best-effort GL clear to avoid flicker
+        # Best-effort GL clear to avoid flicker. Only clear the default
+        # framebuffer when we are applying a background for this frame.
+        # Clearing every frame defeats the Processing-style persistence
+        # where the GPU-backed Skia surface retains previously drawn pixels
+        # unless `background()` was explicitly called.
         try:
             from pyglet import gl
             try:
-                setup_bg = getattr(engine, '_setup_background', None)
-                if setup_bg is not None:
+                # Only clear the default framebuffer if we inserted a
+                # background for this particular draw (either the setup
+                # background or the default background). Do NOT clear on
+                # subsequent frames where the background has already been
+                # applied; that would erase persistent drawings.
+                do_clear = False
+                if bg_inserted:
+                    do_clear = True
+                    setup_bg = getattr(engine, '_setup_background', None)
+                elif default_bg_inserted and not getattr(engine, '_default_bg_cleared', False):
+                    do_clear = True
+                    setup_bg = (200, 200, 200)
+                    try:
+                        engine._default_bg_cleared = True
+                    except Exception:
+                        pass
+                else:
+                    setup_bg = None
+
+                if do_clear and setup_bg is not None:
                     r = float(setup_bg[0]) / 255.0
                     g = float(setup_bg[1]) / 255.0
                     b = float(setup_bg[2]) / 255.0
                     gl.glClearColor(r, g, b, 1.0)
-                    gl.glClear(gl.GL_COLOR_BUFFER_BIT)
-                elif getattr(engine, '_default_bg_applied', False):
-                    gl.glClearColor(200.0 / 255.0, 200.0 / 255.0, 200.0 / 255.0, 1.0)
                     gl.glClear(gl.GL_COLOR_BUFFER_BIT)
             except Exception:
                 pass
@@ -94,9 +141,19 @@ def setup_window_loop(
             pass
 
         try:
+            if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                try:
+                    print('Lifecycle debug: on_draw presenting', len(cmds), 'cmds')
+                except Exception:
+                    pass
             render_and_present(presenter, cmds, replay_fn)
         except Exception:
             # swallow non-fatal present errors to match previous behaviour
+            try:
+                if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                    import traceback; traceback.print_exc()
+            except Exception:
+                pass
             pass
 
     # helper to create a SimpleSketchAPI instance without repeating long imports
@@ -389,6 +446,82 @@ def setup_window_loop(
 
     # whether start() was given an explicit max_frames
     engine._ignore_no_loop = False if max_frames is None else True
+
+    # If a setup background was captured earlier, render it once into the
+    # presenter's surface now so the initial canvas contents persist across
+    # frames. Mark `_setup_bg_applied` so on_draw won't apply it again.
+    try:
+        _bg = getattr(engine, '_setup_background', None)
+        if _bg is not None:
+            try:
+                bg_cmd = {
+                    'op': 'background',
+                    'args': {'r': int(_bg[0]), 'g': int(_bg[1]), 'b': int(_bg[2])},
+                    'meta': {'seq': 0},
+                }
+                if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                    print('Lifecycle debug: setup_window_loop applying initial setup background to presenter')
+                try:
+                    # Ensure presenter's GL objects exist and clear its FBO to
+                    # an opaque background color before replaying the Skia
+                    # background command. This protects against situations
+                    # where the Skia surface or driver leaves the texture alpha
+                    # channel as zero (transparent) when creating the surface.
+                    try:
+                        if hasattr(presenter, 'ensure_resources'):
+                            try:
+                                presenter.ensure_resources()
+                            except Exception:
+                                pass
+                        from pyglet import gl
+                        try:
+                            # bind presenter's FBO if available
+                            fbo = getattr(presenter, 'fbo_id', None)
+                            if fbo is not None:
+                                try:
+                                    gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, int(fbo))
+                                except Exception:
+                                    pass
+                            # clear to opaque background color
+                            r = float(int(_bg[0]) / 255.0)
+                            g = float(int(_bg[1]) / 255.0)
+                            b = float(int(_bg[2]) / 255.0)
+                            try:
+                                gl.glClearColor(r, g, b, 1.0)
+                                gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+                            except Exception:
+                                pass
+                            # unbind
+                            try:
+                                gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0)
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+
+                    # Remember the setup background on the presenter so the
+                    # present() implementation can clear the default
+                    # framebuffer to the same color prior to drawing. This
+                    # ensures transparent areas of the presenter's texture
+                    # composite over the requested background.
+                    try:
+                        setattr(presenter, '_setup_background_color', tuple(_bg))
+                    except Exception:
+                        pass
+                    render_and_present(presenter, [bg_cmd], replay_fn)
+                except Exception:
+                    # best-effort only
+                    pass
+                try:
+                    engine._setup_bg_applied = True
+                except Exception:
+                    pass
+            except Exception:
+                pass
+    except Exception:
+        pass
 
     # on_close: ensure presenter teardown and exit when the window is closed
     try:

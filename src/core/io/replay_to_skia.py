@@ -8,6 +8,7 @@ GPU-backed) for presentation.
 from __future__ import annotations
 
 from typing import Any
+import os
 
 
 def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
@@ -15,6 +16,7 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
         import skia
     except Exception:
         raise
+    dbg = os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1'
     # Maintain a simple drawing state so sequential ops like `fill()` and
     # `stroke()` affect later `shape` commands. This mirrors how sketches
     # set a current fill/stroke before emitting vertices.
@@ -67,6 +69,14 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
     for cmd in commands:
         op = cmd.get('op')
         args = cmd.get('args', {})
+        try:
+            if dbg:
+                try:
+                    print(f"Lifecycle debug: replay_to_skia op={op} args={args}")
+                except Exception:
+                    pass
+        except Exception:
+            pass
         try:
             # Transform-related ops: save/restore/translate/rotate/scale/shear/reset/apply_matrix
             if op in ('push_matrix', 'save'):
@@ -188,10 +198,38 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
                 r = int(args.get('r', 200))
                 g = int(args.get('g', 200))
                 b = int(args.get('b', 200))
+                # Ensure we paint an opaque background. Some Skia bindings
+                # vary in how canvas.clear handles alpha or Color4f; using
+                # drawPaint with an explicit opaque Color4f guarantees we
+                # get a fully-opaque background regardless of surface alpha
+                # configuration.
                 try:
-                    canvas.clear(skia.Color4f(r/255.0, g/255.0, b/255.0, 1.0))
+                    p = skia.Paint()
+                    p.setStyle(skia.Paint.kFill_Style)
+                    p.setAntiAlias(False)
+                    try:
+                        p.setColor(skia.Color4f(r/255.0, g/255.0, b/255.0, 1.0))
+                        canvas.drawPaint(p)
+                    except Exception:
+                        # Fallback to integer ARGB packed color
+                        try:
+                            ival = (0xFF << 24) | (r << 16) | (g << 8) | b
+                            p.setColor(ival)
+                            canvas.drawPaint(p)
+                        except Exception:
+                            # Last-resort: try canvas.clear as before
+                            try:
+                                canvas.clear(skia.Color4f(r/255.0, g/255.0, b/255.0, 1.0))
+                            except Exception:
+                                try:
+                                    canvas.clear(ival)
+                                except Exception:
+                                    pass
                 except Exception:
-                    canvas.clear((0xFF << 24) | (r << 16) | (g << 8) | b)
+                    try:
+                        canvas.clear((0xFF << 24) | (r << 16) | (g << 8) | b)
+                    except Exception:
+                        pass
             elif op == 'rect':
                 x = float(args.get('x', 0))
                 y = float(args.get('y', 0))
