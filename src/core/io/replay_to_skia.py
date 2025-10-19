@@ -332,24 +332,37 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
             elif op == 'point':
                 x = float(args.get('x', 0))
                 y = float(args.get('y', 0))
-                stroke = args.get('stroke')
-                sw = float(args.get('stroke_weight', 1) or 1)
-                # Prefer fill if available, otherwise use stroke. Represent
-                # point as a tiny circle (radius = max(1, sw/2)).
+                # Prefer stroke color/weight for points per API contract.
+                # Fall back to current stroke or fill as necessary.
+                stroke_arg = args.get('stroke', None)
+                fill_arg = args.get('fill', None)
+                sw = None
+                try:
+                    sw = float(args.get('stroke_weight', args.get('strokeWeight', None) or current_stroke_weight))
+                except Exception:
+                    sw = float(current_stroke_weight or 1.0)
+                # radius derived from stroke weight
                 r = max(1.0, sw / 2.0)
-                fill = args.get('fill')
-                if fill is not None:
+
+                # Determine effective stroke and fill colors
+                eff_stroke = stroke_arg if stroke_arg is not None else current_stroke
+                eff_fill = fill_arg if fill_arg is not None else current_fill
+
+                # Only draw points when a stroke color exists. Do NOT fall back
+                # to fill semantics for `point` — this matches the Processing
+                # behavior expected by users: points are stroke-driven.
+                if eff_stroke is not None:
                     p = skia.Paint()
                     p.setAntiAlias(True)
                     p.setStyle(skia.Paint.kFill_Style)
-                    if isinstance(fill, (tuple, list)):
-                        rr, gg, bb = [float(v)/255.0 for v in fill[:3]]
+                    if isinstance(eff_stroke, (tuple, list)):
+                        rr, gg, bb = [float(v)/255.0 for v in eff_stroke[:3]]
                         try:
                             p.setColor(skia.Color4f(rr, gg, bb, 1.0))
                         except Exception:
                             p.setColor((int(rr*255)<<16)|(int(gg*255)<<8)|int(bb*255))
                     else:
-                        v = float(fill)/255.0
+                        v = float(eff_stroke)/255.0
                         try:
                             p.setColor(skia.Color4f(v, v, v, 1.0))
                         except Exception:
