@@ -21,6 +21,7 @@ __all__ = [
     'lerp',
     'mag',
     'map',
+    'map_',
     'sq',
     'sqrt',
     'sin',
@@ -32,9 +33,13 @@ __all__ = [
     'abs',
     'map',
     'pow',
+    'pow_',
     'max',
+    'max_',
     'min',
+    'min_',
     'round',
+    'round_',
     # vector/type exports
     'PCVector',
     # vector helpers
@@ -45,7 +50,7 @@ __all__ = [
 ]
 
 # Pull a few commonly used symbols into package namespace for compatibility
-from .ops import abs, map, pow, max, min, round
+from .ops import abs, map, map_, pow, pow_, max, max_, min, min_, round, round_
 from .pvector import PCVector
 # Re-export commonly used numeric helpers at package level for backwards compat
 from .ops import (

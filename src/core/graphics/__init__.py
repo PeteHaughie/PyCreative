@@ -1,22 +1,16 @@
 """Core graphics helpers and lightweight headless recording buffer.
 
-This package will eventually host the GPU-backed adapters and surfaces.
-For now it exposes `GraphicsBuffer` which records drawing commands in
-memory for headless tests.
+Keep this package thin: implementations live in sibling modules.
 """
-from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from __future__ import annotations
 
+# Re-export submodules
+from . import buffer
 
-@dataclass
-class GraphicsBuffer:
-    commands: List[Dict[str, Any]] = field(default_factory=list)
-    _seq: int = 0
+__all__ = [
+    'buffer',
+    'GraphicsBuffer',
+]
 
-    def clear(self):
-        self.commands.clear()
-
-    def record(self, op: str, **kwargs):
-        self._seq += 1
-        meta = {'seq': self._seq}
-        self.commands.append({'op': op, 'args': kwargs, 'meta': meta})
+# Convenience re-export of the main class
+from .buffer import GraphicsBuffer
