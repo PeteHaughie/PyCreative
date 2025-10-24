@@ -46,6 +46,6 @@ int (color value)
 
 ## Related
 
-- [PImage::blend_color()](/docs/api/image/processing/PImage/blend_color_.md)
+- [PCImage::blend_color()](/docs/api/image/processing/PCImage/blend_color_.md)
 - [color()](/docs/api/color/creating_and_reading/color_.md)
 - [lerp()](/docs/api/color/creating_and_reading/lerp_.md)

@@ -91,7 +91,7 @@ forms.
 
 ### pmouse semantics
 
-- `pmouse_x` and `pmouse_y` are set to the previous values of `mouse_x` and `mouse_y` before applying the new coordinates when simulating an event. This mirrors the typical "previous-frame" semantics used in Processing-style APIs.
+- `pmouse_x` and `pmouse_y` are set to the previous values of `mouse_x` and `mouse_y` before applying the new coordinates when simulating an event. This mirrors the typical "previous-frame" semantics used in PyCreative-style APIs.
 - When simulating events directly (without drawing frames), the Engine updates `pmouse` before updating current coords so handlers can compare the previous and current positions.
 
 ### Lifecycle notes

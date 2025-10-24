@@ -51,8 +51,8 @@ PCShape(g, kind, params)
 |--------|-------------|
 | [is_visible()](/docs/api/shape/PCShape/PCShape_is_visible_.md) | Returns a boolean value true if the image is set to be visible, false if not |
 | [set_visible()](/docs/api/shape/PCShape/PCShape_set_visible_.md) | Sets the shape to be visible or invisible |
-| [disable_style()](/docs/api/shape/PCShape/PCShape_disable_style_.md) | Disables the shape's style data and uses Processing styles |
-| [enable_style()](/docs/api/shape/PCShape/PCShape_enable_style_.md) | Enables the shape's style data and ignores the Processing styles |
+| [disable_style()](/docs/api/shape/PCShape/PCShape_disable_style_.md) | Disables the shape's style data and uses PyCreative styles |
+| [enable_style()](/docs/api/shape/PCShape/PCShape_enable_style_.md) | Enables the shape's style data and ignores the PyCreative styles |
 | [begin_contour()](/docs/api/shape/PCShape/PCShape_begin_contour_.md) | Starts a new contour |
 | [end_contour()](/docs/api/shape/PCShape/PCShape_end_contour_.md) | Ends a contour |
 | [begin_shape()](/docs/api/shape/PCShape/PCShape_begin_shape_.md) | Starts the creation of a new PShape |

@@ -39,7 +39,7 @@ cursor()
 | Input | Description |
 |-------|-------------|
 | kind	(int) |	either ARROW, CROSS, HAND, MOVE, TEXT, or WAIT |
-| img	(PImage) |	any variable of type PImage |
+| img	(PCImage) |	any variable of type PCImage |
 | x	(int) |	the horizontal active spot of the cursor |
 | y	(int) |	the vertical active spot of the cursor |
 

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from ..impl import Engine
@@ -13,6 +13,38 @@ class SimpleSketchAPI:
 
     def __init__(self, engine: 'Engine'):
         self._engine = engine
+        # Cache frequently-used engine functions as instance attributes to
+        # avoid the per-call registry lookup overhead when sketches call
+        # these in tight inner loops (e.g., per-pixel noise sampling).
+        try:
+            fn_noise = self._engine.api.get('noise')
+            if fn_noise:
+                # Attach as an attribute to shadow the method lookup and
+                # provide a fast, direct call path.
+                try:
+                    setattr(self, 'noise', fn_noise)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            fn_noise_seed = self._engine.api.get('noise_seed')
+            if fn_noise_seed:
+                try:
+                    setattr(self, 'noise_seed', fn_noise_seed)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            fn_noise_detail = self._engine.api.get('noise_detail')
+            if fn_noise_detail:
+                try:
+                    setattr(self, 'noise_detail', fn_noise_detail)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         # expose PCVector constructor to sketches as `this.pcvector`
         try:
             from core.math import PCVector  # local import to avoid top-level cost
@@ -74,6 +106,58 @@ class SimpleSketchAPI:
         fn = self._engine.api.get('rect')
         if fn:
             return fn(x, y, w, h, **kwargs)
+
+    # Expose noise API helpers on the SimpleSketchAPI so class-based
+    # sketches receive engine-backed implementations when methods are
+    # attached to sketch instances during Engine normalization.
+    def noise(self, *args, **kwargs):
+        try:
+            fn = self._engine.api.get('noise')
+            if fn:
+                return fn(*args, **kwargs)
+        except Exception:
+            pass
+        # fallback behaviour: raise or return 0.0
+        try:
+            return 0.0
+        except Exception:
+            return 0.0
+
+    def noise_seed(self, *args, **kwargs):
+        try:
+            fn = self._engine.api.get('noise_seed')
+            if fn:
+                return fn(*args, **kwargs)
+        except Exception:
+            pass
+        return None
+
+    def noise_detail(self, *args, **kwargs):
+        try:
+            fn = self._engine.api.get('noise_detail')
+            if fn:
+                return fn(*args, **kwargs)
+        except Exception:
+            pass
+        return None
+
+    def noise_field(self, *args, **kwargs):
+        """Compute a vectorized noise field. This delegates to the
+        core.random.ops.noise_field implementation when available."""
+        try:
+            # Prefer registering via engine API if present
+            fn = self._engine.api.get('noise_field')
+            if fn:
+                return fn(*args, **kwargs)
+        except Exception:
+            pass
+        try:
+            # Fallback: import directly
+            from core.random import ops as _ops
+
+            return _ops.noise_field(self._engine, *args, **kwargs)
+        except Exception:
+            return None
 
     @property
     def width(self) -> int:
@@ -138,6 +222,114 @@ class SimpleSketchAPI:
     def save_frame(self, path: str):
         self._engine._save_frame(path)
 
+    # Image helpers
+    def load_image(self, path: str, extension: Optional[str] = None):
+        try:
+            fn = self._engine.api.get('load_image')
+            if fn:
+                return fn(path, extension)
+        except Exception:
+            pass
+        # fallback: attempt to call core.image directly
+        try:
+            from core.image import load_image as _li
+
+            return _li(path, extension)
+        except Exception:
+            return None
+
+    def request_image(self, path: str, extension: Optional[str] = None):
+        try:
+            fn = self._engine.api.get('request_image')
+            if fn:
+                return fn(path, extension)
+        except Exception:
+            pass
+        try:
+            from core.image import request_image as _ri
+
+            return _ri(path, extension)
+        except Exception:
+            return None
+
+    def create_image(self, w: int, h: int):
+        try:
+            fn = self._engine.api.get('create_image')
+            if fn:
+                return fn(w, h)
+        except Exception:
+            pass
+        try:
+            from core.image import create_image as _ci
+
+            return _ci(w, h)
+        except Exception:
+            return None
+
+    def image(self, img, x, y, w=None, h=None, mode='CORNER', **kwargs):
+        """Draw or record an image. Accepts a PCImage-like object or a path.
+
+        This delegates to a registered 'image' API when available, otherwise
+        records an 'image' op on the engine graphics buffer so headless and
+        replay paths work consistently.
+        """
+        try:
+            fn = self._engine.api.get('image')
+            if fn:
+                return fn(img, x, y, w, h, mode=mode, **kwargs)
+        except Exception:
+            pass
+        # Fallback: record the image draw operation on the graphics buffer
+        args = {'image': img, 'x': float(x), 'y': float(y), 'mode': mode}
+        # Snapshot raw image bytes at record time when possible. This avoids
+        # races where the recorded PCImage object is mutated later and the
+        # replayer sees stale/uninitialized data. Use a best-effort approach
+        # and attach bytes/mode/size to the recorded args for replay.
+        try:
+            pil = None
+            # Accept either a PCImage-like object with to_pillow() or a raw PIL Image
+            if hasattr(img, 'to_pillow'):
+                try:
+                    pil = img.to_pillow()
+                except Exception:
+                    pil = None
+            else:
+                # maybe it's already a Pillow Image
+                try:
+                    from PIL import Image as _PILImage
+                    if isinstance(img, _PILImage.Image):
+                        pil = img
+                except Exception:
+                    pil = None
+
+            if pil is not None:
+                try:
+                    if getattr(pil, 'mode', None) != 'RGBA':
+                        pil = pil.convert('RGBA')
+                    raw = pil.tobytes()
+                    args['image_bytes'] = raw
+                    args['image_mode'] = 'RGBA'
+                    args['image_size'] = tuple(pil.size)
+                except Exception:
+                    # best-effort: don't fail recording if snapshotting fails
+                    pass
+        except Exception:
+            pass
+        if w is not None:
+            try:
+                args['w'] = float(w)
+            except Exception:
+                args['w'] = w
+        if h is not None:
+            try:
+                args['h'] = float(h)
+            except Exception:
+                args['h'] = h
+        try:
+            return self._engine.graphics.record('image', **args)
+        except Exception:
+            return None
+
     def line(self, x1, y1, x2, y2, **kwargs):
         fn = self._engine.api.get('line')
         if fn:
@@ -190,6 +382,40 @@ class SimpleSketchAPI:
                 return fn(self._engine.fill_color)
         except Exception:
             pass
+
+    def tint(self, *args):
+        """Set a global tint color for image draws. Accepts a color tuple or None to clear.
+
+        This mirrors Processing's tint() which multiplies image colors on draw.
+        We record a 'tint' op on the graphics buffer so replayers can apply it.
+        """
+        try:
+            # Simple parsing: accept either a single tuple/list or individual components
+            if len(args) == 0:
+                c = None
+            elif len(args) == 1:
+                c = args[0]
+            else:
+                c = tuple(args)
+            # Persist on engine for direct queries
+            try:
+                setattr(self._engine, 'tint_color', c)
+            except Exception:
+                pass
+            # If an engine-registered 'tint' handler exists, call it
+            try:
+                fn = self._engine.api.get('tint')
+                if fn:
+                    return fn(c)
+            except Exception:
+                pass
+            # Fallback: record the tint op on the graphics buffer
+            try:
+                return self._engine.graphics.record('tint', color=c)
+            except Exception:
+                return None
+        except Exception:
+            return None
 
     def stroke(self, *args):
         """Set stroke color respecting color_mode (RGB or HSB). Delegates to core.color.stroke."""

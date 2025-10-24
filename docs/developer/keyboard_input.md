@@ -11,7 +11,7 @@ input adapters or the Engine wiring.
 
 - Platform events are normalized by a small adapter (`core.adapters.pyglet_keyboard`) so the
   Engine sees a stable, cross-platform event shape.
-- The Engine exposes serialised, Processing-like system variables on the
+- The Engine exposes serialised, PyCreative-like system variables on the
   engine instance and also provides a `SimpleSketchAPI` facade used by
   sketches. For class-based sketches the Engine creates a dynamic subclass
   that exposes convenience properties like `self.key`, `self.key_code`, and
@@ -35,7 +35,7 @@ Event semantics implemented:
 - `key`: a printable character (single-character string) if the pressed key
   has a printable representation (letters, digits). For non-printable keys
   this will be one of:
-  - `'CODED'` — a Processing-style sentinel indicating a coded key (e.g.
+  - `'CODED'` — a PyCreative-style sentinel indicating a coded key (e.g.
     arrow keys, function keys) when the adapter could not derive a printable
     character.
   - A numeric string like `'1'` when the key constant encoded a digit
@@ -78,7 +78,7 @@ Normalization details & decisions
   - `engine.key_pressed` — boolean; set True on press and False on release.
 - For class-based sketches the Engine exposes `self.key`, `self.key_code`,
   and `self.key_pressed` (callable/bool proxy) via a dynamic subclass so
-  sketch authors can use Processing-style code directly.
+  sketch authors can use PyCreative-style code directly.
 
 ## Testing & simulation
 

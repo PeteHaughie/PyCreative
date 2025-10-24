@@ -7,7 +7,7 @@
 This function makes it possible to render using all the pixels on high resolutions screens like Apple Retina and Windows HiDPI. This function can only be run once within a program, and must be called right after size() in a program without a `setup()` function, or within `setup()` if present.
 `pixel_density()` should only be used with hardcoded numbers (in almost all cases this number will be 2) or in combination with `display_density()` as in the example below.
 
-When the pixel density is set to more than 1, it changes the pixel operations including the way `get()`, `set()`, `blend()`, `copy()`, and `updatePixels()` all work. See the reference for `pixel_width` and `pixel_height` for more information.
+When the pixel density is set to more than 1, it changes the pixel operations including the way `get()`, `set()`, `blend()`, `copy()`, and `update_pixels()` all work. See the reference for `pixel_width` and `pixel_height` for more information.
 
 To use variables as the arguments to `pixel_density()` function, place the `pixel_density()` function within the `settings()` function. There is more information about this on the `settings()` reference page.
 

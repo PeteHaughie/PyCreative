@@ -4,7 +4,7 @@
 
 ## Description
 
-The `background()` function sets the color used for the background of the Processing window. The default background is light gray. This function is typically used within `draw()` to clear the display window at the beginning of each frame, but it can be used inside `setup()` to set the background on the first frame of animation or if the background need only be set once.
+The `background()` function sets the color used for the background of the PyCreative window. The default background is light gray. This function is typically used within `draw()` to clear the display window at the beginning of each frame, but it can be used inside `setup()` to set the background on the first frame of animation or if the background need only be set once.
 
 An image can also be used as the background for a sketch, although the image's width and height must match that of the sketch window. Images used with `background()` will ignore the current `tint()` setting. To resize an image to the size of the sketch window, use `image.resize(width, height)`.
 
@@ -47,7 +47,7 @@ background(image)
 | v1	(float) | red or hue value (depending on the current color mode) |
 | v2	(float) | green or saturation value (depending on the current color mode) |
 | v3	(float) | blue or brightness value (depending on the current color mode) |
-| image	(PImage) | PImage to set as background (must be same size as the sketch window) |
+| image	(PCImage) | PCImage to set as background (must be same size as the sketch window) |
 
 ## Return
 

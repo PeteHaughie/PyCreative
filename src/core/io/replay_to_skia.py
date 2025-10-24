@@ -29,6 +29,7 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
     current_stroke_weight = 1.0
     current_stroke_cap = None
     current_stroke_join = None
+    current_tint = None
 
     def _make_paint_from_color(col, fill=True, stroke_weight=1.0, alpha=None, cap=None, join=None):
         p = skia.Paint()
@@ -365,6 +366,12 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
                 # keep alpha information for later paint construction
                 current_fill_alpha = args.get('fill_alpha', None)
                 continue
+            elif op == 'tint':
+                try:
+                    current_tint = args.get('color') or args.get('c') or args.get('color')
+                except Exception:
+                    current_tint = None
+                continue
             elif op == 'stroke_cap':
                 # record the stroke cap for later paint construction
                 try:
@@ -609,6 +616,225 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
                 except Exception:
                     pass
                 canvas.drawLine(x1, y1, x2, y2, p)
+            elif op == 'image':
+                # Draw an image-like object. The recorded args may include
+                # a PCImage instance (which exposes to_skia()) or a raw
+                # skia.Image. Support basic image_mode semantics: CORNER
+                # (default) and CENTER. If width/height are provided, the
+                # image will be scaled to that size.
+                try:
+                    img_obj = args.get('image') or args.get('img') or args.get('src')
+                    if img_obj is None:
+                        # some recorders may pass the first positional arg as 'a'
+                        img_obj = args.get('a')
+                    if img_obj is None:
+                        continue
+
+                    # Obtain a skia.Image from the object
+                    skimg = None
+                    # Prefer recorded raw bytes if present (snapshot at record time)
+                    try:
+                        img_bytes = args.get('image_bytes') if isinstance(args, dict) else None
+                    except Exception:
+                        img_bytes = None
+                    if img_bytes is not None:
+                        try:
+                            # Reconstruct a skia.Image from raw RGBA bytes captured
+                            w, h = args.get('image_size', (0, 0))
+                            if w and h:
+                                try:
+                                    dims = skia.ISize(int(w), int(h))
+                                    try:
+                                        skimg = skia.Image.frombytes(img_bytes, dims, skia.ColorType.kRGBA_8888_ColorType, skia.AlphaType.kUnpremul_AlphaType)
+                                    except Exception:
+                                        # fallback via Pixmap
+                                        info = skia.ImageInfo.Make(int(w), int(h), skia.ColorType.kRGBA_8888_ColorType, skia.AlphaType.kUnpremul_AlphaType)
+                                        row_bytes = int(w) * 4
+                                        pm = skia.Pixmap(info, img_bytes, row_bytes)
+                                        skimg = skia.Image.MakeFromRaster(pm, None)
+                                except Exception:
+                                    skimg = None
+                        except Exception:
+                            skimg = None
+                    try:
+                        if hasattr(img_obj, 'to_skia'):
+                            skimg = img_obj.to_skia()
+                        elif isinstance(img_obj, skia.Image):
+                            skimg = img_obj
+                        else:
+                            # Try common conversions: pillow-like object
+                            if hasattr(img_obj, 'to_pillow'):
+                                pil = img_obj.to_pillow()
+                                try:
+                                    data = pil.tobytes()
+                                    skimg = skia.Image.frombytes(pil.mode, skia.ISize(pil.size), data)
+                                except Exception:
+                                    try:
+                                        # fallback: use Pixmap -> Image.MakeFromRaster
+                                        w,h = pil.size
+                                        row_bytes = w * len(pil.getbands())
+                                        pm = skia.Pixmap(skia.ImageInfo.MakeN32Premul(w, h), pil.tobytes(), row_bytes)
+                                        skimg = skia.Image.MakeFromRaster(pm, None)
+                                    except Exception:
+                                        skimg = None
+                    except Exception:
+                        skimg = None
+
+                    if skimg is None:
+                        # nothing we can draw
+                        continue
+
+                    # no-op: debug dump removed
+
+                    # Destination rectangle calculation
+                    mode = (args.get('mode') or args.get('image_mode') or 'CORNER').upper()
+                    x = float(args.get('x', 0))
+                    y = float(args.get('y', 0))
+                    # support corners-style: (x1,y1,x2,y2)
+                    if mode == 'CORNERS' or ('x2' in args and 'y2' in args):
+                        try:
+                            x2 = float(args.get('x2', args.get('x2', 0)))
+                            y2 = float(args.get('y2', args.get('y2', 0)))
+                            left = x
+                            top = y
+                            right = x2
+                            bottom = y2
+                        except Exception:
+                            left = x
+                            top = y
+                            right = left + float(skimg.width())
+                            bottom = top + float(skimg.height())
+                    else:
+                        # width/height (optional); default to image native size
+                        try:
+                            w = args.get('w', args.get('width', None))
+                            h = args.get('h', args.get('height', None))
+                            if w is None:
+                                w = float(skimg.width())
+                            else:
+                                w = float(w)
+                            if h is None:
+                                h = float(skimg.height())
+                            else:
+                                h = float(h)
+                        except Exception:
+                            w = float(skimg.width())
+                            h = float(skimg.height())
+
+                        if mode == 'CENTER':
+                            left = x - w/2.0
+                            top = y - h/2.0
+                        else:
+                            # CORNER default
+                            left = x
+                            top = y
+                        right = left + w
+                        bottom = top + h
+
+                    dest = skia.Rect.MakeLTRB(float(left), float(top), float(right), float(bottom))
+
+                    # Attempt high-quality drawImageRect if available
+                    try:
+                        src = skia.Rect.MakeLTRB(0.0, 0.0, float(skimg.width()), float(skimg.height()))
+                        paint = skia.Paint()
+                        paint.setAntiAlias(True)
+                        # Respect optional tint/alpha if provided (basic support)
+                        tint = args.get('tint', None)
+                        if tint is None:
+                            tint = current_tint
+                        alpha = args.get('alpha', None)
+                        if alpha is not None:
+                            try:
+                                a = float(alpha)
+                                a = max(0.0, min(1.0, a))
+                                paint.setAlphaf(a)
+                            except Exception:
+                                pass
+                        # Apply tint if provided. Try GPU ColorFilter first; fall back to CPU tinting via Pillow.
+                        if tint is not None:
+                            # Normalize tint to RGBA factors (0.0..1.0)
+                            try:
+                                if isinstance(tint, (tuple, list)):
+                                    tr = float(tint[0]) / 255.0 if len(tint) > 0 else 1.0
+                                    tg = float(tint[1]) / 255.0 if len(tint) > 1 else tr
+                                    tb = float(tint[2]) / 255.0 if len(tint) > 2 else tr
+                                    ta = float(tint[3]) / 255.0 if len(tint) > 3 else 1.0
+                                else:
+                                    # single numeric -> grayscale tint
+                                    v = float(tint) / 255.0
+                                    tr = tg = tb = v
+                                    ta = 1.0
+                            except Exception:
+                                tr = tg = tb = 1.0
+                                ta = 1.0
+                            # Try to use Skia ColorFilter (matrix) to multiply channels
+                            try:
+                                # 4x5 color matrix: Rr,0,0,0,0, 0,g,0,0,0, 0,0,b,0,0, 0,0,0,a,0
+                                mat = [
+                                    tr, 0.0, 0.0, 0.0, 0.0,
+                                    0.0, tg, 0.0, 0.0, 0.0,
+                                    0.0, 0.0, tb, 0.0, 0.0,
+                                    0.0, 0.0, 0.0, ta, 0.0,
+                                ]
+                                try:
+                                    # Preferred API
+                                    cf = skia.ColorFilter.MakeMatrix(mat)
+                                except Exception:
+                                    # Alternate API name
+                                    cf = skia.ColorFilters.Matrix(mat)
+                                paint.setColorFilter(cf)
+                            except Exception:
+                                # Fallback: CPU tint via Pillow
+                                try:
+                                    from PIL import Image, ImageChops
+                                    pil = None
+                                    if hasattr(img_obj, 'to_pillow'):
+                                        pil = img_obj.to_pillow()
+                                    else:
+                                        # try to construct from skimg back to pillow via bytes
+                                        # skia.Image -> bytes path can vary; attempt safe fallback
+                                        pil = None
+                                    if pil is not None:
+                                        # Ensure RGBA
+                                        p = pil.convert('RGBA')
+                                        # Create solid color layer
+                                        color_layer = Image.new('RGBA', p.size, (int(tr*255), int(tg*255), int(tb*255), int(ta*255)))
+                                        try:
+                                            tinted = ImageChops.multiply(p, color_layer)
+                                        except Exception:
+                                            # Simple blend as last-resort
+                                            tinted = Image.blend(p, color_layer, 0.5)
+                                        # Replace skimg with tinted version
+                                        try:
+                                            data = tinted.tobytes()
+                                            dims = skia.ISize(tinted.size[0], tinted.size[1])
+                                            skimg = skia.Image.frombytes(data, dims, skia.ColorType.kRGBA_8888_ColorType, skia.AlphaType.kUnpremul_AlphaType)
+                                        except Exception:
+                                            try:
+                                                w,h = tinted.size
+                                                info = skia.ImageInfo.Make(w, h, skia.ColorType.kRGBA_8888_ColorType, skia.AlphaType.kUnpremul_AlphaType)
+                                                row_bytes = w * 4
+                                                pix = skia.Pixmap(info, tinted.tobytes(), row_bytes)
+                                                skimg = skia.Image.MakeFromRaster(pix, None)
+                                            except Exception:
+                                                pass
+                                except Exception:
+                                    pass
+                        canvas.drawImageRect(skimg, src, dest, paint)
+                    except Exception:
+                        try:
+                            # Fallback: draw at left/top unscaled
+                            canvas.drawImage(skimg, float(left), float(top))
+                        except Exception:
+                            pass
+                except Exception:
+                    # Best-effort: do not fail the whole replay due to image draw
+                    try:
+                        if dbg:
+                            logger.exception("failed to draw image op")
+                    except Exception:
+                        pass
+                continue
         except Exception:
             # best-effort: ignore commands that fail to draw
             continue

@@ -4,7 +4,7 @@
 
 ## Description
 
-The `window_move()` function defines the position of the Processing sketch in relation to the upper-left corner of the computer screen.
+The `window_move()` function defines the position of the PyCreative sketch in relation to the upper-left corner of the computer screen.
 
 ## Example
 

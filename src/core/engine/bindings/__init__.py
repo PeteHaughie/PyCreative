@@ -28,6 +28,7 @@ SKETCH_CONVENIENCE_METHODS = (
     # Transform helpers (2D)
     'translate', 'rotate', 'scale', 'push_matrix', 'pop_matrix', 'pushMatrix', 'popMatrix',
     'shear_x', 'shear_y', 'reset_matrix', 'apply_matrix',
+    'image',
 )
 
 __all__ = ['SKETCH_CONVENIENCE_METHODS']

@@ -181,6 +181,19 @@ class Engine:
             except Exception:
                 pass
         except Exception:
+            #best-effort only
+            pass
+
+        # Register image APIs via api registrations
+        try:
+            from core.engine.api.registrations import register_image_apis
+            try:
+                register_image_apis(self)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        except Exception:
             # best-effort only; continue if registrations can't be imported
             pass
 
@@ -1136,7 +1149,7 @@ class Engine:
                 from typing import cast
                 # create window with explicit keyword args broken across lines
                 _win = pyglet.window.Window(
-                    width=self.width, height=self.height, vsync=True  # type: ignore
+                    width=self.width, height=self.height, vsync=True
                 )
                 # cast to Any to avoid mypy attempting to validate pyglet's
                 # abstract base classes in this context.
