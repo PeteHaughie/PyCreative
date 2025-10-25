@@ -71,7 +71,30 @@ class SimpleSketchAPI:
                 def div(self, a, n):
                     return PCVector.div_vec(a, n)
 
+                # Expose common static/helpers from PCVector for sketches that
+                # call `this.pcvector.random2d()` or `this.pcvector.from_angle()`.
+                def random2d(self, magnitude: float = 1.0):
+                    try:
+                        return PCVector.random2d(float(magnitude))
+                    except Exception:
+                        return PCVector.from_angle(0.0, float(magnitude))
+
+                def from_angle(self, angle: float, magnitude: float = 1.0):
+                    try:
+                        return PCVector.from_angle(float(angle), float(magnitude))
+                    except Exception:
+                        return PCVector(0.0, 0.0)
+
             self.pcvector: Any = _PCVectorFactory()
+            # Expose Processing-style shape mode constants so sketches can
+            # reference `this.CENTER`, `this.CORNER`, etc.
+            try:
+                setattr(self, 'CENTER', 'CENTER')
+                setattr(self, 'CORNER', 'CORNER')
+                setattr(self, 'CORNERS', 'CORNERS')
+                setattr(self, 'RADIUS', 'RADIUS')
+            except Exception:
+                pass
             # Expose common math helpers at the sketch-level as documented
             # (e.g., this.lerp, this.map, this.dist, etc.). We expose a
             # conservative set matching docs/api/math/calculation.
@@ -92,6 +115,20 @@ class SimpleSketchAPI:
             except Exception:
                 # If math module cannot be imported, silently continue; tests
                 # will skip or fail intentionally.
+                pass
+            # Expose common math constants (PI, TWO_PI, HALF_PI, etc.) so
+            # examples that reference `this.TWO_PI` or `this.PI` work.
+            try:
+                from core.constants import PI as _PI, TWO_PI as _TWO_PI, HALF_PI as _HALF_PI, QUARTER_PI as _QUARTER_PI, TAU as _TAU
+                try:
+                    setattr(self, 'PI', _PI)
+                    setattr(self, 'TWO_PI', _TWO_PI)
+                    setattr(self, 'HALF_PI', _HALF_PI)
+                    setattr(self, 'QUARTER_PI', _QUARTER_PI)
+                    setattr(self, 'TAU', _TAU)
+                except Exception:
+                    pass
+            except Exception:
                 pass
         except Exception:
             # if math isn't available for some reason, expose a minimal fallback
@@ -329,6 +366,29 @@ class SimpleSketchAPI:
             return self._engine.graphics.record('image', **args)
         except Exception:
             return None
+
+    def image_mode(self, mode: str):
+        """Set the image drawing mode (e.g., 'CENTER', 'CORNER', 'CORNERS').
+
+        This updates engine state so subsequent `image()` calls and
+        replayers respect the chosen mode.
+        """
+        try:
+            # Update engine state
+            try:
+                self._engine.image_mode = str(mode)
+            except Exception:
+                pass
+            # If the engine provided a recorder for image_mode, call it
+            fn = self._engine.api.get('image_mode')
+            if fn:
+                try:
+                    return fn(mode)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return None
 
     def line(self, x1, y1, x2, y2, **kwargs):
         fn = self._engine.api.get('line')

@@ -11,6 +11,8 @@ SKETCH_CONVENIENCE_METHODS = (
     'rect', 'line', 'circle', 'square', 'frame_rate',
     'ellipse',
     'fill', 'stroke', 'stroke_weight',
+    # shape attribute helpers
+    'ellipse_mode',
     # Math helpers and random API commonly used in examples
     # expose the common math calculation helpers so sketches can call
     # `self.map()`, `self.lerp()`, `self.norm()`, etc.
@@ -28,7 +30,7 @@ SKETCH_CONVENIENCE_METHODS = (
     # Transform helpers (2D)
     'translate', 'rotate', 'scale', 'push_matrix', 'pop_matrix', 'pushMatrix', 'popMatrix',
     'shear_x', 'shear_y', 'reset_matrix', 'apply_matrix',
-    'image',
+    'image', 'image_mode',
 )
 
 __all__ = ['SKETCH_CONVENIENCE_METHODS']

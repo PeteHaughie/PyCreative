@@ -101,6 +101,24 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
             pass
         return p
 
+    # Ensure the canvas transform state is reset for this replay so that
+    # transforms emitted in previous frames do not accumulate. Some Skia
+    # bindings reuse the same Canvas across frames and its CTM persists
+    # unless explicitly reset; this caused "orphan" shapes and missing
+    # draws when sketches rely on per-frame transforms without push/pop.
+    try:
+        canvas.save()
+        try:
+            # Prefer an explicit matrix reset when available
+            if hasattr(canvas, 'setMatrix'):
+                canvas.setMatrix(skia.Matrix())
+        except Exception:
+            # ignore failures to set matrix
+            pass
+    except Exception:
+        # If save/reset is not available, continue best-effort
+        pass
+
     for cmd in commands:
         op = cmd.get('op')
         args = cmd.get('args', {})
@@ -155,13 +173,18 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
                         pass
                 continue
             if op == 'rotate':
+                import math
+                # Engine stores transform angles in radians (math.atan2 etc.).
+                # Skia Canvas.rotate / Matrix.setRotate expect degrees, so
+                # convert here to avoid unit mismatch.
                 a = float(args.get('angle', 0))
+                deg = math.degrees(a)
                 try:
-                    canvas.rotate(a)
+                    canvas.rotate(deg)
                 except Exception:
                     try:
                         m = skia.Matrix()
-                        m.setRotate(a)
+                        m.setRotate(deg)
                         canvas.concat(m)
                     except Exception:
                         pass
@@ -838,3 +861,9 @@ def replay_to_skia_canvas(commands: list, canvas: Any) -> None:
         except Exception:
             # best-effort: ignore commands that fail to draw
             continue
+    # Restore the canvas state saved above so we do not leak state to other
+    # users of the Canvas object.
+    try:
+        canvas.restore()
+    except Exception:
+        pass

@@ -400,6 +400,124 @@ class SkiaGLPresenter:
         except Exception:
             pass
 
+        # Small diagnostic: log whether any save_frame commands are present
+        # and the total command count. Use the module logger rather than
+        # writing to /tmp or printing to stdout so production runs stay quiet.
+        try:
+            try:
+                sf_count = sum(1 for c in commands if c.get('op') == 'save_frame')
+            except Exception:
+                sf_count = 0
+            try:
+                logging.getLogger(__name__).debug('render_commands commands=%d save_frame_count=%d', len(commands), sf_count)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        # Process any recorded save_frame commands here so they are handled
+        # regardless of which present path (blit/vbo/immediate) is used.
+        try:
+            # iterate over a copy to avoid concurrent mutation issues
+            for idx, cmd in enumerate(list(commands)):
+                try:
+                    if cmd.get('op') != 'save_frame':
+                        continue
+                    args = cmd.get('args', {}) or {}
+                    path = args.get('path') or args.get('p') or args.get('a')
+                    if not path:
+                        continue
+
+                    # lightweight trace via logger (avoid noisy /tmp writes)
+                    try:
+                        logging.getLogger(__name__).debug('SAVE_FRAME idx=%d path=%s total_cmds=%d', idx, path, len(commands))
+                    except Exception:
+                        pass
+
+                    # Try Skia snapshot first
+                    try:
+                        img = None
+                        try:
+                            img = surf.makeImageSnapshot()
+                        except Exception as e:
+                            logging.getLogger(__name__).debug('save_frame makeImageSnapshot failed idx=%s path=%s error=%r', idx, path, e)
+                            img = None
+
+                        b = None
+                        if img is not None:
+                            try:
+                                data = img.encodeToData()
+                                if data is not None:
+                                    if hasattr(data, 'toBytes'):
+                                        b = data.toBytes()
+                                    elif hasattr(data, 'tobytes'):
+                                        b = data.tobytes()
+                                    else:
+                                        b = bytes(data)
+                            except Exception as e:
+                                logging.getLogger(__name__).debug('save_frame encode failed idx=%s path=%s error=%r', idx, path, e)
+                                b = None
+
+                        # GL readback fallback
+                        if not b:
+                            try:
+                                from pyglet import gl as _gl
+                                from PIL import Image as _Image
+                                w = int(self.width)
+                                h = int(self.height)
+                                _gl.glBindFramebuffer(_gl.GL_FRAMEBUFFER, int(self.fbo_id or 0))
+                                buf = (ctypes.c_ubyte * (w * h * 4))()
+                                _gl.glReadPixels(0, 0, w, h, _gl.GL_RGBA, _gl.GL_UNSIGNED_BYTE, ctypes.byref(buf))
+                                raw = bytes(buf)
+                                img_p = _Image.frombytes('RGBA', (w, h), raw)
+                                img_p = img_p.transpose(_Image.FLIP_TOP_BOTTOM)
+                                import io as _io
+                                bio = _io.BytesIO()
+                                img_p.save(bio, 'PNG')
+                                b = bio.getvalue()
+                            except Exception as e:
+                                logging.getLogger(__name__).debug('save_frame glReadPixels failed idx=%s path=%s error=%r', idx, path, e)
+                                b = None
+
+                        if not b:
+                            logging.getLogger(__name__).debug('save_frame no bytes obtained idx=%s path=%s', idx, path)
+                            continue
+
+                        # Write atomically: create a temp file next to the target
+                        # and replace the final path. This avoids noisy /tmp files
+                        # and ensures an atomic move where supported.
+                        try:
+                            import tempfile as _tempfile
+                            import os as _os
+                            dirn = _os.path.dirname(path) or '.'
+                            fd, tmp_out = _tempfile.mkstemp(suffix='.png', dir=dirn)
+                            try:
+                                with os.fdopen(fd, 'wb') as _tf:
+                                    _tf.write(b)
+                                # Replace the target atomically
+                                _os.replace(tmp_out, path)
+                                logging.getLogger(__name__).info('wrote save_frame to %s', path)
+                            except Exception as e:
+                                # Cleanup tmp file if it still exists
+                                try:
+                                    if _os.path.exists(tmp_out):
+                                        _os.remove(tmp_out)
+                                except Exception:
+                                    pass
+                                logging.getLogger(__name__).debug('save_frame final write failed idx=%s path=%s error=%r', idx, path, e)
+                                continue
+                        except Exception as e:
+                            logging.getLogger(__name__).debug('save_frame atomic write setup failed idx=%s path=%s error=%r', idx, path, e)
+                            continue
+                    except Exception:
+                        logging.getLogger(__name__).debug('save_frame unexpected handler error idx=%s path=%s', idx, path)
+                        continue
+                except Exception:
+                    # ignore per-command errors
+                    pass
+        except Exception:
+            pass
+
         # Debug-only: optionally write a PNG snapshot of the Skia surface to disk
         # to verify that drawing occurred. Enabled with PYCREATIVE_DEBUG_LIFECYCLE_DUMP=1
         try:
@@ -782,6 +900,37 @@ class SkiaGLPresenter:
                 gl.glPopMatrix()
                 gl.glMatrixMode(gl.GL_MODELVIEW)
                 gl.glPopMatrix()
+            except Exception:
+                pass
+
+            # Optional runtime diagnostic: report which present mode was
+            # used and any GL error after presenting. Enabled via
+            # PYCREATIVE_DEBUG_PRESENT=1 so it can be toggled without code
+            # changes during debugging sessions.
+            try:
+                if os.getenv('PYCREATIVE_DEBUG_PRESENT', '') == '1':
+                    try:
+                        from pyglet import gl as _gl
+                        try:
+                            _err = int(_gl.glGetError())
+                        except Exception:
+                            _err = None
+                    except Exception:
+                        _err = None
+                    try:
+                        # Print directly to stdout to ensure visibility in
+                        # CLI runs; logging may be configured at a higher
+                        # level in user environments.
+                        print(f'PRESENTER DEBUG: mode={getattr(self, "_last_present_mode", None)} glError={_err}')
+                    except Exception:
+                        pass
+                    # Also append a small debug line to /tmp so CI or headless
+                    # runs can inspect it even if stdout is swallowed.
+                    try:
+                        with open('/tmp/pycreative_present_log.txt', 'a') as _f:
+                            _f.write(f'mode={getattr(self, "_last_present_mode", None)} glError={_err}\n')
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -1268,6 +1417,14 @@ void main() {
                     logging.getLogger(__name__).debug('VBO glGetError after resource create: %r', err)
             except Exception:
                 pass
+        except Exception:
+            pass
+
+        # Save-frame processing is handled earlier in this function; the
+        # implementation below was refactored to a single location to avoid
+        # duplication. Leave a quiet marker in the log to aid debugging.
+        try:
+            logging.getLogger(__name__).debug('save_frame processing merged into render_commands')
         except Exception:
             pass
 

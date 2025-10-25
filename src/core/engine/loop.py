@@ -45,7 +45,23 @@ def setup_window_loop(
     # on_draw event
     @engine._window.event
     def on_draw():
+        # Start with the recorded graphics commands for this draw
         cmds = list(engine.graphics.commands)
+        # If any pending save_frame requests were recorded outside of the
+        # normal frame-recording (for example via key handlers), append
+        # them now so the presenter sees and processes them. Use a copy
+        # to avoid mutating while the engine may inspect the list elsewhere.
+        try:
+            pending = getattr(engine, '_pending_save_frames', None)
+            if pending:
+                cmds = cmds + list(pending)
+                # clear pending list now that we've consumed them
+                try:
+                    engine._pending_save_frames = []
+                except Exception:
+                    pass
+        except Exception:
+            pass
         setup_bg = getattr(engine, '_setup_background', None)
         bg_inserted = False
         default_bg_inserted = False
@@ -104,20 +120,39 @@ def setup_window_loop(
                 except Exception:
                     pass
 
-        # Best-effort GL clear to avoid flicker. Only clear the default
-        # framebuffer when we are applying a background for this frame.
-        # Clearing every frame defeats the Processing-style persistence
-        # where the GPU-backed Skia surface retains previously drawn pixels
-        # unless `background()` was explicitly called.
+        # Best-effort GL clear to avoid flicker. Clear the default framebuffer
+        # when a background() command is present for this draw. Previously
+        # we only cleared when we had inserted a setup/default background
+        # which meant background() emitted from draw() would not trigger a
+        # default-FB clear and could leave stale pixels visible behind the
+        # presenter's texture. Clearing here only when a background op is
+        # present preserves Processing-style persistence when no background
+        # is requested while ensuring per-frame background() in draw() acts
+        # like Processing and clears each frame.
         try:
             from pyglet import gl
             try:
-                # Only clear the default framebuffer if we inserted a
-                # background for this particular draw (either the setup
-                # background or the default background). Do NOT clear on
-                # subsequent frames where the background has already been
-                # applied; that would erase persistent drawings.
+                # If any background op is present in the commands for this
+                # draw, clear the default framebuffer to that color so the
+                # presenter's textured quad won't show black/transparent
+                # pixels behind it. Prefer the first background op found
+                # (this mirrors how we insert a single setup/default bg).
                 do_clear = False
+                setup_bg = None
+                # Search for an explicit background op in the commands
+                for c in cmds:
+                    try:
+                        if c.get('op') == 'background':
+                            a = c.get('args', {}) or {}
+                            setup_bg = (int(a.get('r', 200)), int(a.get('g', 200)), int(a.get('b', 200)))
+                            do_clear = True
+                            break
+                    except Exception:
+                        continue
+
+                # If we inserted a setup background for this draw, prefer that
+                # (it was captured from setup()). Also handle the default bg
+                # insertion path which only applies once.
                 if bg_inserted:
                     do_clear = True
                     setup_bg = getattr(engine, '_setup_background', None)
@@ -128,10 +163,15 @@ def setup_window_loop(
                         engine._default_bg_cleared = True
                     except Exception:
                         pass
-                else:
-                    setup_bg = None
 
                 if do_clear and setup_bg is not None:
+                    # Ensure presenter knows this background color too so
+                    # its own present() clear logic (used during composition)
+                    # can make the default-FB match the presenter's texture.
+                    try:
+                        setattr(presenter, '_setup_background_color', tuple(setup_bg))
+                    except Exception:
+                        pass
                     r = float(setup_bg[0]) / 255.0
                     g = float(setup_bg[1]) / 255.0
                     b = float(setup_bg[2]) / 255.0

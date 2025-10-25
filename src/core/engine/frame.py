@@ -162,7 +162,20 @@ def step_frame(engine: Any) -> None:
 
     draw = getattr(engine.sketch, 'draw', None)
     if callable(draw):
-        engine._call_sketch_method(draw, this)
+        # Mark we are entering draw so other subsystems (e.g., save_frame)
+        # can decide whether to snapshot immediately or defer until the
+        # presenter has rendered the recorded commands.
+        try:
+            engine._in_draw = True
+        except Exception:
+            pass
+        try:
+            engine._call_sketch_method(draw, this)
+        finally:
+            try:
+                engine._in_draw = False
+            except Exception:
+                pass
     else:
         try:
             import logging as _logging

@@ -297,6 +297,15 @@ class Engine:
 
                             return property(_getter)
 
+                        def _make_frame_count_prop():
+                            def _getter(self_obj):
+                                try:
+                                    return int(getattr(self_obj._engine, 'frame_count', 0))
+                                except Exception:
+                                    return 0
+
+                            return property(_getter)
+
                         # Create a descriptor that exposes a read-only boolean
                         # view of engine.mouse_pressed while still allowing
                         # the user-defined `mouse_pressed()` handler to be
@@ -400,6 +409,21 @@ class Engine:
                                         except Exception:
                                             pass
                                     return _rm
+                                if name == 'ellipse_mode':
+                                    def _em(m):
+                                        try:
+                                            self._engine.ellipse_mode = str(m)
+                                        except Exception:
+                                            pass
+                                    return _em
+                                if name == 'image_mode':
+                                    def _im(m):
+                                        try:
+                                            # normalize common names
+                                            self._engine.image_mode = str(m)
+                                        except Exception:
+                                            pass
+                                    return _im
                                 if name == 'no_cursor':
                                     def _nc():
                                         try:
@@ -424,12 +448,17 @@ class Engine:
                                 # Forward to the API facade if available
                                 try:
                                     if hasattr(api_ref, name):
-                                        attr = getattr(api_ref, name)
-                                        if callable(attr):
-                                            def _bound(*a, **kw):
-                                                return attr(*a, **kw)
-                                            return _bound
-                                        return attr
+                                            attr = getattr(api_ref, name)
+                                            # If the API facade exposes a callable (bound
+                                            # method or callable object), return it directly
+                                            # rather than wrapping it in a plain function.
+                                            # Wrapping loses attributes (e.g. factory
+                                            # helpers like pcvector.random2d) and also
+                                            # turns bound methods into plain functions
+                                            # which breaks the Engine's call semantics
+                                            # that rely on detecting __self__ for bound
+                                            # methods.
+                                            return attr
                                 except Exception:
                                     pass
                                 raise AttributeError(name)
@@ -444,6 +473,7 @@ class Engine:
                         attrs = {
                             'width': _make_width_prop(),
                             'height': _make_height_prop(),
+                            'frame_count': _make_frame_count_prop(),
                             'mouse_x': _make_mouse_x_prop(),
                             'mouse_y': _make_mouse_y_prop(),
                             'pmouse_x': _make_pmouse_x_prop(),
@@ -802,6 +832,28 @@ class Engine:
                         # If all fallback attempts fail, silently continue; the
                         # absence of the method is preferable to raising
                         # during sketch instantiation.
+                        pass
+                    try:
+                        if name == 'image_mode':
+                            def _fb_image_mode(m):
+                                try:
+                                    inst._engine.image_mode = str(m)
+                                except Exception:
+                                    pass
+                            setattr(inst, 'image_mode', _fb_image_mode)
+                            continue
+                    except Exception:
+                        pass
+                    try:
+                        if name == 'ellipse_mode':
+                            def _fb_ellipse_mode(m):
+                                try:
+                                    inst._engine.ellipse_mode = str(m)
+                                except Exception:
+                                    pass
+                            setattr(inst, 'ellipse_mode', _fb_ellipse_mode)
+                            continue
+                    except Exception:
                         pass
                 self.sketch = inst
                 # Ensure some API helpers that are implemented on SimpleSketchAPI
@@ -1218,6 +1270,28 @@ class Engine:
             present_mode=self.present_mode,
             force_gles=self.force_gles,
         )
+        # Persist presenter onto the engine so other helpers (e.g. save_frame)
+        # can access the presenter's backing surface for accurate screen
+        # captures when running windowed.
+        try:
+            setattr(self, '_presenter', presenter)
+        except Exception:
+            pass
+        # Debug: record which presenter class was instantiated so we can
+        # verify whether SkiaGLPresenter or a fallback is being used.
+        try:
+            if os.getenv('PYCREATIVE_DEBUG_PRESENT', '') == '1':
+                try:
+                    print(f'Engine: presenter type={presenter.__class__.__name__}')
+                except Exception:
+                    pass
+                try:
+                    with open('/tmp/pycreative_present_class.txt', 'a') as _f:
+                        _f.write(f'{presenter.__class__.__name__}\n')
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # Delegate the remaining windowed setup, event handler registration
         # and scheduling to the extracted helper. It may call pyglet.app.run()

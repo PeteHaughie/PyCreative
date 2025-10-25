@@ -129,6 +129,104 @@ def save_frame(engine: Any, path: str) -> None:
     except Exception:
         pass
 
+    # If this is a windowed engine and a presenter is available, decide
+    # whether to snapshot immediately or defer to the presenter. If we are
+    # currently inside draw(), defer by recording a save_frame op so the
+    # presenter will write the file after it renders the commands. If we
+    # are not in draw (for example, a key handler after a frame was
+    # presented), snapshot the presenter's surface immediately.
+    try:
+        presenter = getattr(engine, '_presenter', None)
+        # If a presenter exists (windowed run) prefer an immediate snapshot
+        # when the call originates outside of `draw()`; otherwise defer by
+        # recording a `save_frame` command so the presenter writes it after
+        # rendering the current frame. This avoids lost queued requests when
+        # the app isn't animating and the user saves from an input handler.
+        if presenter is not None and not getattr(engine, 'headless', True):
+            in_draw = bool(getattr(engine, '_in_draw', False))
+            # If we're inside draw(), queue for the presenter to handle
+            if in_draw:
+                try:
+                    pending = getattr(engine, '_pending_save_frames', None)
+                    if pending is None:
+                        pending = []
+                        try:
+                            setattr(engine, '_pending_save_frames', pending)
+                        except Exception:
+                            pass
+                    pending.append({'op': 'save_frame', 'args': {'path': path}, 'meta': {'seq': 0}})
+                except Exception:
+                    pass
+                return
+
+            # Not in draw(): try to snapshot the presenter's current surface
+            try:
+                surf = None
+                # Prefer the presenter's current Skia surface if available
+                surf = getattr(presenter, 'surface', None)
+                if surf is None:
+                    # ask the presenter to create a fresh surface
+                    try:
+                        surf = presenter.create_skia_surface()
+                    except Exception:
+                        surf = None
+                if surf is not None:
+                    try:
+                        img = None
+                        try:
+                            img = surf.makeImageSnapshot()
+                        except Exception:
+                            img = None
+                        if img is not None:
+                            data = None
+                            try:
+                                data = img.encodeToData()
+                            except Exception:
+                                data = None
+                            b = None
+                            if data is not None:
+                                try:
+                                    if hasattr(data, 'toBytes'):
+                                        b = data.toBytes()
+                                    elif hasattr(data, 'tobytes'):
+                                        b = data.tobytes()
+                                    else:
+                                        b = bytes(data)
+                                except Exception:
+                                    b = None
+                            if b:
+                                try:
+                                    with open(path, 'wb') as _f:
+                                        _f.write(b)
+                                    try:
+                                        engine.graphics.record('save_frame', path=path, backend='presenter_immediate')
+                                    except Exception:
+                                        pass
+                                    return
+                                except Exception:
+                                    # fall through to queueing below
+                                    pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # If immediate snapshot failed, queue for presenter as a fallback
+            try:
+                pending = getattr(engine, '_pending_save_frames', None)
+                if pending is None:
+                    pending = []
+                    try:
+                        setattr(engine, '_pending_save_frames', pending)
+                    except Exception:
+                        pass
+                pending.append({'op': 'save_frame', 'args': {'path': path}, 'meta': {'seq': 0}})
+            except Exception:
+                pass
+            return
+    except Exception:
+        pass
+
     # 2) Attempt to import the pillow-based writer
     _save: Optional[Callable[[str, Any], None]] = None
     try:
@@ -149,6 +247,13 @@ def save_frame(engine: Any, path: str) -> None:
     if use_skia:
         try:
             from core.io.skia_replayer import replay_to_image_skia
+
+            # Note: Do not attempt to snapshot the presenter's surface here
+            # synchronously — when `save_frame()` is invoked from inside
+            # `draw()` the actual rendering hasn't been performed yet. The
+            # presenter will handle any recorded 'save_frame' ops during its
+            # `render_commands` call so the snapshot captures the just-rendered
+            # pixels. Fall through to the replayer fallback.
 
             # Build combined commands list: setup commands + current graphics
             try:
