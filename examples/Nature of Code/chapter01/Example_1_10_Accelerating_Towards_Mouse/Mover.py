@@ -10,10 +10,11 @@ class Mover:
         self.acceleration = self.sketch.pcvector(0, 0)
         self.topspeed = 5
 
+
     def update(self):
         mouse = self.sketch.pcvector(self.sketch.mouse_x, self.sketch.mouse_y)
         # Step 1: Compute direction
-        dir = self.sketch.pcvector.sub(mouse, self.position)
+        dir = self.sketch.pcvector.sub(mouse, self.position) # chokes here
 
         # Step 2: Normalize
         dir.normalize()

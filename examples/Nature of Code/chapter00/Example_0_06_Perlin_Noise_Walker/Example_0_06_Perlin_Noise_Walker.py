@@ -19,7 +19,7 @@ class Sketch:
 
     def draw(self):
         self.walker.update()
-        self.walker.draw()
+        self.walker.show()
 
 class Walker:
     def __init__(self, sketch):
@@ -28,7 +28,7 @@ class Walker:
         # to avoid starting at an exact lattice boundary which can produce
         # symmetric/biased derivatives in some Perlin implementations.
         self.tx = 0.0
-        self.ty = 10000.1
+        self.ty = 10000.0
         self.x = 0
         self.y = 0
 
@@ -41,7 +41,7 @@ class Walker:
         self.tx += 0.01
         self.ty += 0.01
 
-    def draw(self):
+    def show(self):
         self.sketch.stroke_weight(2)
         self.sketch.fill(127)
         self.sketch.stroke(0)

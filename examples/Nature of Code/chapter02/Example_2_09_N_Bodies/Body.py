@@ -6,12 +6,12 @@ Body class for Example 2-9: N Bodies
 class Body:
     def __init__(self, sketch, x: float, y: float, m: float):        
         self.mass = m
-        self.position = sketch.pvector(x, y)
-        self.velocity = sketch.pvector(0, 0)
-        self.acceleration = sketch.pvector(0, 0)
+        self.position = sketch.pcvector(x, y)
+        self.velocity = sketch.pcvector(0, 0)
+        self.acceleration = sketch.pcvector(0, 0)
 
     def apply_force(self, sketch, force):
-        f = sketch.pvector.div(force, self.mass)
+        f = sketch.pcvector.div(force, self.mass)
         self.acceleration.add(f)
 
     def update(self):
@@ -27,7 +27,7 @@ class Body:
 
     def attract(self, sketch, other: "Body", G: float):
         # Calculate direction of force
-        force = sketch.pvector.sub(self.position, other.position)
+        force = sketch.pcvector.sub(self.position, other.position)
         # Distance between objects
         distance = force.mag()
         # Limiting the distance to eliminate "extreme" results for very close or very far objects

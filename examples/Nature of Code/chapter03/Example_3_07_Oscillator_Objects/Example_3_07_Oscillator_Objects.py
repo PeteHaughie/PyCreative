@@ -9,14 +9,13 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter3/Examp
 // Example 3.7: Oscillator Objects
 """
 
-from pycreative.app import Sketch
 from Oscillator import Oscillator
 
 
-class Example_3_07_Oscillator_Objects(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 3.7: Oscillator Objects")
+        self.window_title("NOC: Example 3.7 Oscillator Objects")
         # Initialize all objects
         self.oscillators = [Oscillator(self) for _ in range(10)]
 
@@ -25,7 +24,7 @@ class Example_3_07_Oscillator_Objects(Sketch):
             osc.update()
 
     def draw(self):
-        self.clear(255)
+        self.background(255)
         # Run all objects
         for osc in self.oscillators:
-            osc.draw()
+            osc.show()

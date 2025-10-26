@@ -9,21 +9,16 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter3/Examp
 // Example 3.9: The Wave
 """
 
-from pycreative.app import Sketch
 
-
-class Example_3_09_The_Wave(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 3.9: The Wave")
+        self.window_title("Noc: Example 3.9 The Wave")
         self.start_angle = 0
         self.angle_velocity = 0.2
 
-    def update(self, dt):
-        pass
-
     def draw(self):
-        self.clear(255)
+        self.background(255)
 
         angle = self.start_angle
         self.start_angle += 0.02

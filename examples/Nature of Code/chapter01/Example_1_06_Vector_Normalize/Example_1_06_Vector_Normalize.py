@@ -22,7 +22,7 @@ class Sketch:
         center = self.pcvector(self.width / 2, self.height / 2)
         mouse.sub(center)
     
-        # self.translate(self.width / 2, self.height / 2) # not implemented yet
+        self.translate(self.width / 2, self.height / 2)
         self.stroke(200)
         self.stroke_weight(2)
         self.line(0, 0, mouse.x, mouse.y)

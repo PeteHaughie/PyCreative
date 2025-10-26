@@ -9,14 +9,13 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter4/Examp
 // Example 4-2: Array of Particles
 """
 
-from pycreative.app import Sketch
 from Particle import Particle
 
 
-class Example_4_02_Array_Of_Particles(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example_4_02_Array_Of_Particles")
+        self.window_title("NOC: Example_4_02 Array_Of_Particles")
         self.particles = []
 
     def draw(self):

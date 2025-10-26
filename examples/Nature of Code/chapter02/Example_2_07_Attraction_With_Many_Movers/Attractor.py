@@ -5,10 +5,10 @@ Attractor class for Example 2.7: Attraction with Many Movers
 class Attractor:
     def __init__(self, sketch, x, y, m=20):
         self.sketch = sketch
-        self.position = self.sketch.pvector(x, y)
+        self.position = self.sketch.pcvector(x, y)
         self.mass = m
         self.G = 1
-        self.drag_offset = self.sketch.pvector(0, 0)
+        self.drag_offset = self.sketch.pcvector(0, 0)
         self.dragging = False
         self.rollover = False
 
@@ -20,15 +20,15 @@ class Attractor:
         force.set_mag(strength)
         return force
 
-    def draw(self):
+    def show(self):
         self.sketch.stroke_weight(4)
-        self.sketch.stroke((0, 0, 0))
+        self.sketch.stroke(0)
         if self.dragging:
-            self.sketch.fill((50, 50, 50))
+            self.sketch.fill(50)
         elif self.rollover:
-            self.sketch.fill((100, 100, 100))
+            self.sketch.fill(100)
         else:
-            self.sketch.fill((175, 200, 200))
+            self.sketch.fill(175, 200, 200)
         self.sketch.circle(self.position.x, self.position.y, self.mass * 2)
 
     def handle_press(self, mx, my):

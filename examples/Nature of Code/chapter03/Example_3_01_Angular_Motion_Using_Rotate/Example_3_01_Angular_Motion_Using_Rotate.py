@@ -9,25 +9,20 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter3/Examp
 // Example 3.1: Angular Motion Using Rotate
 """
 
-from pycreative.app import Sketch
 
-
-class Example_3_01_Angular_Motion_Using_Rotate(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 3.1: Angular Motion Using Rotate")
+        self.window_title("Example 3.1: Angular Motion Using Rotate")
         # Position
         self.angle = 0.0
         # Velocity
         self.angle_velocity = 0.0
         # Acceleration
-        self.angle_acceleration = 0.0001
-
-    def update(self, dt):
-        pass
+        self.angle_acceleration = 0.01
 
     def draw(self):
-        self.clear(255)
+        self.background(255)
 
         self.translate(self.width / 2, self.height / 2)
         self.rotate(self.angle)

@@ -1,13 +1,14 @@
 """
 Emitter class for a particle system.
 """
+
 from Particle import Particle
 
 
 class Emitter:
     def __init__(self, sketch, x=0.0, y=0.0):
         self.sketch = sketch
-        self.origin = self.sketch.pvector(x, y)
+        self.origin = self.sketch.pcvector(x, y)
         self.particles = []
 
     def add_particle(self):

@@ -9,15 +9,14 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter3/Examp
 // Example 3-2: Forces with Arbitrary Angular Motion
 """
 
-from pycreative.app import Sketch
 from Attractor import Attractor
 from Mover import Mover
 
 
-class Example_3_02_Forces_With_Arbitrary_Angular_Motion(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 3.2: Forces with Arbitrary Angular Motion")
+        self.window_title("Example 3.2: Forces with Arbitrary Angular Motion")
         self.movers = [Mover(self, self.random(self.width), self.random(self.height), self.random(0.1, 2.0)) for _ in range(20)]
         self.attractor = Attractor(self, self.width / 2, self.height / 2, 20.0)
 
@@ -25,7 +24,7 @@ class Example_3_02_Forces_With_Arbitrary_Angular_Motion(Sketch):
         pass
 
     def draw(self):
-        self.clear(255)
+        self.background(255)
         self.attractor.display()
         for mover in self.movers:
             force = self.attractor.attract(mover)

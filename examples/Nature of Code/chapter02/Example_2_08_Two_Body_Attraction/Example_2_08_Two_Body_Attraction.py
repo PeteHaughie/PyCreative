@@ -9,18 +9,17 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter2/Examp
 // Example 2.8: Two Body Attraction
 """
 
-from pycreative.app import Sketch
 from Body import Body
 
 
-class Example_2_8_Two_Body_Attraction(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 2.8: Two Body Attraction")
+        self.window_title("Example 2.8: Two Body Attraction")
         self.bodyA = Body(self, 320, 60)
         self.bodyB = Body(self, 320, 300)
-        self.bodyA.velocity = self.pvector(1, 0)
-        self.bodyB.velocity = self.pvector(-1, 0)
+        self.bodyA.velocity = self.pcvector(1, 0)
+        self.bodyB.velocity = self.pcvector(-1, 0)
 
     def draw(self):
         self.background(255)

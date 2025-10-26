@@ -9,20 +9,19 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter3/Examp
 // Example 3-3: Pointing in the Direction of Motion
 """
 
-from pycreative.app import Sketch
 from Mover import Mover
 
 
-class Example_3_03_Pointing_In_The_Direction_Of_Motion(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 3.3: Pointing in the Direction of Motion")
+        self.window_title("Example 3.3: Pointing in the Direction of Motion")
         self.mover = Mover(self)
 
     def update(self, dt):
         self.mover.update()
 
     def draw(self):
-        self.clear(255)
+        self.background(255)
         self.mover.check_edges()
         self.mover.draw()

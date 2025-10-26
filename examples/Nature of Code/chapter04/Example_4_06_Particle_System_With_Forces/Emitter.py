@@ -8,7 +8,7 @@ from Particle import Particle
 class Emitter:
     def __init__(self, sketch, x, y):
         self.sketch = sketch
-        self.origin = self.sketch.pvector(x, y)
+        self.origin = self.sketch.pcvector(x, y)
         self.particles = []
 
     def add_particle(self):

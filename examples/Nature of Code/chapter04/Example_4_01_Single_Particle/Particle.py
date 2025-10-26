@@ -6,10 +6,10 @@ Particle class for Example 4-1: A Single Particle
 class Particle:
     def __init__(self, sketch, x = 0.0, y = 0.0):
         self.sketch = sketch
-        self.position = self.sketch.pvector(x, y)
+        self.position = self.sketch.pcvector(x, y)
         # For demonstration purposes the Particle has a random velocity.
-        self.velocity = self.sketch.pvector(self.sketch.random(-1, 1), self.sketch.random(-2, 0))
-        self.acceleration = self.sketch.pvector(0, 0)
+        self.velocity = self.sketch.pcvector(self.sketch.random(-1, 1), self.sketch.random(-2, 0))
+        self.acceleration = self.sketch.pcvector(0, 0)
         self.lifespan = 255.0
 
     def update(self):
@@ -19,8 +19,8 @@ class Particle:
         self.acceleration.mult(0)
 
     def draw(self):
-        self.sketch.fill((self.lifespan, self.lifespan, self.lifespan))
-        self.sketch.stroke((self.lifespan, self.lifespan, self.lifespan))
+        self.sketch.fill(self.lifespan, self.lifespan, self.lifespan)
+        self.sketch.stroke(self.lifespan, self.lifespan, self.lifespan)
         self.sketch.stroke_weight(1)
         self.sketch.circle(self.position.x, self.position.y, 8)
 

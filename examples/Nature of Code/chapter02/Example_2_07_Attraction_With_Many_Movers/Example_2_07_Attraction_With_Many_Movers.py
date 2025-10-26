@@ -9,29 +9,30 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter2/Examp
 // Example 2.7: Attraction with Many Movers
 """
 
-from pycreative.app import Sketch
 from Attractor import Attractor
 from Mover import Mover
 
 
-class Example_2_07_Attraction_With_Many_Movers(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 2.7: Attraction with Many Movers")
+        self.window_title("NOC: Example 2.7 Attraction with Many Movers")
         self.movers = [Mover(self, self.random(self.width), self.random(self.height), self.random(0.5, 3)) for _ in range(10)]
         self.attractor = Attractor(self, self.width / 2, self.height / 2)
 
-    def draw(self):
-        self.background((255, 255, 255))
+    def update(self):
+        for mover in self.movers:
+            mover.update()
 
-        self.attractor.draw()
+    def draw(self):
+        self.background(255)
+        self.attractor.show()
 
         for mover in self.movers:
             force = self.attractor.attract(mover)
             mover.apply_force(force)
 
-            mover.update()
-            mover.draw()
+            mover.show()
 
     def mouse_moved(self):
         self.attractor.handle_hover(self.mouse_x or 0, self.mouse_y or 0)

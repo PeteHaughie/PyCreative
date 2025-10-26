@@ -5,7 +5,7 @@ Attractor class for Example 3-2: Forces with Arbitrary Angular Motion
 class Attractor:
     def __init__(self, sketch, x: float = 0.0, y: float = 0.0, m: float = 20.0):
         self.sketch = sketch
-        self.position = sketch.pvector(x, y)
+        self.position = sketch.pcvector(x, y)
         self.mass = m
         self.G = 1.0
 
@@ -24,7 +24,7 @@ class Attractor:
         return force
 
     def display(self):
-        self.sketch.ellipse_mode('center')
+        self.sketch.ellipse_mode('CENTER')
         self.sketch.stroke(0)
         self.sketch.fill(175, 200, 200)
         self.sketch.circle(self.position.x, self.position.y, self.mass * 2)

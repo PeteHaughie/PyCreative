@@ -9,13 +9,11 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter3/Examp
 // Example 3.4: Polar to Cartesian
 """
 
-from pycreative.app import Sketch
 
-
-class Example_3_04_Polar_To_Cartesian(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 3.4: Polar to Cartesian")
+        self.window_title("NOC: Example 3.4 Polar to Cartesian")
         # Initialize all values
         self.r = self.height * 0.35
         self.theta = 0.0

@@ -7,9 +7,9 @@ class Mover:
         self.sketch = sketch
         self.mass = m
         self.radius = self.mass * 8
-        self.position = self.sketch.pvector(x, y)
-        self.velocity = self.sketch.pvector(1, 0)
-        self.acceleration = self.sketch.pvector(0, 0)
+        self.position = self.sketch.pcvector(x, y)
+        self.velocity = self.sketch.pcvector(1, 0)
+        self.acceleration = self.sketch.pcvector(0, 0)
 
     def apply_force(self, force):
         f = force / self.mass
@@ -20,8 +20,8 @@ class Mover:
         self.position += self.velocity
         self.acceleration *= 0
 
-    def draw(self):
+    def show(self):
         self.sketch.stroke(0)
         self.sketch.stroke_weight(2)
-        self.sketch.fill((127, 127, 127))
+        self.sketch.fill(127, 127, 127)
         self.sketch.ellipse(self.position.x, self.position.y, self.radius * 2)

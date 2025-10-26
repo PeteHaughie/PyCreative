@@ -7,12 +7,12 @@ class Mover:
     def __init__(self, sketch, x = 0.0, y = 0.0, mass = 1.0):
         self.mass = mass
         self.radius = self.mass * 8
-        self.position = sketch.pvector(x, y)
+        self.position = sketch.pcvector(x, y)
         self.angle = 0.0
         self.angle_velocity = 0.0
         self.angle_acceleration = 0.0
-        self.velocity = sketch.pvector(sketch.random(-1, 1), sketch.random(-1, 1))
-        self.acceleration = sketch.pvector(0.0, 0.0)
+        self.velocity = sketch.pcvector(sketch.random(-1, 1), sketch.random(-1, 1))
+        self.acceleration = sketch.pcvector(0.0, 0.0)
 
     def apply_force(self, force):
         f = force / self.mass

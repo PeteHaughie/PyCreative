@@ -11,14 +11,13 @@ class Mover:
         self.topspeed = 5
 
     def update(self):
-        # The random2D() function returns a unit vector pointing in a random direction.
-        self.acceleration = self.sketch.pcvector.random2D()
-        print("update")
+        self.acceleration = self.sketch.pcvector.random2d() # chokes here
         self.acceleration.mult(self.sketch.random(2))
 
         self.velocity.add(self.acceleration)
         self.velocity.limit(self.topspeed)
         self.position.add(self.velocity)
+
 
     def draw(self):
         self.sketch.stroke(0)

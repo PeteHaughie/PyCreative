@@ -6,14 +6,14 @@ Body class for Example 2-8: Two Body Attraction
 class Body:
     def __init__(self, sketch, x=0, y=0):
         self.sketch = sketch
-        self.position = self.sketch.pvector(x, y)
-        self.velocity = self.sketch.pvector(0, 0)
-        self.acceleration = self.sketch.pvector(0, 0)
+        self.position = self.sketch.pcvector(x, y)
+        self.velocity = self.sketch.pcvector(0, 0)
+        self.acceleration = self.sketch.pcvector(0, 0)
         self.mass = 8
         self.r = (self.mass ** 0.5) * 2
 
     def attract(self, body):
-        force = self.sketch.pvector.sub(self.position, body.position)
+        force = self.sketch.pcvector.sub(self.position, body.position)
         d = self.sketch.constrain(force.mag(), 5, 25)
         G = 1
         strength = (G * (self.mass * body.mass)) / (d * d)
@@ -21,7 +21,7 @@ class Body:
         body.apply_force(force)
 
     def apply_force(self, force):
-        f = self.sketch.pvector.div(force, self.mass)
+        f = self.sketch.pcvector.div(force, self.mass)
         self.acceleration.add(f)
 
     def update(self):
