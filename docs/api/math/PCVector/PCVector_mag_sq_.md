@@ -1,4 +1,4 @@
-[docs](/docs/)→[api](/docs/api)→[math](/docs/api/math/)→[PCVector](/docs/api/math/PCVector/PCVector.md)
+[docs](/docs/)→[api](/docs/api)→[math](/docs/api/math/)→[PCVector](/docs/api/math/PCVector/PCVector.md)→[PCVector_mag_sq()](/docs/api/math/PCVector/PCVector_mag_sq_.md)
 
 # mag_sq()
 

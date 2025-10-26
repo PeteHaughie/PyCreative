@@ -1,4 +1,4 @@
-[docs](/docs/)→[api](/docs/api)→[math](/docs/api/math/)→[PCVector](/docs/api/math/PCVector/PCVector.md)
+[docs](/docs/)→[api](/docs/api)→[math](/docs/api/math/)→[PCVector](/docs/api/math/PCVector/PCVector.md)→[PCVector_random3d()](/docs/api/math/PCVector/PCVector_random3d_.md)
 
 # random3d()
 

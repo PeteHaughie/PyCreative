@@ -1,4 +1,4 @@
-[docs](/docs/)→[api](/docs/api)→[math](/docs/api/math/)→[PCVector](/docs/api/math/PCVector/PCVector.md)
+[docs](/docs/)→[api](/docs/api)→[math](/docs/api/math/)→[PCVector](/docs/api/math/PCVector/PCVector.md)→[PCVector_from_angle()](/docs/api/math/PCVector/PCVector_from_angle_.md)
 
 # from_angle()
 
