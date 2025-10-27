@@ -41,5 +41,5 @@ class Walker():
         self.y = self.sketch.constrain(self.y, 0, self.sketch.height - 1)
 
     def draw(self):
-        self.sketch.stroke(0)
+        self.sketch.stroke(0, 10)
         self.sketch.point(self.x, self.y)

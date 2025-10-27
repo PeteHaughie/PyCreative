@@ -434,6 +434,22 @@ class SkiaGLPresenter:
                     except Exception:
                         pass
 
+                    # Extra debug: report presenter/skia surface sizes so we can
+                    # diagnose mismatches between the Skia surface, presenter
+                    # reported width/height, and the GL readback dimensions.
+                    try:
+                        logger = logging.getLogger(__name__)
+                        surf_size = getattr(self, '_surface_size', None)
+                        logger.debug('SAVE_FRAME sizes presenter.width=%s presenter.height=%s _surface_size=%s fbo=%s', getattr(self, 'width', None), getattr(self, 'height', None), surf_size, getattr(self, 'fbo_id', None))
+                        # Also write a small debug record to /tmp so CLI runs can inspect
+                        try:
+                            with open('/tmp/pycreative_saveframe_debug.txt', 'a') as _df:
+                                _df.write(f'SAVE_FRAME sizes presenter.width={getattr(self, "width", None)} presenter.height={getattr(self, "height", None)} _surface_size={surf_size} fbo={getattr(self, "fbo_id", None)}\n')
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+
                     # Try Skia snapshot first
                     try:
                         img = None
@@ -465,6 +481,16 @@ class SkiaGLPresenter:
                                 from PIL import Image as _Image
                                 w = int(self.width)
                                 h = int(self.height)
+                                try:
+                                    logging.getLogger(__name__).debug('save_frame glReadPixels using w=%d h=%d fbo=%s', w, h, getattr(self, 'fbo_id', None))
+                                    try:
+                                        # Mirror this diagnostic to /tmp for easier inspection in headless runs
+                                        with open('/tmp/pycreative_saveframe_debug.txt', 'a') as _df:
+                                            _df.write(f'save_frame glReadPixels using w={w} h={h} fbo={getattr(self, "fbo_id", None)}\n')
+                                    except Exception:
+                                        pass
+                                except Exception:
+                                    pass
                                 _gl.glBindFramebuffer(_gl.GL_FRAMEBUFFER, int(self.fbo_id or 0))
                                 buf = (ctypes.c_ubyte * (w * h * 4))()
                                 _gl.glReadPixels(0, 0, w, h, _gl.GL_RGBA, _gl.GL_UNSIGNED_BYTE, ctypes.byref(buf))
@@ -983,16 +1009,46 @@ class SkiaGLPresenter:
         try:
             # Delegate to the centralized replayer which handles transforms
             # and shape commands consistently across offscreen and GPU paths.
-            from core.io.replay_to_skia import replay_to_skia_canvas
             try:
+                from core.io.replay_to_skia_impl import replay_to_skia_canvas
+            except Exception:
+                # Log import failure when debugging lifecycle so the
+                # underlying traceback is visible instead of being silently
+                # swallowed.
+                try:
+                    import os, traceback, logging
+                    if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                        logging.getLogger(__name__).debug('presenter.replay_fn: failed to import core.io.replay_to_skia, falling back to internal replay')
+                        traceback.print_exc()
+                except Exception:
+                    pass
+                raise
+
+            try:
+                # Announce delegation when debugging so we see delegate logs
+                try:
+                    import os, logging
+                    if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                        logging.getLogger(__name__).debug('presenter.replay_fn: delegating to replay_to_skia_canvas')
+                except Exception:
+                    pass
                 replay_to_skia_canvas(commands, canvas)
                 return
             except Exception:
+                # If the delegate fails, print traceback when debugging and
+                # fall back to the internal replay implementation.
+                try:
+                    import os, traceback, logging
+                    if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                        logging.getLogger(__name__).debug('presenter.replay_fn: replay_to_skia_canvas raised an exception; falling back')
+                        traceback.print_exc()
+                except Exception:
+                    pass
                 # Fall through to an internal fallback if delegate fails
                 pass
         except Exception:
-            # If the helper can't be imported, fall back to the presenter's
-            # internal replay logic below (left for backward compatibility).
+            # Fall back to the presenter's internal replay logic below
+            # (left for backward compatibility).
             pass
         try:
             logging.getLogger(__name__).debug('presenter.last_present_mode=%r', getattr(self, '_last_present_mode', None))

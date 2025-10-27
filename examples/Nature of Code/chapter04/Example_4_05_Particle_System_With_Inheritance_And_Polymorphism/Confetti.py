@@ -12,8 +12,8 @@ class Confetti(Particle):
   def show(self):
     angle = self.sketch.map(self.position.x, 0, self.sketch.width, 0, self.sketch.TWO_PI)
     self.sketch.rect_mode("CENTER")
-    self.sketch.fill(self.lifespan)
-    self.sketch.stroke(self.lifespan)
+    self.sketch.fill(255 - self.lifespan)
+    self.sketch.stroke(255 - self.lifespan)
     self.sketch.stroke_weight(2)
     self.sketch.push_matrix()
     self.sketch.translate(self.position.x, self.position.y)

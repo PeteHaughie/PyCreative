@@ -19,8 +19,6 @@ class Sketch:
 
     def draw(self):
         self.stroke(0, 10)  # Black stroke
-        self.stroke_weight(0)
-        # self.fill(0)  # Black fill
         self.point(self.walker_x, self.walker_y)
         choice = int(self.random(4))
         if choice == 0:

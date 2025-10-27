@@ -60,6 +60,16 @@ def set_fill(engine: Any, *args):
             engine.fill_color = tuple(int(x) for x in _norm(v))
             engine.fill_alpha = None
             return
+        if isinstance(v, (tuple, list)) and len(v) == 4:
+            # accept a single 4-tuple (r,g,b,alpha)
+            r, g, b = _norm(v[:3])
+            try:
+                a = _norm_alpha(v[3])
+            except Exception:
+                raise TypeError('fill((r,g,b,a)) expects numeric alpha')
+            engine.fill_color = (int(r), int(g), int(b))
+            engine.fill_alpha = float(a)
+            return
         try:
             iv = int(v)
         except Exception:

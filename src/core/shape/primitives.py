@@ -61,8 +61,12 @@ def rect(engine: Any, x: float, y: float, w: float, h: float, **kwargs):
 
     if 'fill' not in kwargs:
         kwargs['fill'] = getattr(engine, 'fill_color', None)
+    if 'fill_alpha' not in kwargs:
+        kwargs['fill_alpha'] = getattr(engine, 'fill_alpha', None)
     if 'stroke' not in kwargs:
         kwargs['stroke'] = getattr(engine, 'stroke_color', None)
+    if 'stroke_alpha' not in kwargs:
+        kwargs['stroke_alpha'] = getattr(engine, 'stroke_alpha', None)
     if 'stroke_weight' not in kwargs:
         kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
     if 'stroke_cap' not in kwargs:
@@ -76,6 +80,8 @@ def line(engine: Any, x1: float, y1: float, x2: float, y2: float, **kwargs):
     """Record a line draw command on the engine's graphics buffer."""
     if 'stroke' not in kwargs:
         kwargs['stroke'] = getattr(engine, 'stroke_color', None)
+    if 'stroke_alpha' not in kwargs:
+        kwargs['stroke_alpha'] = getattr(engine, 'stroke_alpha', None)
     if 'stroke_weight' not in kwargs:
         kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
     if 'stroke_cap' not in kwargs:
@@ -94,8 +100,12 @@ def circle(engine: Any, x: float, y: float, r: float, **kwargs):
     """Record a circle draw command on the engine's graphics buffer."""
     if 'fill' not in kwargs:
         kwargs['fill'] = getattr(engine, 'fill_color', None)
+    if 'fill_alpha' not in kwargs:
+        kwargs['fill_alpha'] = getattr(engine, 'fill_alpha', None)
     if 'stroke' not in kwargs:
         kwargs['stroke'] = getattr(engine, 'stroke_color', None)
+    if 'stroke_alpha' not in kwargs:
+        kwargs['stroke_alpha'] = getattr(engine, 'stroke_alpha', None)
     if 'stroke_weight' not in kwargs:
         kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
     if 'stroke_cap' not in kwargs:
@@ -160,8 +170,12 @@ def ellipse(engine: Any, x: float, y: float, w: float, h: Optional[float] = None
         eh = h
     if 'fill' not in kwargs:
         kwargs['fill'] = getattr(engine, 'fill_color', None)
+    if 'fill_alpha' not in kwargs:
+        kwargs['fill_alpha'] = getattr(engine, 'fill_alpha', None)
     if 'stroke' not in kwargs:
         kwargs['stroke'] = getattr(engine, 'stroke_color', None)
+    if 'stroke_alpha' not in kwargs:
+        kwargs['stroke_alpha'] = getattr(engine, 'stroke_alpha', None)
     if 'stroke_weight' not in kwargs:
         kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
     if 'stroke_cap' not in kwargs:
@@ -183,8 +197,12 @@ def point(engine: Any, x: float, y: float, **kwargs):
     """
     if 'fill' not in kwargs:
         kwargs['fill'] = getattr(engine, 'fill_color', None)
+    if 'fill_alpha' not in kwargs:
+        kwargs['fill_alpha'] = getattr(engine, 'fill_alpha', None)
     if 'stroke' not in kwargs:
         kwargs['stroke'] = getattr(engine, 'stroke_color', None)
+    if 'stroke_alpha' not in kwargs:
+        kwargs['stroke_alpha'] = getattr(engine, 'stroke_alpha', None)
     if 'stroke_weight' not in kwargs:
         kwargs['stroke_weight'] = getattr(engine, 'stroke_weight', 1)
     if 'stroke_cap' not in kwargs:

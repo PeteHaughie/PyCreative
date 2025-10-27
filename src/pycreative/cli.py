@@ -11,6 +11,8 @@ import argparse
 import importlib
 import sys
 from pathlib import Path
+import logging
+import os
 
 
 def _load_sketch_from_path(path: Path):
@@ -76,6 +78,16 @@ def main(argv: list[str] | None = None) -> int:
 	# ensure package source path is available for imports like `core.engine`
 	repo_src = Path(__file__).resolve().parents[1] / 'src'
 	sys.path.insert(0, str(repo_src))
+
+	# Optionally enable logging debug output when lifecycle debug is requested.
+	# Many internal diagnostic messages use the logging module; enable a
+	# basicConfig here when the environment requests lifecycle debug so
+	# developers see presenter/replayer logs during runs.
+	try:
+		if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1' or os.getenv('PYCREATIVE_DEBUG_BLEND', '') == '1':
+			logging.basicConfig(level=logging.DEBUG)
+	except Exception:
+		pass
 
 	# load the sketch module
 	sketch_mod = _load_sketch_from_path(sketch_path)

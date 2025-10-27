@@ -27,9 +27,9 @@ class Particle:
         self.acceleration.mult(0)
 
     def show(self):
-        self.sketch.stroke(self.lifespan)
+        self.sketch.fill(255 - self.lifespan)
+        self.sketch.stroke(255 - self.lifespan)
         self.sketch.stroke_weight(2)
-        self.sketch.fill(self.lifespan)
         self.sketch.circle(self.position.x, self.position.y, 8)
 
     def is_dead(self) -> bool:

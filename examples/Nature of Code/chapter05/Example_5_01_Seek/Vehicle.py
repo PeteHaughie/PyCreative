@@ -6,9 +6,9 @@ Vehicle class for Example 5.1: Seek
 class Vehicle:
     def __init__(self, sketch, x: float, y: float):
         self.sketch = sketch
-        self.position = self.sketch.pvector(x, y)
-        self.velocity = self.sketch.pvector(0, 0)
-        self.acceleration = self.sketch.pvector(0, 0)
+        self.position = self.sketch.pcvector(x, y)
+        self.velocity = self.sketch.pcvector(0, 0)
+        self.acceleration = self.sketch.pcvector(0, 0)
         self.r = 6
         self.maxspeed = 8
         self.maxforce = 0.2

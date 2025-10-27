@@ -23,10 +23,14 @@ class Sketch:
         self.repeller = Repeller(self, self.width / 2, 250)
 
     def draw(self):
-        self.background(255, 255, 255)
+        self.background(255)
         self.emitter.add_particle()
         gravity = self.pcvector(0, 0.1)
         self.emitter.apply_force(gravity)
         self.emitter.apply_repeller(self.repeller)
         self.emitter.run()
         self.repeller.show()
+
+    def key_pressed(self):
+        if self.key == 's' or self.key == 'S':
+            self.save_frame('screenshot-####.png')

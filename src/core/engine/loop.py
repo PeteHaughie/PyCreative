@@ -26,10 +26,25 @@ def setup_window_loop(
         from core.engine.presenter import render_and_present
     except Exception:
         from typing import Iterable, Callable
-
         def render_and_present(presenter: Any, cmds: Iterable[dict[Any, Any]], replay_fn: Callable[..., None] | None) -> None:
+            """Fallback render helper used when importing the richer helper fails.
+
+            This fallback simply calls the replay function without a canvas and
+            intentionally swallows errors to keep behaviour consistent with the
+            prior best-effort semantics. We log when this fallback is used so
+            runtime debugging can distinguish it from the full presenter path.
+            """
+            try:
+                import logging
+                logging.getLogger(__name__).debug('setup_window_loop: using fallback render_and_present (no presenter.present path)')
+            except Exception:
+                pass
             try:
                 if callable(replay_fn):
+                    # Best-effort: call replay_fn with just the commands. Some
+                    # presenters expect a (commands, canvas) signature; the
+                    # fallback preserves previous behaviour by calling with a
+                    # single-argument and swallowing any resulting error.
                     replay_fn(cmds)
             except Exception:
                 pass

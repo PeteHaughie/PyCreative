@@ -855,6 +855,17 @@ class Engine:
                             continue
                     except Exception:
                         pass
+                    try:
+                        if name == 'blend_mode':
+                            def _fb_blend_mode(m):
+                                try:
+                                    inst._engine.blend_mode = str(m)
+                                except Exception:
+                                    pass
+                            setattr(inst, 'blend_mode', _fb_blend_mode)
+                            continue
+                    except Exception:
+                        pass
                 self.sketch = inst
                 # Ensure some API helpers that are implemented on SimpleSketchAPI
                 # are available as methods on the instance in edge cases where
@@ -1049,6 +1060,18 @@ class Engine:
         draw = getattr(self.sketch, 'draw', None)
         if callable(draw):
             self._call_sketch_method(draw, this)
+            # Debug helper: when lifecycle debug enabled, log how many
+            # commands were recorded by draw() so callers can tell whether
+            # the sketch emitted any drawable ops.
+            try:
+                if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                    try:
+                        import logging as _logging
+                        _logging.getLogger(__name__).debug('step_frame: recorded commands after draw=%s', len(self.graphics.commands))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         else:
             import logging as _logging
             try:

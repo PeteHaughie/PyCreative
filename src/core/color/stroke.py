@@ -53,6 +53,10 @@ def set_stroke(engine: Any, *args):
             engine.stroke_color = tuple(int(x) for x in _norm(v))
             engine.stroke_alpha = None
             return
+        if isinstance(v, (tuple, list)) and len(v) == 4:
+            # Do NOT accept a single 4-tuple form. Require explicit args:
+            #   stroke(r, g, b, a)
+            raise TypeError('stroke((r,g,b,a)) is not accepted; call stroke(r, g, b, a) instead')
         try:
             iv = int(v)
         except Exception:

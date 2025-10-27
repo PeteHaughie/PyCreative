@@ -390,6 +390,41 @@ class SimpleSketchAPI:
             pass
         return None
 
+    def blend_mode(self, mode: str):
+        """Set the current blend mode for subsequent drawing operations.
+
+        The method updates engine state and delegates to any registered
+        engine API implementation when available.
+        """
+        try:
+            # Record the operation in the graphics buffer so headless replays
+            # and presenters see the chosen blend mode.
+            try:
+                if getattr(self._engine, 'graphics', None) is not None:
+                    try:
+                        self._engine.graphics.record('blend_mode', mode=str(mode))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # Persist on the engine so replay and presenters can inspect it
+            try:
+                self._engine.blend_mode = str(mode)
+            except Exception:
+                pass
+
+            # If the engine provided a 'blend_mode' recorder, call it
+            fn = self._engine.api.get('blend_mode')
+            if fn:
+                try:
+                    return fn(mode)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return None
+
     def line(self, x1, y1, x2, y2, **kwargs):
         fn = self._engine.api.get('line')
         if fn:
