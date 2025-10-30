@@ -41,6 +41,7 @@ def step_frame(engine: Any) -> None:
                 engine._call_sketch_method(setup, this)
             except Exception:
                 pass
+        # (debug prints removed)
         # Capture and remove any background command emitted in setup so
         # it can be applied once only. Store its RGB for the presenter.
         try:
@@ -153,6 +154,27 @@ def step_frame(engine: Any) -> None:
     # Only call update() then draw() once per frame.
     # create SimpleSketchAPI lazily
     this = _make_simple_api(engine)
+    # Attach common facade helpers onto the sketch instance so sketches
+    # that call self.shape(), self.shape_mode(), or transforms will find
+    # them even if dynamic forwarding did not get installed during
+    # normalization. This is defensive and cheap to run each frame.
+    try:
+        s_inst = getattr(engine, 'sketch', None)
+        if s_inst is not None:
+            for _nm in ('shape', 'shape_mode', 'push_matrix', 'pop_matrix', 'push', 'pop', 'translate', 'rotate', 'scale', 'no_stroke', 'no_fill', 'fill', 'stroke'):
+                try:
+                    if not hasattr(s_inst, _nm):
+                        attr = getattr(this, _nm, None)
+                        if callable(attr):
+                            try:
+                                setattr(s_inst, _nm, attr)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+            # (temporary debug prints removed)
+    except Exception:
+        pass
     update_fn = getattr(engine.sketch, 'update', None)
     if callable(update_fn):
         try:

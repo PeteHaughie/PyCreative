@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING, Any, Optional
+import os
 
 if TYPE_CHECKING:
     from ..impl import Engine
@@ -275,6 +276,46 @@ class SimpleSketchAPI:
         except Exception:
             return None
 
+    def load_shape(self, path: str):
+        """Load a shape (SVG or OBJ). Delegates to a registered API or
+        falls back to `pycreative.shape.loader.load_shape` when available.
+        """
+        try:
+            fn = self._engine.api.get('load_shape')
+            if fn:
+                return fn(path)
+        except Exception:
+            pass
+        try:
+            from pycreative.shape.loader import load_shape as _ls
+
+            p = path
+            # If a relative path was provided, resolve it relative to the
+            # original sketch module so `load_shape('module_1.svg')` works
+            # when called from examples that use relative paths.
+            try:
+                if p and not os.path.isabs(p):
+                    smod = getattr(self._engine, '_sketch_module', None)
+                    if smod is not None:
+                        sf = getattr(smod, '__file__', None)
+                        if sf:
+                            sketch_dir = os.path.dirname(os.path.abspath(sf))
+                            candidate = os.path.join(sketch_dir, p)
+                            # If the file isn't directly in the sketch folder, try the
+                            # conventional `data/` subfolder used by Processing examples.
+                            if not os.path.exists(candidate):
+                                data_candidate = os.path.join(sketch_dir, 'data', p)
+                                if os.path.exists(data_candidate):
+                                    p = data_candidate
+                                else:
+                                    p = candidate
+            except Exception:
+                pass
+
+            return _ls(p)
+        except Exception:
+            return None
+
     def request_image(self, path: str, extension: Optional[str] = None):
         try:
             fn = self._engine.api.get('request_image')
@@ -389,6 +430,348 @@ class SimpleSketchAPI:
         except Exception:
             pass
         return None
+
+    def shape_mode(self, mode: str):
+        """Set the current shape drawing mode (e.g., 'CENTER', 'CORNER')."""
+        try:
+            self._engine.shape_mode = str(mode)
+        except Exception:
+            pass
+        try:
+            fn = self._engine.api.get('shape_mode')
+            if fn:
+                try:
+                    return fn(mode)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return None
+
+    def shape(self, s, x=0, y=0, w=None, h=None):
+        """Draw a PCShape-like object. Records a skia_path op when possible.
+
+        This fallback is used when no engine-registered 'shape' implementation
+        is available. It prefers Skia paths on loaded shapes and falls back
+        to vertex-based recording when only path command data exists.
+        """
+        try:
+            fn = self._engine.api.get('shape')
+            if fn:
+                return fn(s, x, y, w, h)
+        except Exception:
+            pass
+
+        try:
+            import skia  # type: ignore
+        except Exception:
+            skia = None
+
+        try:
+            if hasattr(s, 'skia_paths') and getattr(s, 'skia_paths'):
+                self.push_matrix()
+                try:
+                    self.translate(x, y)
+                except Exception:
+                    pass
+                for idx, sp in enumerate(s.skia_paths):
+                    try:
+                        fill_col = getattr(self._engine, 'fill_color', None)
+                        stroke_col = getattr(self._engine, 'stroke_color', None)
+                        stroke_w = getattr(self._engine, 'stroke_weight', None)
+                        try:
+                            if hasattr(s, 'paths') and idx < len(s.paths):
+                                pstyle = s.paths[idx].get('style', {})
+                                if isinstance(pstyle, dict):
+                                    if pstyle.get('fill_rgba') is not None:
+                                        fill_col = pstyle.get('fill_rgba')
+                                    if pstyle.get('stroke_rgba') is not None:
+                                        stroke_col = pstyle.get('stroke_rgba')
+                        except Exception:
+                            pass
+
+                        path_to_record = sp
+                        if (w is not None) and (h is not None) and skia is not None:
+                            try:
+                                try:
+                                    b = sp.computeTightBounds()
+                                    left = float(b.left())
+                                    top = float(b.top())
+                                    right = float(b.right())
+                                    bottom = float(b.bottom())
+                                except Exception:
+                                    try:
+                                        br = sp.getBounds()
+                                        left = float(br.left())
+                                        top = float(br.top())
+                                        right = float(br.right())
+                                        bottom = float(br.bottom())
+                                    except Exception:
+                                        left = top = 0.0
+                                        right = bottom = 1.0
+                                pw = max(1e-6, right - left)
+                                ph = max(1e-6, bottom - top)
+                                sx = float(w) / float(pw)
+                                sy = float(h) / float(ph)
+                                shape_mode = getattr(self._engine, 'shape_mode', None)
+                                if shape_mode and str(shape_mode).upper() == 'CENTER':
+                                    cx = (left + right) / 2.0
+                                    cy = (top + bottom) / 2.0
+                                else:
+                                    cx = left
+                                    cy = top
+                                mtx = None
+                                try:
+                                    mtx = skia.Matrix.MakeAll(sx, 0.0, 0.0, sy, -cx * sx, -cy * sy)
+                                except Exception:
+                                    try:
+                                        mtx = skia.Matrix.MakeAll(sx, 0.0, -cx * sx, 0.0, sy, -cy * sy)
+                                    except Exception:
+                                        mtx = None
+                                if mtx is not None:
+                                    try:
+                                        newp = skia.Path()
+                                        try:
+                                            newp.addPath(sp, mtx)
+                                        except Exception:
+                                            newp = skia.Path(sp)
+                                            newp.transform(mtx)
+                                        path_to_record = newp
+                                    except Exception:
+                                        path_to_record = sp
+                            except Exception:
+                                path_to_record = sp
+
+                        args = {
+                            'path': path_to_record,
+                            'fill': fill_col,
+                            'stroke': stroke_col,
+                            'stroke_weight': stroke_w,
+                            'shape_mode': getattr(self._engine, 'shape_mode', None),
+                            'blend_mode': getattr(self._engine, 'blend_mode', None),
+                        }
+                        try:
+                            self._engine.graphics.record('skia_path', **args)
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                try:
+                    self.pop_matrix()
+                except Exception:
+                    pass
+                return None
+
+            # Fallback: vertex-based recording
+            paths = None
+            if isinstance(s, dict):
+                paths = s.get('paths', None)
+            elif hasattr(s, 'paths'):
+                paths = s.paths
+            if not paths:
+                return None
+
+            self.push_matrix()
+            try:
+                self.translate(x, y)
+            except Exception:
+                pass
+            for p in paths:
+                cmds = p.get('path_cmds', []) if isinstance(p, dict) else []
+                try:
+                    self.begin_shape('POLYGON')
+                    closed = False
+                    for cmd in cmds:
+                        c = cmd.get('cmd')
+                        if c in ('moveTo', 'lineTo'):
+                            for (px, py) in cmd.get('pts', []):
+                                try:
+                                    self.vertex(px, py)
+                                except Exception:
+                                    pass
+                        elif c == 'close':
+                            closed = True
+                    try:
+                        self.end_shape(close=bool(closed))
+                    except Exception:
+                        pass
+                except Exception:
+                    try:
+                        self.end_shape(close=False)
+                    except Exception:
+                        pass
+            try:
+                self.pop_matrix()
+            except Exception:
+                pass
+            return None
+        except Exception:
+            return None
+
+    def shape(self, s, x=0, y=0, w=None, h=None):
+        """Draw a PCShape-like object. Records 'skia_path' ops when possible.
+
+        This is a conservative fallback used when no engine-registered
+        'shape' implementation exists. It prefers Skia Path recording so
+        presenters that replay 'skia_path' will draw vector shapes
+        accurately.
+        """
+        try:
+            fn = self._engine.api.get('shape')
+            if fn:
+                return fn(s, x, y, w, h)
+        except Exception:
+            pass
+
+        # Lazy import of skia so the module remains import-safe when Skia
+        # isn't available in lightweight test environments.
+        try:
+            import skia  # type: ignore
+        except Exception:
+            skia = None
+
+        try:
+            # If shape carries skia_paths (returned by the SVG loader), record
+            # each one as a skia_path op including per-path style when present.
+            if hasattr(s, 'skia_paths') and getattr(s, 'skia_paths'):
+                self.push_matrix()
+                try:
+                    self.translate(x, y)
+                except Exception:
+                    pass
+                for idx, sp in enumerate(s.skia_paths):
+                    try:
+                        fill_col = getattr(self._engine, 'fill_color', None)
+                        stroke_col = getattr(self._engine, 'stroke_color', None)
+                        stroke_w = getattr(self._engine, 'stroke_weight', None)
+                        try:
+                            if hasattr(s, 'paths') and idx < len(s.paths):
+                                pstyle = s.paths[idx].get('style', {})
+                                if isinstance(pstyle, dict):
+                                    if pstyle.get('fill_rgba') is not None:
+                                        fill_col = pstyle.get('fill_rgba')
+                                    if pstyle.get('stroke_rgba') is not None:
+                                        stroke_col = pstyle.get('stroke_rgba')
+                        except Exception:
+                            pass
+
+                        path_to_record = sp
+                        if (w is not None) and (h is not None) and skia is not None:
+                            try:
+                                try:
+                                    b = sp.computeTightBounds()
+                                    left = float(b.left())
+                                    top = float(b.top())
+                                    right = float(b.right())
+                                    bottom = float(b.bottom())
+                                except Exception:
+                                    try:
+                                        br = sp.getBounds()
+                                        left = float(br.left())
+                                        top = float(br.top())
+                                        right = float(br.right())
+                                        bottom = float(br.bottom())
+                                    except Exception:
+                                        left = top = 0.0
+                                        right = bottom = 1.0
+                                pw = max(1e-6, right - left)
+                                ph = max(1e-6, bottom - top)
+                                sx = float(w) / float(pw)
+                                sy = float(h) / float(ph)
+                                shape_mode = getattr(self._engine, 'shape_mode', None)
+                                if shape_mode and str(shape_mode).upper() == 'CENTER':
+                                    cx = (left + right) / 2.0
+                                    cy = (top + bottom) / 2.0
+                                else:
+                                    cx = left
+                                    cy = top
+                                mtx = None
+                                try:
+                                    mtx = skia.Matrix.MakeAll(sx, 0.0, 0.0, sy, -cx * sx, -cy * sy)
+                                except Exception:
+                                    try:
+                                        mtx = skia.Matrix.MakeAll(sx, 0.0, -cx * sx, 0.0, sy, -cy * sy)
+                                    except Exception:
+                                        mtx = None
+                                if mtx is not None:
+                                    try:
+                                        newp = skia.Path()
+                                        try:
+                                            newp.addPath(sp, mtx)
+                                        except Exception:
+                                            newp = skia.Path(sp)
+                                            newp.transform(mtx)
+                                        path_to_record = newp
+                                    except Exception:
+                                        path_to_record = sp
+                            except Exception:
+                                path_to_record = sp
+
+                        args = {
+                            'path': path_to_record,
+                            'fill': fill_col,
+                            'stroke': stroke_col,
+                            'stroke_weight': stroke_w,
+                            'shape_mode': getattr(self._engine, 'shape_mode', None),
+                            'blend_mode': getattr(self._engine, 'blend_mode', None),
+                        }
+                        try:
+                            self._engine.graphics.record('skia_path', **args)
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                try:
+                    self.pop_matrix()
+                except Exception:
+                    pass
+                return None
+
+            # Fallback: record vertex-based paths if available
+            paths = None
+            if isinstance(s, dict):
+                paths = s.get('paths', None)
+            elif hasattr(s, 'paths'):
+                paths = s.paths
+            if not paths:
+                return None
+
+            self.push_matrix()
+            try:
+                self.translate(x, y)
+            except Exception:
+                pass
+            for p in paths:
+                cmds = p.get('path_cmds', []) if isinstance(p, dict) else []
+                try:
+                    self.begin_shape('POLYGON')
+                    closed = False
+                    for cmd in cmds:
+                        c = cmd.get('cmd')
+                        if c in ('moveTo', 'lineTo'):
+                            for (px, py) in cmd.get('pts', []):
+                                try:
+                                    self.vertex(px, py)
+                                except Exception:
+                                    pass
+                        elif c == 'close':
+                            closed = True
+                    try:
+                        self.end_shape(close=bool(closed))
+                    except Exception:
+                        pass
+                except Exception:
+                    try:
+                        self.end_shape(close=False)
+                    except Exception:
+                        pass
+            try:
+                self.pop_matrix()
+            except Exception:
+                pass
+            return None
+        except Exception:
+            return None
 
     def blend_mode(self, mode: str):
         """Set the current blend mode for subsequent drawing operations.

@@ -154,15 +154,46 @@ class PCVector:
         ny = self.x * s + self.y * c
         self.x = nx
         self.y = ny
+        return self
 
     def lerp(self, target: 'PCVector', amt: float):
         from .ops import lerp
         self.x = lerp(self.x, target.x, amt)
         self.y = lerp(self.y, target.y, amt)
+        return self
 
     def distance(self, other: 'PCVector') -> float:
-        from .ops import dist
-        return dist(self.x, self.y, other.x, other.y)
+        # Avoid doing an import on every call (hot path); use math.hypot
+        return math.hypot(self.x - other.x, self.y - other.y)
+
+    def distance_sq(self, other: 'PCVector') -> float:
+        """Return squared distance to other (avoids sqrt).
+
+        Useful for comparisons when exact distance isn't required.
+        """
+        dx = self.x - other.x
+        dy = self.y - other.y
+        return dx * dx + dy * dy
+
+    def mag_sq(self) -> float:
+        """Return squared magnitude (avoids sqrt).
+
+        Use this when only comparisons are needed to avoid the cost of
+        computing sqrt in `mag()`.
+        """
+        return self.x * self.x + self.y * self.y
+
+    def set_from(self, other: 'PCVector'):
+        """Copy coordinates from another vector in-place and return self."""
+        self.x = other.x
+        self.y = other.y
+        return self
+
+    # Backwards-compatible alias: some ports/examples call `.dist()` on
+    # PCVector instances. Provide a thin wrapper that delegates to
+    # `distance()` so old code continues to work.
+    def dist(self, other: 'PCVector') -> float:
+        return self.distance(other)
 
     def __add__(self, other):
         if isinstance(other, PCVector):

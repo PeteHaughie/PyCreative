@@ -142,16 +142,27 @@ def _make_paint_from_color(col, fill=True, stroke_weight=1.0, alpha=None, stroke
         except Exception:
             a = 1.0
     else:
-        # If color tuple includes alpha as 4th element, use it
+        # If color tuple includes alpha as 4th element, use it. Accept both
+        # 0-1 floats and 0-255 ints.
         try:
             if isinstance(col, (tuple, list)) and len(col) >= 4:
-                a = float(col[3]) / 255.0
+                aa = float(col[3])
+                if aa <= 1.0:
+                    a = aa
+                else:
+                    a = aa / 255.0
         except Exception:
             pass
     a = max(0.0, min(1.0, a))
     try:
         if isinstance(col, (tuple, list)):
-            r, g, b = [float(v) / 255.0 for v in col[:3]]
+            # Accept both 0-1 float components and 0-255 ints. If all
+            # components are <= 1.0 assume 0-1 floats; otherwise treat as 0-255 ints.
+            comps = [float(v) for v in col[:3]]
+            if all(v <= 1.0 for v in comps):
+                r, g, b = comps
+            else:
+                r, g, b = [v / 255.0 for v in comps]
             try:
                 p.setColor(skia.Color4f(r, g, b, a))
             except Exception:
@@ -710,6 +721,70 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                 except Exception:
                     # Keep presenter robust — skip shape if anything goes wrong
                     pass
+
+            if op == 'skia_path':
+                # Draw a Skia Path object directly. Expect args to include
+                # 'path' (a skia.Path), optional 'fill' and 'stroke', and
+                # 'stroke_weight', 'stroke_cap', 'stroke_join'. Blend mode may
+                # be supplied or fall back to current_blend_mode.
+                path_obj = args.get('path')
+                if path_obj is None:
+                    continue
+                # Decide blend mode: prefer explicit op arg, then current
+                blend = args.get('blend_mode') or args.get('blend') or current_blend_mode
+                fill_col = args.get('fill') if args.get('fill') is not None else current_fill
+                fill_alpha = args.get('fill_alpha', None)
+                stroke_col = args.get('stroke') if args.get('stroke') is not None else current_stroke
+                stroke_alpha = args.get('stroke_alpha', None)
+                sw = float(args.get('stroke_weight') if args.get('stroke_weight') is not None else (current_stroke_weight or 1))
+
+                # Fill first
+                if fill_col is not None:
+                    fp = _make_paint_from_color(fill_col, fill=True, alpha=fill_alpha)
+                    if fp is not None:
+                        try:
+                            if blend is not None:
+                                bm = map_blend_mode(skia, blend)
+                                if bm is not None:
+                                    try:
+                                        fp.setBlendMode(bm)
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
+                        try:
+                            canvas.drawPath(path_obj, fp)
+                        except Exception:
+                            pass
+
+                # Stroke
+                if stroke_col is not None:
+                    scap = args.get('stroke_cap') if args.get('stroke_cap') is not None else current_stroke_cap
+                    sjoin = args.get('stroke_join') if args.get('stroke_join') is not None else current_stroke_join
+                    sp = _make_paint_from_color(
+                        stroke_col,
+                        fill=False,
+                        stroke_weight=sw,
+                        alpha=stroke_alpha,
+                        stroke_cap=scap,
+                        stroke_join=sjoin,
+                    )
+                    if sp is not None:
+                        try:
+                            if blend is not None:
+                                bm = map_blend_mode(skia, blend)
+                                if bm is not None:
+                                    try:
+                                        sp.setBlendMode(bm)
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
+                        try:
+                            canvas.drawPath(path_obj, sp)
+                        except Exception:
+                            pass
+                continue
 
             if op == 'fill':
                 # Record a current fill color for subsequent shape ops.

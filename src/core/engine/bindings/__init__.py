@@ -29,6 +29,7 @@ SKETCH_CONVENIENCE_METHODS = (
     'begin_shape', 'vertex', 'end_shape',
     # Transform helpers (2D)
     'translate', 'rotate', 'scale', 'push_matrix', 'pop_matrix', 'pushMatrix', 'popMatrix',
+    'push', 'pop',
     'shear_x', 'shear_y', 'reset_matrix', 'apply_matrix',
     'image', 'image_mode',
 )

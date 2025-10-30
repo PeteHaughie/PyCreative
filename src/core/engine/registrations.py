@@ -166,3 +166,27 @@ def register_state_apis(engine: Any):
     except Exception:
         # Best-effort only
         pass
+
+
+def register_transforms(engine: Any):
+    """Register transform/matrix helpers so they are available via
+    the engine API and can be attached to class-based sketch instances.
+    """
+    try:
+        import core.engine.transforms as _t
+
+        engine.api.register('push_matrix', lambda *a, **k: _t.push_matrix(engine, *a, **k))
+        engine.api.register('pop_matrix', lambda *a, **k: _t.pop_matrix(engine, *a, **k))
+        # short aliases
+        engine.api.register('push', lambda *a, **k: _t.push_matrix(engine, *a, **k))
+        engine.api.register('pop', lambda *a, **k: _t.pop_matrix(engine, *a, **k))
+        engine.api.register('translate', lambda *a, **k: _t.translate(engine, *a, **k))
+        engine.api.register('rotate', lambda *a, **k: _t.rotate(engine, *a, **k))
+        engine.api.register('scale', lambda *a, **k: _t.scale(engine, *a, **k))
+        engine.api.register('shear_x', lambda *a, **k: _t.shear_x(engine, *a, **k))
+        engine.api.register('shear_y', lambda *a, **k: _t.shear_y(engine, *a, **k))
+        engine.api.register('reset_matrix', lambda *a, **k: _t.reset_matrix(engine, *a, **k))
+        engine.api.register('apply_matrix', lambda *a, **k: _t.apply_matrix(engine, *a, **k))
+    except Exception:
+        # best-effort only
+        pass

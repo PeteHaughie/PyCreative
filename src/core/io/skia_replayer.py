@@ -6,6 +6,7 @@ snapshot for headless debugging when skia-python is available.
 from __future__ import annotations
 
 from typing import Any
+import os
 
 
 def replay_to_image_skia(engine: Any, path: str) -> None:
@@ -61,5 +62,14 @@ def replay_to_image_skia(engine: Any, path: str) -> None:
     if b is None:
         raise RuntimeError('Could not extract PNG bytes from skia.Data')
 
+    # Ensure parent directory exists so file can be written
+    try:
+        d = os.path.dirname(path)
+        if d:
+            os.makedirs(d, exist_ok=True)
+    except Exception:
+        pass
+
     with open(path, 'wb') as f:
         f.write(b)
+    # Ensure file was written

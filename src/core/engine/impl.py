@@ -88,6 +88,7 @@ class Engine:
                 register_math,
                 register_random_and_noise,
                 register_shape_apis,
+                register_transforms,
             )
             try:
                 register_shape_apis(self)
@@ -101,12 +102,45 @@ class Engine:
                 register_math(self)
             except Exception:
                 pass
+            try:
+                register_transforms(self)
+            except Exception:
+                pass
         except Exception:
             # best-effort only; continue if registrations can't be imported
             pass
 
         # Normalize sketch: if a module contains a `Sketch` class, instantiate it
         self._normalize_sketch()
+
+        # Ensure essential facade helpers from SimpleSketchAPI are available
+        # as bound callables on the sketch instance. In some execution paths
+        # the dynamic subclass __getattr__ forwarding can fail to attach or
+        # be skipped; attach a conservative set of commonly-used helpers so
+        # examples (which call self.shape_mode, self.shape, transforms, etc.)
+        # continue to work.
+        try:
+            s = getattr(self, 'sketch', None)
+            if s is not None:
+                facade = SimpleSketchAPI(self)
+                for _name in (
+                    'shape', 'shape_mode', 'push_matrix', 'pop_matrix',
+                    'push', 'pop', 'translate', 'rotate', 'scale',
+                    'no_stroke', 'no_fill', 'fill', 'stroke', 'stroke_weight',
+                    'begin_shape', 'vertex', 'end_shape', 'image', 'load_shape',
+                ):
+                    try:
+                        if not hasattr(s, _name):
+                            attr = getattr(facade, _name, None)
+                            if callable(attr):
+                                try:
+                                    setattr(s, _name, attr)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
         # If the user provided a direct sketch instance (not a module with a
         # `Sketch` class), attempt to attach convenience API functions as
@@ -160,6 +194,7 @@ class Engine:
             from core.engine.registrations import (
                 register_random_and_noise,
                 register_shape_apis,
+                register_transforms,
             )
             try:
                 register_shape_apis(self)
@@ -167,6 +202,10 @@ class Engine:
                 pass
             try:
                 register_random_and_noise(self)
+            except Exception:
+                pass
+            try:
+                register_transforms(self)
             except Exception:
                 pass
         except Exception:
@@ -594,6 +633,13 @@ class Engine:
                         'stroke_weight',
                         # engine-level helpers
                         'color_mode',
+                        # shape/convenience helpers used by many examples
+                        'shape',
+                        'shape_mode',
+                        'push_matrix',
+                        'pop_matrix',
+                        'translate',
+                        'rotate',
                         # common convenience shims used by examples
                         'rect_mode',
                         'no_cursor',
@@ -916,6 +962,16 @@ class Engine:
                     self._call_sketch_method(setup, this)
                 except Exception:
                     pass
+            try:
+                # diagnostic: show that setup ran and what attributes were set
+                try:
+                    print('[DEBUG] after setup, sketch_attrs present:', hasattr(self.sketch, '__dict__'))
+                    if hasattr(self.sketch, '__dict__'):
+                        print('[DEBUG] sketch keys:', list(getattr(self.sketch, '__dict__', {}).keys()))
+                except Exception:
+                    pass
+            except Exception:
+                pass
             # Capture and remove any background command emitted in setup so
             # it can be applied once only. Store its RGB for the presenter.
             recorded = list(self.graphics.commands)
@@ -1047,6 +1103,23 @@ class Engine:
         # collisions) prior to rendering. Use _call_sketch_method so we
         # gracefully handle both bound methods and module-level functions.
         this = SimpleSketchAPI(self)
+        # Ensure the sketch instance has direct access to common facade helpers.
+        # Some sketch code expects `self.shape_mode()` or `self.shape()` to be
+        # available as instance attributes — attach them from the facade if
+        # missing so call semantics work even when dynamic forwarding fails.
+        try:
+            s_inst = getattr(self, 'sketch', None)
+            if s_inst is not None:
+                for _nm in ('shape', 'shape_mode', 'push_matrix', 'pop_matrix', 'push', 'pop', 'translate', 'rotate', 'scale', 'no_stroke', 'no_fill', 'fill', 'stroke'):
+                    if not hasattr(s_inst, _nm):
+                        try:
+                            attr = getattr(this, _nm, None)
+                            if callable(attr):
+                                setattr(s_inst, _nm, attr)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
         # Call optional update() first
         update_fn = getattr(self.sketch, 'update', None)
         if callable(update_fn):
@@ -1059,7 +1132,43 @@ class Engine:
         # Then call draw()
         draw = getattr(self.sketch, 'draw', None)
         if callable(draw):
-            self._call_sketch_method(draw, this)
+            # Diagnostic: print sketch instance info when attribute errors occur
+            try:
+                s_inst = getattr(self, 'sketch', None)
+                if s_inst is not None:
+                    try:
+                        print('[DEBUG] sketch_type=', type(s_inst), 'has_shape_mode=', hasattr(s_inst, 'shape_mode'))
+                        print('[DEBUG] facade_has_shape_mode=', hasattr(this, 'shape_mode'))
+                        try:
+                            if hasattr(s_inst, 'current_shape'):
+                                cs = getattr(s_inst, 'current_shape')
+                                print('[DEBUG] current_shape type=', type(cs), 'has_skia_paths=', hasattr(cs, 'skia_paths'))
+                                try:
+                                    print('[DEBUG] skia_paths_len=', len(getattr(cs, 'skia_paths', [])))
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            # Call draw with tolerant semantics: prefer calling as a no-arg
+            # bound method, but fall back to passing the facade if the
+            # sketch expects it. This avoids issues when draw is an
+            # unbound function object or when dynamic binding fails.
+            try:
+                draw()
+            except TypeError:
+                try:
+                    draw(this)
+                except Exception:
+                    # Last-resort: use the generic helper which handles
+                    # bound/unbound cases. Keep this as final fallback.
+                    try:
+                        self._call_sketch_method(draw, this)
+                    except Exception:
+                        pass
             # Debug helper: when lifecycle debug enabled, log how many
             # commands were recorded by draw() so callers can tell whether
             # the sketch emitted any drawable ops.

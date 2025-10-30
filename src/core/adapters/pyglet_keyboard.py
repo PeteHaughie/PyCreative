@@ -31,30 +31,51 @@ def _map_key_constant(py_key: Any) -> Optional[str]:
         return None
     try:
         from pyglet.window import key as _k
-        # Check common printable keys: pyglet uses integer keycodes for named keys
-        # For named special keys, try mapping to an uppercase name
+        # Collect all attribute names that match this key value. We can't
+        # rely on the order of dir(_k) because some platforms expose both
+        # 'MOTION_UP' and 'UP' (or 'MOTION_RIGHT' and 'RIGHT') with the
+        # same numeric value. Collect matches and then pick a canonical
+        # short name (prefer non-'MOTION_' variants when available).
+        matches: list[str] = []
         for attr in dir(_k):
             try:
                 if getattr(_k, attr) != py_key:
                     continue
             except Exception:
                 continue
-            # Some key names in pyglet may include trailing underscores to
-            # avoid Python keyword conflicts (e.g. 'return_'). Strip trailing
-            # underscores so callers get the canonical name.
-            attr_clean = attr.rstrip('_') if isinstance(attr, str) else attr
-            if isinstance(attr_clean, str):
-                # If the attribute name encodes a digit (e.g. 'NUM_1' or 'KP_1'),
-                # return the digit as the printable key value.
-                m = re.search(r"(\d+)$", attr_clean)
-                if m:
-                    return m.group(1)
-                # Single-character names (unlikely for pyglet attr names)
-                # should be returned as lowercase printable chars.
-                if len(attr_clean) == 1:
-                    return attr_clean.lower()
-                # Return canonical uppercase name for other special keys
-                return attr_clean.upper()
+            if not isinstance(attr, str):
+                continue
+            matches.append(attr)
+
+        if not matches:
+            return None
+
+        # Normalize candidate names (strip trailing underscores)
+        cleaned = [a.rstrip('_') for a in matches]
+
+        # Prefer an exact canonical name like 'UP', 'DOWN', 'LEFT', 'RIGHT'
+        for c in cleaned:
+            if c in ("UP", "DOWN", "LEFT", "RIGHT"):
+                return c
+
+        # If a 'MOTION_*' variant exists alongside a shorter alias (e.g.
+        # 'MOTION_UP' and 'UP'), prefer the shorter alias. Otherwise pick
+        # the shortest cleaned name as a reasonable canonical form.
+        non_motion = [c for c in cleaned if not c.startswith('MOTION_')]
+        if non_motion:
+            candidate = min(non_motion, key=len)
+        else:
+            candidate = min(cleaned, key=len)
+
+        # If the candidate encodes a trailing digit (NUM_1 / KP_1), return
+        # the digit as a printable key. Single-char names become lowercase
+        # printable keys; otherwise expose the uppercase name.
+        m = re.search(r"(\d+)$", candidate)
+        if m:
+            return m.group(1)
+        if len(candidate) == 1:
+            return candidate.lower()
+        return candidate.upper()
     except Exception:
         pass
     return None
