@@ -9,9 +9,9 @@ class Path:
         # A path has a radius, how wide is it.
         # {!3} Picking some arbitrary values to initialize the path
         self.radius = 20
-        self.start = sketch.pvector(0, sketch.height / 3)
+        self.start = sketch.pcvector(0, sketch.height / 3)
         # {!2} A path is only two points, start and end.
-        self.end = sketch.pvector(sketch.width, (2 * sketch.height) / 3)
+        self.end = sketch.pcvector(sketch.width, (2 * sketch.height) / 3)
 
     # {!7} Display the path.
     def show(self):

@@ -11,13 +11,11 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter8/Examp
 // Branching angle calculated as a function of horizontal mouse position
 """
 
-from pycreative.app import Sketch
 
-
-class Example_8_6_Recursive_Tree(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 8-6: Recursive Tree")
+        self.window_title("NOC: Example 8-6 Recursive Tree")
 
     def draw(self):
         self.background(255)
@@ -40,14 +38,12 @@ class Example_8_6_Recursive_Tree(Sketch):
 
         if length > 2:
             self.push()
-            try:
-              self.rotate(self.angle)
-              # {!1} Subsequent calls to branch() include the length argument.
-              self.branch(length)
-              self.pop()
+            self.rotate(self.angle)
+            # {!1} Subsequent calls to branch() include the length argument.
+            self.branch(length)
+            self.pop()
 
-              self.push()
-              self.rotate(-self.angle)
-              self.branch(length)
-            finally:
-              self.pop()
+            self.push()
+            self.rotate(-self.angle)
+            self.branch(length)
+            self.pop()

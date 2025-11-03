@@ -6,9 +6,9 @@ Vehicle class for Example 5-3: Stay Within Walls
 class Vehicle:
     def __init__(self, sketch, x: float, y: float):
         self.sketch = sketch
-        self.position = self.sketch.pvector(x, y)
-        self.velocity = self.sketch.pvector(3, 4)
-        self.acceleration = self.sketch.pvector(0, 0)
+        self.position = self.sketch.pcvector(x, y)
+        self.velocity = self.sketch.pcvector(3, 4)
+        self.acceleration = self.sketch.pcvector(0, 0)
         self.r = 6
         self.maxspeed = 3
         self.maxforce = 0.15
@@ -31,14 +31,14 @@ class Vehicle:
         desired = None
 
         if self.position.x < offset:
-            desired = self.sketch.pvector(self.maxspeed, self.velocity.y)
+            desired = self.sketch.pcvector(self.maxspeed, self.velocity.y)
         elif self.position.x > self.sketch.width - offset:
-            desired = self.sketch.pvector(-self.maxspeed, self.velocity.y)
+            desired = self.sketch.pcvector(-self.maxspeed, self.velocity.y)
 
         if self.position.y < offset:
-            desired = self.sketch.pvector(self.velocity.x, self.maxspeed)
+            desired = self.sketch.pcvector(self.velocity.x, self.maxspeed)
         elif self.position.y > self.sketch.height - offset:
-            desired = self.sketch.pvector(self.velocity.x, -self.maxspeed)
+            desired = self.sketch.pcvector(self.velocity.x, -self.maxspeed)
 
         if desired is not None:
             desired.normalize()
@@ -56,13 +56,11 @@ class Vehicle:
         self.sketch.stroke(0)
         self.sketch.stroke_weight(3)
         self.sketch.push_matrix()
-        try:
-            self.sketch.translate(self.position.x, self.position.y)
-            self.sketch.rotate(angle)
-            self.sketch.begin_shape('POLYGON')
-            self.sketch.vertex(self.r * 2, 0)
-            self.sketch.vertex(-self.r * 2, -self.r)
-            self.sketch.vertex(-self.r * 2, self.r)
-            self.sketch.end_shape(close=True)
-        finally:
-            self.sketch.pop_matrix()
+        self.sketch.translate(self.position.x, self.position.y)
+        self.sketch.rotate(angle)
+        self.sketch.begin_shape('POLYGON')
+        self.sketch.vertex(self.r * 2, 0)
+        self.sketch.vertex(-self.r * 2, -self.r)
+        self.sketch.vertex(-self.r * 2, self.r)
+        self.sketch.end_shape(close=True)
+        self.sketch.pop_matrix()

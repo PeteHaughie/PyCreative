@@ -230,7 +230,8 @@ def save_frame(engine: Any, path: str) -> None:
     # 2) Attempt to import the pillow-based writer
     _save: Optional[Callable[[str, Any], None]] = None
     try:
-        from core.io.snapshot import save_frame as _save
+        from core.io.snapshot import save_frame as _save_fn
+        _save = _save_fn
     except Exception:
         _save = None
 

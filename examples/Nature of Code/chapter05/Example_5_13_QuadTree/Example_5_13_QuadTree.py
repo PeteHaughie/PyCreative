@@ -14,14 +14,13 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter5/Examp
 // https://github.com/CodingTrain/QuadTree
 """
 
-from pycreative.app import Sketch
 from QuadTree import Point, Rectangle, QuadTree
 
 
-class Example_5_13_QuadTree(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 5.13 QuadTree")
+        self.window_title("NOC: Example 5.13 QuadTree")
         boundary = Rectangle(self.width / 2, self.height / 2, self.width, self.height)
         self.qtree = QuadTree(self, boundary, 8)
         import random
@@ -34,7 +33,7 @@ class Example_5_13_QuadTree(Sketch):
             self.qtree.insert(p)
 
     def draw(self):
-        self.clear((255, 255, 255))
+        self.background(255)
         self.qtree.show()
 
         rect_mode = 'CENTER'

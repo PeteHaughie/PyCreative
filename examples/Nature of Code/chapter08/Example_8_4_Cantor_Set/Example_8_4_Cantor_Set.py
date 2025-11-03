@@ -10,13 +10,11 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter8/Examp
 // Renders a simple fractal, the Cantor Set
 """
 
-from pycreative.app import Sketch
 
-
-class Example_8_4_Cantor_Set(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 120)
-        self.set_title("Example 8-4: Cantor Set")
+        self.window_title("NOC: Example 8-4 Cantor Set")
 
     def draw(self):
         self.background(255)

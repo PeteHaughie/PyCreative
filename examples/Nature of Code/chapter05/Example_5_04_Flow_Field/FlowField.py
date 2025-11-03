@@ -9,7 +9,7 @@ class FlowField:
         self.resolution = resolution
         self.cols = 0
         self.rows = 0
-        self.field: list[list[self.sketch.pvector]] = []
+        self.field: list[list[self.sketch.pcvector]] = []
         self.init_dimensions()
 
     def init(self):
@@ -18,13 +18,13 @@ class FlowField:
     def init_dimensions(self):
         self.cols = self.sketch.width // self.resolution
         self.rows = self.sketch.height // self.resolution
-        self.field = [[self.sketch.pvector(0, 0) for _ in range(self.rows)] for _ in range(self.cols)]
+        self.field = [[self.sketch.pcvector(0, 0) for _ in range(self.rows)] for _ in range(self.cols)]
         self.init_field()
 
     def init_field(self):
         for i in range(self.cols):
             for j in range(self.rows):
-                self.field[i][j] = self.sketch.pvector(0, 0)
+                self.field[i][j] = self.sketch.pcvector(0, 0)
         noise_seed = self.sketch.random(0, 10000)
         self.sketch.noise_seed(noise_seed)
         xoff = 0.0
@@ -32,7 +32,7 @@ class FlowField:
             yoff = 0.0
             for j in range(self.rows):
                 angle = self.sketch.map(self.sketch.noise(xoff, yoff), 0, 1, 0, self.sketch.TWO_PI)
-                self.field[i][j] = self.sketch.pvector.from_angle(angle)
+                self.field[i][j] = self.sketch.pcvector.from_angle(angle)
                 yoff += 0.1
             xoff += 0.1
 

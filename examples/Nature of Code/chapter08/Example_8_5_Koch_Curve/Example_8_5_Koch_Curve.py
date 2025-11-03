@@ -11,21 +11,20 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter8/Examp
 // Each recursive level drawn in sequence
 """
 
-from pycreative.app import Sketch
 from KochLine import KochLine
 
 
-class Example_8_5_Koch_Curve(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 8-5: Koch Curve")
+        self.window_title("NOC: Example 8-5 Koch Curve")
         # An array for all the line segments
         self.segments = []
 
         # Left side of canvas
-        start = self.pvector(0, 300)
+        start = self.pcvector(0, 300)
         # Right side of canvas
-        end = self.pvector(self.width, 300)
+        end = self.pcvector(self.width, 300)
 
         # The first KochLine object
         self.segments.append(KochLine(self, start, end))
@@ -33,8 +32,6 @@ class Example_8_5_Koch_Curve(Sketch):
         # Apply the Koch rules five times.
         for _ in range(5):
             self.generate()
-
-        self.no_loop()
 
     def draw(self):
         self.background(255)

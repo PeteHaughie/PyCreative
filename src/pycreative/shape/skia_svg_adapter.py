@@ -8,8 +8,6 @@ directly using Skia.
 """
 from __future__ import annotations
 
-import os
-from typing import Optional
 
 from .loader import PCShape, _ensure_file
 
@@ -61,27 +59,31 @@ def load_svg(path: str) -> PCShape:
     try:
         size = dom.containerSize()
         w = h = None
+        # size may be a pair or an object with width()/height()
         try:
-            # size may be a pair or an object with width()/height()
             if isinstance(size, (tuple, list)) and len(size) >= 2:
-                w = float(size[0]); h = float(size[1])
-            else:
-                # try attribute/method access
+                w = float(size[0])
+                h = float(size[1])
+            elif hasattr(size, 'width') and hasattr(size, 'height'):
                 try:
                     w = float(size.width())
                     h = float(size.height())
                 except Exception:
-                    try:
-                        w = float(size[0]); h = float(size[1])
-                    except Exception:
-                        w = h = None
+                    w = h = None
+            else:
+                # try sequence access as a final fallback
+                try:
+                    w = float(size[0])
+                    h = float(size[1])
+                except Exception:
+                    w = h = None
         except Exception:
             w = h = None
         # If DOM returned a zero-size (common when SVG uses percentage
         # width/height), fallback to the viewBox size declared in the SVG
         # root element.
         try:
-            if w is not None and (float(w) == 0.0 or float(h) == 0.0):
+            if w is not None and h is not None and (w == 0.0 or h == 0.0):
                 vb = None
                 try:
                     import xml.etree.ElementTree as ET

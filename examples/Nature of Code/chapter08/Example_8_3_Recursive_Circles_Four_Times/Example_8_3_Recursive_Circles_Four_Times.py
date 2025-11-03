@@ -9,13 +9,11 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter8/Examp
 // Simple Recursion
 """
 
-from pycreative.app import Sketch
 
-
-class Example_8_3_Recursive_Circles_Four_Times(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 8-3: Recursion Four Times")
+        self.window_title("NOC: Example 8-3 Recursion Four Times")
         self.no_loop()
 
     def draw(self):

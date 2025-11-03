@@ -5,9 +5,9 @@ Vehicle class for Example 5-6: Simple Path Following
 class Vehicle:
     def __init__(self, sketch, x, y, maxspeed, maxforce):
         self.sketch = sketch
-        self.position = sketch.pvector(x, y)
-        self.acceleration = sketch.pvector(0, 0)
-        self.velocity = sketch.pvector(2, 0)
+        self.position = sketch.pcvector(x, y)
+        self.acceleration = sketch.pcvector(0, 0)
+        self.velocity = sketch.pcvector(2, 0)
         self.r = 4
         self.maxspeed = maxspeed
         self.maxforce = maxforce
@@ -89,16 +89,14 @@ class Vehicle:
         self.sketch.stroke(0)
         self.sketch.stroke_weight(2)
         self.sketch.push_matrix()
-        try:
-            self.sketch.translate(self.position.x, self.position.y)
-            self.sketch.rotate(theta)
-            self.sketch.begin_shape()
-            self.sketch.vertex(self.r * 2, 0)
-            self.sketch.vertex(-self.r * 2, -self.r)
-            self.sketch.vertex(-self.r * 2, self.r)
-            self.sketch.end_shape(close=True)
-        finally:
-            self.sketch.pop_matrix()
+        self.sketch.translate(self.position.x, self.position.y)
+        self.sketch.rotate(theta)
+        self.sketch.begin_shape()
+        self.sketch.vertex(self.r * 2, 0)
+        self.sketch.vertex(-self.r * 2, -self.r)
+        self.sketch.vertex(-self.r * 2, self.r)
+        self.sketch.end_shape(close=True)
+        self.sketch.pop_matrix()
 
     def borders(self, path):
         if self.position.x > path.end.x + self.r:

@@ -10,26 +10,22 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter5/Examp
 // Via Reynolds: http://www.red3d.com/cwr/steer/
 """
 
-from pycreative.app import Sketch
 from Vehicle import Vehicle
 
 
-class Example_5_10_Combining_Seek_Separate(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 5.10: Combining Seek and Separate")
+        self.window_title("Example 5.10: Combining Seek and Separate")
         self.vehicles = [Vehicle(self, (int)(self.random(self.width)), (int)(self.random(self.height))) for _ in range(50)]
 
     def update(self, dt: float = 0) -> None:
         for v in self.vehicles:
-            v.apply_behaviors(self.vehicles)
             v.update()
-            v.borders()
 
     def draw(self):
-        self.background((255, 255, 255))
+        self.background(255)
         for v in self.vehicles:
             v.apply_behaviors(self.vehicles)
             v.borders()
-            v.update()
             v.show()

@@ -1,18 +1,18 @@
 """Thin re-export for math helpers and PCVector.
 
-Keep implementation in `ops.py` and `pvector.py` so importing `core.math`
+Keep implementation in `ops.py` and `pcvector.py` so importing `core.math`
 is lightweight and explicit.
 """
 from __future__ import annotations
 
 # Re-export submodules and public names
 from . import ops
-from . import pvector
+from . import pcvector
 
 __all__ = [
     # submodules
     'ops',
-    'pvector',
+    'pcvector',
     # numeric helpers
     'ceil',
     'floor',
@@ -50,8 +50,9 @@ __all__ = [
 ]
 
 # Pull a few commonly used symbols into package namespace for compatibility
+# Re-export commonly used numeric helpers at package level for backwards compat
 from .ops import abs, map, map_, pow, pow_, max, max_, min, min_, round, round_
-from .pvector import PCVector
+from .pcvector import PCVector
 # Re-export commonly used numeric helpers at package level for backwards compat
 from .ops import (
     ceil,
@@ -70,4 +71,4 @@ from .ops import (
 )
 
 # Re-export small vector helpers
-from .pvector import sub, add, mult, div
+from .pcvector import sub, add, mult, div

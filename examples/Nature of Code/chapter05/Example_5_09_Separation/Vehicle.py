@@ -6,12 +6,12 @@ class Vehicle:
     def __init__(self, sketch, x, y):
         self.sketch = sketch
         # All the usual stuff
-        self.position = sketch.pvector(x, y)
+        self.position = sketch.pcvector(x, y)
         self.r = 12
         self.maxspeed = 3  # Maximum speed
         self.maxforce = 0.2  # Maximum steering force
-        self.acceleration = sketch.pvector(0, 0)
-        self.velocity = sketch.pvector(0, 0)
+        self.acceleration = sketch.pcvector(0, 0)
+        self.velocity = sketch.pcvector(0, 0)
 
     def apply_force(self, force):
         # We could add mass here if we want A = F / M
@@ -23,7 +23,7 @@ class Vehicle:
         # {!1 .bold} Note how the desired separation is based
         # on the Vehicles size.
         desired_separation = self.r * 2
-        sum_vector = self.sketch.pvector(0, 0)
+        sum_vector = self.sketch.pcvector(0, 0)
         count = 0
         for other in vehicles:
             d = self.position.dist(other.position)

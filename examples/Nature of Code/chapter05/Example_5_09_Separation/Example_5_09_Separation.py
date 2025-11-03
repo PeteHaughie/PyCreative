@@ -12,24 +12,23 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter5/Examp
 // A simple model of flocking behavior where boids try to keep a certain distance from one another
 """
 
-from pycreative.app import Sketch
 from Vehicle import Vehicle
 
 
-class Example_5_9_Separation(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 5.9: Separation")
+        self.window_title("NOC: Example 5.9 Separation")
         self.vehicles = [Vehicle(self, self.random(self.width), self.random(self.height)) for _ in range(25)]
 
     def update(self, dt):
-        pass
+        for v in self.vehicles:
+            v.update()
 
     def draw(self):
-        self.clear((255, 255, 255))
+        self.background(255)
         for v in self.vehicles:
             v.separate(self.vehicles)
-            v.update()
             v.borders()
             v.show()
 

@@ -1334,7 +1334,7 @@ class Engine:
                 # create window with explicit keyword args broken across lines
                 _win = pyglet.window.Window(
                     width=self.width, height=self.height, vsync=True
-                )
+                )  # type: ignore[abstract]
                 # cast to Any to avoid mypy attempting to validate pyglet's
                 # abstract base classes in this context.
                 self._window = cast(_Any, _win)

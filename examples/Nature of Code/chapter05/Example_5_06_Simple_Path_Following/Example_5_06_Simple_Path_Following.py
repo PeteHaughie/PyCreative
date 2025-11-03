@@ -11,15 +11,14 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter5/Examp
 // Via Reynolds: // http://www.red3d.com/cwr/steer/PathFollow.html
 """
 
-from pycreative.app import Sketch
 from Vehicle import Vehicle
 from Path import Path
 
 
-class Example_5_6_Simple_Path_Following(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 5.6: Simple Path Following")
+        self.window_title("NOC: Example 5.6 Simple Path Following")
         self.debug = True  # Using this variable to decide whether to draw all the stuff
         self.path = Path(self)  # A path object (series of connected points)
         # Two vehicles
@@ -31,7 +30,7 @@ class Example_5_6_Simple_Path_Following(Sketch):
         pass
 
     def draw(self):
-        self.background((255, 255, 255))
+        self.background(255)
         # Display the path
         self.path.show()
         # The boids follow the path

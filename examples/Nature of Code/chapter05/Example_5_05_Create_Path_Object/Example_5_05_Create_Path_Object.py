@@ -13,14 +13,13 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter5/Examp
 // A path object (series of connected points)
 """
 
-from pycreative.app import Sketch
 from Path import Path
 
 
-class Example_5_05_Create_Path_Object(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 5.5: Create Path Object")
+        self.window_title("NOC: Example 5.5 Create Path Object")
         self.path = Path(self)
 
     def draw(self):

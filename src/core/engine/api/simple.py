@@ -1,8 +1,13 @@
 from typing import TYPE_CHECKING, Any, Optional
 import os
+import math
 
 if TYPE_CHECKING:
-    from ..impl import Engine
+    # Use the conservative EngineProtocol so mypy understands the dynamic
+    # attributes sketches commonly read/write (blend_mode, shape_mode, etc.).
+    # Import via the pycreative shim to avoid mypy duplicate-module issues
+    # when both `pycreative.*` and `core.*` packages are analysed.
+    from pycreative._types import EngineProtocol as Engine
 
 
 class SimpleSketchAPI:
@@ -71,6 +76,24 @@ class SimpleSketchAPI:
 
                 def div(self, a, n):
                     return PCVector.div_vec(a, n)
+
+                def dist(self, a, b):
+                    """Return the distance between two vectors or (x,y) pairs.
+
+                    Mirrors the Processing-style `pcvector.dist(a, b)` helper used
+                    in many examples.
+                    """
+                    try:
+                        v = PCVector.sub_vec(a, b)
+                        return v.mag()
+                    except Exception:
+                        # Fallback: attempt to unpack numeric args and compute hypot
+                        try:
+                            ax, ay = (a.x, a.y) if hasattr(a, 'x') else (float(a[0]), float(a[1]))
+                            bx, by = (b.x, b.y) if hasattr(b, 'x') else (float(b[0]), float(b[1]))
+                            return math.hypot(ax - bx, ay - by)
+                        except Exception:
+                            raise
 
                 # Expose common static/helpers from PCVector for sketches that
                 # call `this.pcvector.random2d()` or `this.pcvector.from_angle()`.
@@ -422,7 +445,7 @@ class SimpleSketchAPI:
         try:
             # Update engine state
             try:
-                self._engine.image_mode = str(mode)
+                setattr(self._engine, 'image_mode', str(mode))
             except Exception:
                 pass
             # If the engine provided a recorder for image_mode, call it
@@ -439,7 +462,7 @@ class SimpleSketchAPI:
     def shape_mode(self, mode: str):
         """Set the current shape drawing mode (e.g., 'CENTER', 'CORNER')."""
         try:
-            self._engine.shape_mode = str(mode)
+            setattr(self._engine, 'shape_mode', str(mode))
         except Exception:
             pass
         try:
@@ -452,166 +475,6 @@ class SimpleSketchAPI:
         except Exception:
             pass
         return None
-
-    def shape(self, s, x=0, y=0, w=None, h=None):
-        """Draw a PCShape-like object. Records a skia_path op when possible.
-
-        This fallback is used when no engine-registered 'shape' implementation
-        is available. It prefers Skia paths on loaded shapes and falls back
-        to vertex-based recording when only path command data exists.
-        """
-        try:
-            fn = self._engine.api.get('shape')
-            if fn:
-                return fn(s, x, y, w, h)
-        except Exception:
-            pass
-
-        try:
-            import skia  # type: ignore
-        except Exception:
-            skia = None
-
-        try:
-            if hasattr(s, 'skia_paths') and getattr(s, 'skia_paths'):
-                self.push_matrix()
-                try:
-                    self.translate(x, y)
-                except Exception:
-                    pass
-                for idx, sp in enumerate(s.skia_paths):
-                    try:
-                        fill_col = getattr(self._engine, 'fill_color', None)
-                        stroke_col = getattr(self._engine, 'stroke_color', None)
-                        stroke_w = getattr(self._engine, 'stroke_weight', None)
-                        try:
-                            if hasattr(s, 'paths') and idx < len(s.paths):
-                                pstyle = s.paths[idx].get('style', {})
-                                if isinstance(pstyle, dict):
-                                    if pstyle.get('fill_rgba') is not None:
-                                        fill_col = pstyle.get('fill_rgba')
-                                    if pstyle.get('stroke_rgba') is not None:
-                                        stroke_col = pstyle.get('stroke_rgba')
-                        except Exception:
-                            pass
-
-                        path_to_record = sp
-                        if (w is not None) and (h is not None) and skia is not None:
-                            try:
-                                try:
-                                    b = sp.computeTightBounds()
-                                    left = float(b.left())
-                                    top = float(b.top())
-                                    right = float(b.right())
-                                    bottom = float(b.bottom())
-                                except Exception:
-                                    try:
-                                        br = sp.getBounds()
-                                        left = float(br.left())
-                                        top = float(br.top())
-                                        right = float(br.right())
-                                        bottom = float(br.bottom())
-                                    except Exception:
-                                        left = top = 0.0
-                                        right = bottom = 1.0
-                                pw = max(1e-6, right - left)
-                                ph = max(1e-6, bottom - top)
-                                sx = float(w) / float(pw)
-                                sy = float(h) / float(ph)
-                                shape_mode = getattr(self._engine, 'shape_mode', None)
-                                if shape_mode and str(shape_mode).upper() == 'CENTER':
-                                    cx = (left + right) / 2.0
-                                    cy = (top + bottom) / 2.0
-                                else:
-                                    cx = left
-                                    cy = top
-                                mtx = None
-                                try:
-                                    mtx = skia.Matrix.MakeAll(sx, 0.0, 0.0, sy, -cx * sx, -cy * sy)
-                                except Exception:
-                                    try:
-                                        mtx = skia.Matrix.MakeAll(sx, 0.0, -cx * sx, 0.0, sy, -cy * sy)
-                                    except Exception:
-                                        mtx = None
-                                if mtx is not None:
-                                    try:
-                                        newp = skia.Path()
-                                        try:
-                                            newp.addPath(sp, mtx)
-                                        except Exception:
-                                            newp = skia.Path(sp)
-                                            newp.transform(mtx)
-                                        path_to_record = newp
-                                    except Exception:
-                                        path_to_record = sp
-                            except Exception:
-                                path_to_record = sp
-
-                        args = {
-                            'path': path_to_record,
-                            'fill': fill_col,
-                            'stroke': stroke_col,
-                            'stroke_weight': stroke_w,
-                            'shape_mode': getattr(self._engine, 'shape_mode', None),
-                            'blend_mode': getattr(self._engine, 'blend_mode', None),
-                        }
-                        try:
-                            self._engine.graphics.record('skia_path', **args)
-                        except Exception:
-                            pass
-                    except Exception:
-                        pass
-                try:
-                    self.pop_matrix()
-                except Exception:
-                    pass
-                return None
-
-            # Fallback: vertex-based recording
-            paths = None
-            if isinstance(s, dict):
-                paths = s.get('paths', None)
-            elif hasattr(s, 'paths'):
-                paths = s.paths
-            if not paths:
-                return None
-
-            self.push_matrix()
-            try:
-                self.translate(x, y)
-            except Exception:
-                pass
-            for p in paths:
-                cmds = p.get('path_cmds', []) if isinstance(p, dict) else []
-                try:
-                    self.begin_shape('POLYGON')
-                    closed = False
-                    for cmd in cmds:
-                        c = cmd.get('cmd')
-                        if c in ('moveTo', 'lineTo'):
-                            for (px, py) in cmd.get('pts', []):
-                                try:
-                                    self.vertex(px, py)
-                                except Exception:
-                                    pass
-                        elif c == 'close':
-                            closed = True
-                    try:
-                        self.end_shape(close=bool(closed))
-                    except Exception:
-                        pass
-                except Exception:
-                    try:
-                        self.end_shape(close=False)
-                    except Exception:
-                        pass
-            try:
-                self.pop_matrix()
-            except Exception:
-                pass
-            return None
-        except Exception:
-            return None
 
     def shape(self, s, x=0, y=0, w=None, h=None):
         """Draw a PCShape-like object. Records 'skia_path' ops when possible.
@@ -631,7 +494,7 @@ class SimpleSketchAPI:
         # Lazy import of skia so the module remains import-safe when Skia
         # isn't available in lightweight test environments.
         try:
-            import skia  # type: ignore
+            import skia
         except Exception:
             skia = None
 
@@ -645,10 +508,32 @@ class SimpleSketchAPI:
                 except Exception:
                     pass
                 try:
+                    # Prefer the caller-requested w/h when provided so sketches
+                    # can resize SVG DOMs at draw time. Fall back to the shape's
+                    # intrinsic width/height when w/h are not supplied.
                     args = {
                         'dom': getattr(s, '_svg_dom'),
-                        'width': getattr(s, 'width', None),
-                        'height': getattr(s, 'height', None),
+                        # requested render size (may be None)
+                        'width': (float(w) if w is not None else getattr(s, 'width', None)),
+                        'height': (float(h) if h is not None else getattr(s, 'height', None)),
+                        # intrinsic/document size provided by the loader (if known)
+                        'intrinsic_width': getattr(s, 'width', None),
+                        'intrinsic_height': getattr(s, 'height', None),
+                        # Whether the shape's own styles should be used. If
+                        # False, presenters should respect the engine's current
+                        # fill/stroke state when drawing the DOM.
+                        'use_style': getattr(s, '_use_style', True),
+                        # Snapshot current engine colors so presenters can
+                        # apply them when use_style is False.
+                        'fill': getattr(self._engine, 'fill_color', None),
+                        'fill_alpha': getattr(self._engine, 'fill_alpha', None),
+                        'stroke': getattr(self._engine, 'stroke_color', None),
+                        'stroke_weight': getattr(self._engine, 'stroke_weight', None),
+                        'stroke_alpha': getattr(self._engine, 'stroke_alpha', None),
+                        # When available, include any skia_paths so presenters
+                        # can draw strokes (useful when the DOM is present
+                        # but we also have path geometry available).
+                        'skia_paths': getattr(s, 'skia_paths', None),
                         'shape_mode': getattr(self._engine, 'shape_mode', None),
                         'blend_mode': getattr(self._engine, 'blend_mode', None),
                     }
@@ -826,7 +711,7 @@ class SimpleSketchAPI:
 
             # Persist on the engine so replay and presenters can inspect it
             try:
-                self._engine.blend_mode = str(mode)
+                setattr(self._engine, 'blend_mode', str(mode))
             except Exception:
                 pass
 

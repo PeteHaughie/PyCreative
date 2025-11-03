@@ -203,7 +203,6 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
             pass
 
     current_blend_mode = None
-    current_tint = None
     current_fill = None
     current_fill_alpha = None
     # Stroke state recorded by ops like 'stroke', 'stroke_weight', 'stroke_cap', 'stroke_join'
@@ -342,42 +341,270 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
             if op == 'tint':
                 # Record the current tint color (may be RGBA tuple or single value)
                 col = args.get('color') or args.get('c')
-                try:
-                    current_tint = tuple(col) if col is not None else None
-                except Exception:
-                    current_tint = col
+                # We don't currently use tint in the replayer; record if
+                # needed in the future. Keep this no-op to avoid raising.
+                _ = col
                 # We don't implement full premultiplied-color tinting here; the
                 # presence of a tint will be honored by any image-draw path that
                 # supports paint/color filters. For now just record it.
                 continue
 
             if op == 'svg_dom':
-                dom = args.get('dom')
-                w = args.get('width')
-                h = args.get('height')
-                # Respect provided container size when possible
-                try:
-                    if dom is not None:
-                        if w is not None and h is not None:
+                    dom = args.get('dom')
+                    w = args.get('width')
+                    h = args.get('height')
+                    intrinsic_w = args.get('intrinsic_width')
+                    intrinsic_h = args.get('intrinsic_height')
+                    use_style = args.get('use_style', True)
+                    fill_override = args.get('fill', None)
+                    stroke_override = args.get('stroke', None)
+                    stroke_w = args.get('stroke_weight', None)
+                    skia_paths = args.get('skia_paths', None)
+
+                    # Best-effort: if we have a DOM, try to render it at intrinsic
+                    # size and scale to requested size so vector outlines are
+                    # actually resized. If the caller disabled the shape's styles
+                    # and provided a fill override, render into an offscreen mask
+                    # and colorize that mask. If a stroke override is provided
+                    # and skia_paths are available, draw stroked paths on top.
+                    try:
+                        if dom is None:
+                            continue
+
+                        # parse intrinsic/document size when available
+                        try:
+                            iw = float(intrinsic_w) if intrinsic_w is not None else None
+                            ih = float(intrinsic_h) if intrinsic_h is not None else None
+                        except Exception:
+                            iw = ih = None
+
+                        # If we have both intrinsic and requested sizes, render at
+                        # intrinsic size then scale the canvas to requested size.
+                        if iw and ih and (w is not None) and (h is not None):
+                            # Ensure DOM will render at intrinsic size when we
+                            # snapshot it to an offscreen surface.
                             try:
-                                dom.setContainerSize(float(w), float(h))
+                                dom.setContainerSize(iw, ih)
                             except Exception:
                                 try:
-                                    dom.setContainerSize((float(w), float(h)))
+                                    dom.setContainerSize((iw, ih))
                                 except Exception:
                                     pass
-                        # Render the DOM directly onto the canvas
+
+                            # If caller disabled shape styles and supplied a fill
+                            # override, render DOM into an offscreen surface and
+                            # colorize it using the fill color. Otherwise render
+                            # the DOM directly onto the scaled canvas.
+                            if (not use_style) and (fill_override is not None):
+                                try:
+                                    iw_i = max(1, int(round(iw)))
+                                    ih_i = max(1, int(round(ih)))
+                                    info = skia.ImageInfo.Make(iw_i, ih_i, skia.ColorType.kRGBA_8888_ColorType, skia.AlphaType.kUnpremul_AlphaType)
+                                    surf = skia.Surface.MakeRaster(info)
+                                    if surf is not None:
+                                        cs = surf.getCanvas()
+                                        try:
+                                            dom.render(cs)
+                                        except Exception:
+                                            try:
+                                                dom.renderNode(cs)
+                                            except Exception:
+                                                pass
+                                        img_mask = surf.makeImageSnapshot()
+
+                                        # Create colored image by drawing a solid rect
+                                        out_surf = skia.Surface.MakeRaster(info)
+                                        oc = out_surf.getCanvas()
+                                        # Ensure the offscreen surface starts fully transparent
+                                        try:
+                                            oc.clear(0)
+                                        except Exception:
+                                            try:
+                                                oc.clear(skia.Color4f(0, 0, 0, 0))
+                                            except Exception:
+                                                pass
+                                        fp = _make_paint_from_color(fill_override, fill=True, alpha=args.get('fill_alpha', None))
+                                        try:
+                                            oc.drawRect(skia.Rect.MakeWH(iw_i, ih_i), fp)
+                                        except Exception:
+                                            try:
+                                                oc.drawRect(0, 0, iw_i, ih_i, fp)
+                                            except Exception:
+                                                pass
+                                        try:
+                                            pm = skia.Paint()
+                                            # Resolve a DstIn blend mode across Skia binding variants
+                                            bm_container = getattr(skia, 'BlendMode', None) or getattr(skia, 'Blend', None)
+                                            bm_val = None
+                                            if bm_container is not None:
+                                                for candidate in ('kDstIn', 'kDstInMode', 'DstIn'):
+                                                    bm_val = getattr(bm_container, candidate, None)
+                                                    if bm_val is not None:
+                                                        break
+                                            if bm_val is None:
+                                                bm_val = getattr(skia, 'kDstIn', None) or getattr(skia, 'DstIn', None)
+                                            if bm_val is not None:
+                                                try:
+                                                    pm.setBlendMode(bm_val)
+                                                except Exception:
+                                                    # older bindings may use setBlendMode with int
+                                                    try:
+                                                        pm.setBlendMode(int(bm_val))
+                                                    except Exception:
+                                                        pass
+                                        except Exception:
+                                            pm = skia.Paint()
+                                        try:
+                                            # prefer the SamplingOptions signature when available
+                                            try:
+                                                oc.drawImage(img_mask, 0, 0, skia.SamplingOptions(), pm)
+                                            except Exception:
+                                                oc.drawImage(img_mask, 0, 0, pm)
+                                        except Exception:
+                                            try:
+                                                oc.drawImage(img_mask, 0, 0)
+                                            except Exception:
+                                                pass
+
+                                        colored_img = out_surf.makeImageSnapshot()
+
+                                        # Apply centering translation in intrinsic space
+                                        shape_mode = args.get('shape_mode')
+                                        try:
+                                            if shape_mode and str(shape_mode).upper() == 'CENTER':
+                                                try:
+                                                    canvas.translate(-iw / 2.0, -ih / 2.0)
+                                                except Exception:
+                                                    pass
+                                        except Exception:
+                                            pass
+
+                                        # Scale to requested size and draw the colored image
+                                        try:
+                                            sx = float(w) / float(iw)
+                                            sy = float(h) / float(ih)
+                                            try:
+                                                canvas.scale(sx, sy)
+                                            except Exception:
+                                                try:
+                                                    m = skia.Matrix()
+                                                    m.setScale(sx, sy)
+                                                    canvas.concat(m)
+                                                except Exception:
+                                                    pass
+                                        except Exception:
+                                            pass
+
+                                        try:
+                                            try:
+                                                canvas.drawImage(colored_img, 0, 0, skia.SamplingOptions(), None)
+                                            except Exception:
+                                                canvas.drawImage(colored_img, 0, 0)
+                                        except Exception:
+                                            try:
+                                                canvas.drawImage(colored_img, 0.0, 0.0)
+                                            except Exception:
+                                                pass
+                                    else:
+                                        # fallback to rendering DOM directly into canvas
+                                        try:
+                                            dom.render(canvas)
+                                        except Exception:
+                                            try:
+                                                dom.renderNode(canvas)
+                                            except Exception:
+                                                pass
+                                except Exception:
+                                    try:
+                                        dom.render(canvas)
+                                    except Exception:
+                                        try:
+                                            dom.renderNode(canvas)
+                                        except Exception:
+                                            pass
+                            else:
+                                # No color override: translate/scale and render DOM
+                                shape_mode = args.get('shape_mode')
+                                try:
+                                    if shape_mode and str(shape_mode).upper() == 'CENTER':
+                                        try:
+                                            canvas.translate(-iw / 2.0, -ih / 2.0)
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
+                                try:
+                                    sx = float(w) / float(iw)
+                                    sy = float(h) / float(ih)
+                                    try:
+                                        canvas.scale(sx, sy)
+                                    except Exception:
+                                        try:
+                                            m = skia.Matrix()
+                                            m.setScale(sx, sy)
+                                            canvas.concat(m)
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
+                                try:
+                                    dom.render(canvas)
+                                except Exception:
+                                    try:
+                                        dom.renderNode(canvas)
+                                    except Exception:
+                                        pass
+
+                            # After drawing the fill (colored or raw), draw stroke
+                            # overrides if requested and path geometry is available.
+                            if (not use_style) and (stroke_override is not None) and skia_paths:
+                                try:
+                                    # draw each path using stroke paint (canvas is
+                                    # already translated/scaled to map intrinsic->requested)
+                                    for pth in skia_paths:
+                                        try:
+                                            paint = _make_paint_from_color(stroke_override, fill=False, stroke_weight=stroke_w)
+                                            if paint is None:
+                                                continue
+                                            try:
+                                                canvas.drawPath(pth, paint)
+                                            except Exception:
+                                                try:
+                                                    canvas.drawPath(pth, paint)
+                                                except Exception:
+                                                    pass
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
+                        else:
+                            # Fallback: tell the DOM to use requested container
+                            # size (some DOM implementations scale on their own)
+                            if w is not None and h is not None:
+                                try:
+                                    dom.setContainerSize(float(w), float(h))
+                                except Exception:
+                                    try:
+                                        dom.setContainerSize((float(w), float(h)))
+                                    except Exception:
+                                        pass
+                            try:
+                                dom.render(canvas)
+                            except Exception:
+                                try:
+                                    dom.renderNode(canvas)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        # protective fallback: attempt a simple render
                         try:
                             dom.render(canvas)
                         except Exception:
-                            # older bindings may expose renderNode/render
                             try:
                                 dom.renderNode(canvas)
                             except Exception:
                                 pass
-                except Exception:
-                    pass
-                continue
+                    continue
 
             if op == 'line':
                 x1 = float(args.get('x1', 0))

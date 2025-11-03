@@ -11,13 +11,11 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter8/Examp
 // Angles and number of branches are random
 """
 
-from pycreative.app import Sketch
 
-
-class Example_8_7_Stochastic_Tree(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 8-7: Stochastic Tree")
+        self.window_title("NOC: Example 8-7 Stochastic Tree")
         self.frame_rate(1)
 
     def draw(self):

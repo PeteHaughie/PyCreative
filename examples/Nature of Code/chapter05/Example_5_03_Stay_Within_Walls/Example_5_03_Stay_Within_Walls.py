@@ -10,20 +10,19 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter5/Examp
 // "Made-up" Steering behavior to stay within walls
 """
 
-from pycreative.app import Sketch
 from Vehicle import Vehicle
 
 
-class Example_5_03_Stay_Within_Walls(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 5.3: Stay Within Walls")
+        self.window_title("NOC: Example 5.3 Stay Within Walls")
         self.vehicle = Vehicle(self, self.width / 2, self.height / 2)
         self.debug = True
         self.offset = 25
 
     def draw(self):
-        self.clear(255)
+        self.background(255)
 
         if self.debug:
             self.stroke(0)

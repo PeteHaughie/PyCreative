@@ -9,14 +9,13 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter7/Examp
 // Example 7-3: Object-Oriented Game of Life
 """
 
-from pycreative.app import Sketch
 from Cell import Cell
 
 
-class Example_7_03_Object_Oriented_Game_of_Life(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 7-3: Object-Oriented Game of Life")
+        self.window_title("Example 7-3: Object-Oriented Game of Life")
         self.w = 8
         self.columns = self.width // self.w
         self.rows = self.height // self.w
@@ -25,7 +24,7 @@ class Example_7_03_Object_Oriented_Game_of_Life(Sketch):
             for j in range(1, self.rows - 1):
                 from random import randint
 
-                self.board[i][j] = Cell(randint(0, 1), i * self.w, j * self.w, self.w)
+                self.board[i][j] = Cell(self, randint(0, 1), i * self.w, j * self.w, self.w)
 
     def draw(self):
         # Looping but skipping the edge cells
@@ -50,13 +49,13 @@ class Example_7_03_Object_Oriented_Game_of_Life(Sketch):
         for i in range(self.columns):
             for j in range(self.rows):
                 # evaluates to 255 when state is 0 and 0 when state is 1
-                self.board[i][j].show(self)
+                self.board[i][j].show()
 
                 # save the previous state before the next generation!
                 self.board[i][j].previous = self.board[i][j].state
 
     def create2DArray(self, columns: int, rows: int):
-        arr = [[Cell(0, i * self.w, j * self.w, self.w) for j in range(rows)] for i in range(columns)]
+        arr = [[Cell(self, 0, i * self.w, j * self.w, self.w) for j in range(rows)] for i in range(columns)]
         return arr
     
     def key_pressed(self):

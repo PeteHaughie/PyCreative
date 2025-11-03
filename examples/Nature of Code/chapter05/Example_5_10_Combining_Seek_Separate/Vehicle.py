@@ -2,22 +2,20 @@
 Vehicle class for Example 5-10: Combining Seek and Separate
 """
 
-from pycreative.vector import PVector
-
 
 class Vehicle:
     def __init__(self, sketch, x=0, y=0):
         self.sketch = sketch
-        self.position = self.sketch.pvector(x, y)
-        self.velocity = self.sketch.pvector.random2d()
-        self.acceleration = self.sketch.pvector(0, 0)
+        self.position = self.sketch.pcvector(x, y)
+        self.velocity = self.sketch.pcvector.random2d()
+        self.acceleration = self.sketch.pcvector(0, 0)
         self.r = 6.0
         self.maxspeed = 3.0  # Maximum speed
         self.maxforce = 0.2  # Maximum steering force
 
     def apply_behaviors(self, vehicles):
         separate_force = self.separate(vehicles)
-        seek_force = self.seek(self.sketch.pvector(self.sketch.mouse_x or 0, self.sketch.mouse_y or 0))
+        seek_force = self.seek(self.sketch.pcvector(self.sketch.mouse_x or 0, self.sketch.mouse_y or 0))
 
         separate_force.mult(1.5)
         seek_force.mult(0.5)
@@ -29,10 +27,10 @@ class Vehicle:
         # We could add mass here if we want A = F / M
         self.acceleration.add(force)
 
-    def separate(self, vehicles: list["Vehicle"]) -> "PVector":
+    def separate(self, vehicles: list["Vehicle"]):
         # Separation behavior: steer to avoid crowding local flockmates.
         desired_separation = self.r * 2
-        sum = self.sketch.pvector(0, 0)
+        sum = self.sketch.pcvector(0, 0)
         count = 0
         # For every vehicle in the system, check if it's too close
         for other in vehicles:

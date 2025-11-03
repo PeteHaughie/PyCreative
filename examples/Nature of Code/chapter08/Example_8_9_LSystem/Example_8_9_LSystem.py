@@ -9,15 +9,14 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter8/Examp
 // L-Systems
 """
 
-from pycreative.app import Sketch
 from Turtle import Turtle
 from LSystem import LSystem
 
 
-class Example_8_9_LSystem(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 8-9: L-System")
+        self.window_title("NOC: Example 8-9 L-System")
         rules = {'F': "FF+[+F-F-F]-[-F+F+F]"}
         self.lsystem = LSystem("F", rules)
         self.turtle = Turtle(self, 6, self.radians(25))

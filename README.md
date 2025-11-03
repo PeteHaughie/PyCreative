@@ -44,6 +44,17 @@ More information is in the [docs/README.md](docs/README.md)
 - [sketches/](sketches/): User sketches
 - [tests/](tests/): Test suite
 
+## Future work / deferred research
+
+- GPU math offload (deferred): PyCreative is a GPU-first application and we
+	should evaluate offloading heavy math workloads (vector ops, neighbor
+	searches, image-wide kernels) to the GPU. Possible approaches include
+	Skia/GrShader compute, Metal/OpenGL compute shaders, or array-based
+	libraries such as CuPy / PyOpenCL with a CPU fallback. This is a
+	non-trivial integration with portability and dependency trade-offs; it
+	is currently deferred until core features are complete. See `TODOs`
+	or the project task list for more details if you want to prototype this.
+
 ## Local pre-commit hook
 
 To help maintain package export conventions, a small installer is provided

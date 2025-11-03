@@ -9,13 +9,11 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter8/Examp
 // Simple L-system Sentence Generation
 """
 
-from pycreative.app import Sketch
 
-
-class Example_8_8_LSystem_String_Only(Sketch):
+class Sketch:
   def setup(self):
     self.size(640, 160)
-
+    self.window_title("NOC: Example 8-8 L-System String Only")
     # (optional) list_fonts() is available to explore bundled/system fonts
 
     # Try to set a monospace font succinctly: prefer TTF/OTF system fonts
@@ -25,7 +23,6 @@ class Example_8_8_LSystem_String_Only(Sketch):
       if self.use_font(candidate, size=16):
         break
 
-    self.set_title("Example 8-8: L-System String Only")
     self.text_size(14)
     self.fill(0)
     self.current = "A"

@@ -2,13 +2,14 @@
 Boid class for Example 5-12: Bin Lattice Spatial Separation
 """
 
+
 class Boid:
     def __init__(self, sketch, x = 0, y = 0):
         self.sketch = sketch
-        # Use sketch-provided pvector factory and don't create per-boid grid/resolution/cols/rows
-        self.acceleration = self.sketch.pvector(0, 0)
-        self.velocity = self.sketch.pvector(self.sketch.random(-1, 1), self.sketch.random(-1, 1))
-        self.position = self.sketch.pvector(x, y)
+        # Use sketch-provided pcvector factory and don't create per-boid grid/resolution/cols/rows
+        self.acceleration = self.sketch.pcvector(0, 0)
+        self.velocity = self.sketch.pcvector(self.sketch.random(-1, 1), self.sketch.random(-1, 1))
+        self.position = self.sketch.pcvector(x, y)
         self.r = 3.0
         self.maxspeed = 3.0  # Maximum speed
         self.maxforce = 0.05  # Maximum steering force
@@ -85,20 +86,20 @@ class Boid:
     # A method that calculates and applies a steering force towards a target
     # STEER = DESIRED MINUS VELOCITY
     def seek(self, target):
-        desired = self.sketch.pvector.sub(target, self.position)  # A vector pointing from the location to the target
+        desired = self.sketch.pcvector.sub(target, self.position)  # A vector pointing from the location to the target
         # Normalize desired and scale to maximum speed
         desired.normalize()
         desired.mult(self.maxspeed)
         # Steering = Desired minus Velocity
-        steer = self.sketch.pvector.sub(desired, self.velocity)
+        steer = self.sketch.pcvector.sub(desired, self.velocity)
         steer.limit(self.maxforce)  # Limit to maximum steering force
         return steer
 
     def show(self):
         # Draw a triangle rotated in the direction of velocity
         angle = self.velocity.heading()
-        self.sketch.fill((127, 127, 127))
-        self.sketch.stroke((0, 0, 0))
+        self.sketch.fill(127)
+        self.sketch.stroke(0)
         self.sketch.push()
         try:
           self.sketch.translate(self.position.x, self.position.y)
@@ -126,15 +127,15 @@ class Boid:
     # Method checks for nearby boids and steers away
     def separate(self, boids: list):
         desiredseparation = 25.0
-        steer = self.sketch.pvector(0, 0)
+        steer = self.sketch.pcvector(0, 0)
         count = 0
         # For every boid in the system, check if it's too close
         for other in boids:
-            d = self.sketch.pvector.dist(self.position, other.position)
+            d = self.sketch.pcvector.dist(self.position, other.position)
             # If the distance is greater than 0 and less than an arbitrary amount (0 when you are yourself)
             if 0 < d < desiredseparation:
                 # Calculate vector pointing away from neighbor
-                diff = self.sketch.pvector.sub(self.position, other.position)
+                diff = self.sketch.pcvector.sub(self.position, other.position)
                 diff.normalize()
                 diff.div(d)  # Weight by distance
                 steer.add(diff)
@@ -156,10 +157,10 @@ class Boid:
     # For every nearby boid in the system, calculate the average velocity
     def align(self, boids: list):
         neighbordist = 50
-        sum = self.sketch.pvector(0, 0)
+        sum = self.sketch.pcvector(0, 0)
         count = 0
         for other in boids:
-            d = self.sketch.pvector.dist(self.position, other.position)
+            d = self.sketch.pcvector.dist(self.position, other.position)
             if 0 < d < neighbordist:
                 sum.add(other.velocity)
                 count += 1
@@ -167,21 +168,21 @@ class Boid:
             sum.div(count)
             sum.normalize()
             sum.mult(self.maxspeed)
-            steer = self.sketch.pvector.sub(sum, self.velocity)
+            steer = self.sketch.pcvector.sub(sum, self.velocity)
             steer.limit(self.maxforce)
             return steer
         else:
-            return self.sketch.pvector(0, 0)
+            return self.sketch.pcvector(0, 0)
 
     # Cohesion
     # For the average location (i.e. center) of all nearby boids, calculate steering vector towards that location
     def cohesion(self, boids: list):
         neighbordist = 50
 
-        sum = self.sketch.pvector(0, 0)  # Start with empty vector to accumulate all locations
+        sum = self.sketch.pcvector(0, 0)  # Start with empty vector to accumulate all locations
         count = 0
         for other in boids:
-            d = self.sketch.pvector.dist(self.position, other.position)
+            d = self.sketch.pcvector.dist(self.position, other.position)
             if 0 < d < neighbordist:
                 sum.add(other.position)  # Add location
                 count += 1
@@ -189,4 +190,4 @@ class Boid:
             sum.div(count)
             return self.seek(sum)  # Steer towards the location
         else:
-            return self.sketch.pvector(0, 0)
+            return self.sketch.pcvector(0, 0)

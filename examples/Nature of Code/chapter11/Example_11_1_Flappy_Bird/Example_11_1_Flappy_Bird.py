@@ -9,15 +9,14 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter11/Exam
 // Example 11-1: Flappy Bird
 """
 
-from pycreative.app import Sketch
 from Bird import Bird
 from Pipe import Pipe
 
 
-class Example_11_1_Flappy_Bird(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 11-1: Flappy Bird")
+        self.window_title("NOC: Example 11-1 Flappy Bird")
         self.bird = Bird(self)
         self.pipes = [Pipe(self)]
 

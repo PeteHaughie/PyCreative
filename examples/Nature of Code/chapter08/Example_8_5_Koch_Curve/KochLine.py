@@ -2,11 +2,9 @@
 KochLine class for Example 8-5: Koch Curve
 """
 
-from pycreative.vector import PVector
-
 
 class KochLine:
-    def __init__(self, sketch, a: PVector, b: PVector):
+    def __init__(self, sketch, a, b):
         self.sketch = sketch
         self.start = a.copy()
         self.end = b.copy()
@@ -18,9 +16,9 @@ class KochLine:
 
     def koch_points(self):
         # Just the first point!
-        a = PVector(self.start.x, self.start.y)
+        a = self.sketch.pcvector(self.start.x, self.start.y)
         # Just the last point!
-        e = PVector(self.end.x, self.end.y)
+        e = self.sketch.pcvector(self.end.x, self.end.y)
 
         # A vector pointing in the direction, 1/3rd the length
         v = self.end - self.start
@@ -30,12 +28,12 @@ class KochLine:
         b = a + v
         # d is just another 1/3 of the way
         d = b + v
-
         # Rotate by -PI/3 radians (negative angle so it rotates "up").
-        v = v.rotate(-self.sketch.PI / 3)
+        # rotate() mutates the vector in-place and returns None, so don't
+        # assign its return value to `v` — just call it and continue using v.
+        v.rotate(-self.sketch.PI / 3)
         # Move along
         c = b + v
-
         # Return all five points in an array
         points = [a, b, c, d, e]
         return points

@@ -10,15 +10,14 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter5/Examp
 // Via Reynolds: http://www.red3d.com/cwr/steer/FlowFollow.html
 """
 
-from pycreative.app import Sketch
 from FlowField import FlowField
 from Vehicle import Vehicle
 
 
-class Example_5_04_Flow_Field(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title('Example 5.4: Flow Field Following')
+        self.window_title('NOC: Example 5.4 Flow Field Following')
         print("Hit space bar to toggle debugging lines.\nClick the mouse to generate a new flow field.")
         # Make a new flow field with "resolution" of 16
         self.flowfield = FlowField(self, 20)
@@ -36,7 +35,7 @@ class Example_5_04_Flow_Field(Sketch):
         pass
 
     def draw(self):
-        self.clear((255, 255, 255))
+        self.background(255)
         # Display the flowfield in "debug" mode
         self.flowfield.show(self.debug)
         # Tell all the vehicles to follow the flow field

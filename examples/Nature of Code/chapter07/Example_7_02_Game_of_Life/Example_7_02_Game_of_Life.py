@@ -9,13 +9,11 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter7/Examp
 // Example 7-2: Game of Life
 """
 
-from pycreative.app import Sketch
 
-
-class Example_7_02_Game_of_Life(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 7-2: Game of Life")
+        self.window_title("Example 7-2: Game of Life")
         self.w = 8
         self.columns = self.width // self.w
         self.rows = self.height // self.w

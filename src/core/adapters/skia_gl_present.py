@@ -1016,7 +1016,9 @@ class SkiaGLPresenter:
                 # underlying traceback is visible instead of being silently
                 # swallowed.
                 try:
-                    import os, traceback, logging
+                    import os
+                    import traceback
+                    import logging
                     if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
                         logging.getLogger(__name__).debug('presenter.replay_fn: failed to import core.io.replay_to_skia, falling back to internal replay')
                         traceback.print_exc()
@@ -1027,7 +1029,8 @@ class SkiaGLPresenter:
             try:
                 # Announce delegation when debugging so we see delegate logs
                 try:
-                    import os, logging
+                    import os
+                    import logging
                     if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
                         logging.getLogger(__name__).debug('presenter.replay_fn: delegating to replay_to_skia_canvas')
                 except Exception:
@@ -1038,7 +1041,9 @@ class SkiaGLPresenter:
                 # If the delegate fails, print traceback when debugging and
                 # fall back to the internal replay implementation.
                 try:
-                    import os, traceback, logging
+                    import os
+                    import traceback
+                    import logging
                     if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
                         logging.getLogger(__name__).debug('presenter.replay_fn: replay_to_skia_canvas raised an exception; falling back')
                         traceback.print_exc()

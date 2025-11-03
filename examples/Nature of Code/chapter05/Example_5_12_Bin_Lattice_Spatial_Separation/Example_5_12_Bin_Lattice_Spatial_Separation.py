@@ -13,15 +13,14 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter5/Examp
 // Click mouse to add boids into the system
 """
 
-from pycreative.app import Sketch
 from Flock import Flock
 from Boid import Boid
 
 
-class Example_5_12_Bin_Lattice_Spatial_Separation(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
-        self.set_title("Example 5.12: Bin Lattice Spatial Separation")
+        self.window_title("NOC: Example 5.12 Bin Lattice Spatial Separation")
         self.flock = Flock()
 
         self.resolution = 40  # adjust as necessary
@@ -39,10 +38,10 @@ class Example_5_12_Bin_Lattice_Spatial_Separation(Sketch):
         self.grid: list[list[list[Boid]]] = [[[] for _ in range(cols)] for _ in range(rows)]
     
     def update(self, dt: float):
-        self.set_title(f"Example 5.12: Bin Lattice Spatial Separation (Boids: {len(self.flock.boids)})")
+        self.set_title(f"NOC: Example 5.12 Bin Lattice Spatial Separation (Boids: {len(self.flock.boids)})")
 
     def draw(self):
-        self.clear((255, 255, 255))
+        self.background(255)
 
         # Reset grid at the beginning of each frame
         for i in range(self.rows):

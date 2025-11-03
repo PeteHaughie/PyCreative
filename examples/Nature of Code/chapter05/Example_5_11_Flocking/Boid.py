@@ -5,9 +5,9 @@ Boid class for Example 5-11: Flocking
 class Boid:
     def __init__(self, sketch, x: float, y: float):
         self.sketch = sketch
-        self.position = sketch.pvector(float(x), float(y))
-        self.velocity = sketch.pvector(sketch.random(-1, 1), sketch.random(-1, 1))
-        self.acceleration = sketch.pvector(0.0, 0.0)
+        self.position = sketch.pcvector(float(x), float(y))
+        self.velocity = sketch.pcvector(sketch.random(-1, 1), sketch.random(-1, 1))
+        self.acceleration = sketch.pcvector(0.0, 0.0)
         self.r = 3.0
         self.maxspeed = 3.0  # Maximum speed
         self.maxforce = 0.05  # Maximum steering force
@@ -60,19 +60,17 @@ class Boid:
     def show(self):
         # Draw a triangle rotated in the direction of velocity
         angle = self.velocity.heading()
-        self.sketch.fill((127, 127, 127))
-        self.sketch.stroke((0, 0, 0))
+        self.sketch.fill(127)
+        self.sketch.stroke(0)
         self.sketch.push()
-        try:
-          self.sketch.translate(self.position.x, self.position.y)
-          self.sketch.rotate(angle)
-          self.sketch.begin_shape()
-          self.sketch.vertex(self.r * 2, 0)
-          self.sketch.vertex(-self.r * 2, -self.r)
-          self.sketch.vertex(-self.r * 2, self.r)
-          self.sketch.end_shape(close=True)
-        finally:
-          self.sketch.pop()
+        self.sketch.translate(self.position.x, self.position.y)
+        self.sketch.rotate(angle)
+        self.sketch.begin_shape()
+        self.sketch.vertex(self.r * 2, 0)
+        self.sketch.vertex(-self.r * 2, -self.r)
+        self.sketch.vertex(-self.r * 2, self.r)
+        self.sketch.end_shape(close=True)
+        self.sketch.pop()
 
     # Wraparound
     def borders(self):
@@ -89,8 +87,9 @@ class Boid:
     # Method checks for nearby boids and steers away
     def separate(self, boids: list["Boid"]):
         desired_separation = 25.0
-        steer = self.sketch.pvector(0.0, 0.0)
+        steer = self.sketch.pcvector(0.0, 0.0)
         count = 0
+        # For every boid in the system, check if it's too close
         # For every boid in the system, check if it's too close
         for other in boids:
             d = self.position.dist(other.position)
@@ -118,7 +117,7 @@ class Boid:
     # For every nearby boid in the system, calculate the average velocity
     def align(self, boids: list["Boid"]):
         neighbor_distance = 50.0
-        sum = self.sketch.pvector(0.0, 0.0)
+        sum = self.sketch.pcvector(0.0, 0.0)
         count = 0
         for other in boids:
             d = self.position.dist(other.position)
@@ -133,13 +132,13 @@ class Boid:
             steer.limit(self.maxforce)
             return steer
         else:
-            return self.sketch.pvector(0.0, 0.0)
+            return self.sketch.pcvector(0.0, 0.0)
 
     # Cohesion
     # For the average location (i.e. center) of all nearby boids, calculate steering vector towards that location
     def cohere(self, boids: list["Boid"]):
         neighbor_distance = 50.0
-        sum = self.sketch.pvector(0.0, 0.0)  # Start with empty vector to accumulate all locations
+        sum = self.sketch.pcvector(0.0, 0.0)  # Start with empty vector to accumulate all locations
         count = 0
         for other in boids:
             d = self.position.dist(other.position)
@@ -150,4 +149,4 @@ class Boid:
             sum.div(float(count))
             return self.seek(sum)  # Steer towards the location
         else:
-            return self.sketch.pvector(0.0, 0.0)
+            return self.sketch.pcvector(0.0, 0.0)

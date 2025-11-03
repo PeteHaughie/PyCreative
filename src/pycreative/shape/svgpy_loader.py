@@ -14,13 +14,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from .loader import load_svg as _xml_load_svg
+
+svg: Any
 try:
     # svg.py package (optional)
-    import svg  # type: ignore
+    import svg as _svg
+    svg = _svg
 except Exception:
-    svg = None  # type: ignore
-
-from .loader import load_svg as _xml_load_svg
+    svg = None
 
 
 def load_svg(path: str) -> Any:

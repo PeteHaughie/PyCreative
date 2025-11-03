@@ -19,12 +19,14 @@ import math
 import os
 import re
 import xml.etree.ElementTree as ET
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Callable
 
+# Import skia if available; fallback to None without a prior annotation to
+# avoid a mypy "redefinition" complaint when the import succeeds.
 try:
     import skia
 except Exception:  # pragma: no cover - skia should be available in runtime
-    skia = None  # type: ignore
+    skia = None
 
 # Lightweight fallback Path/Rect classes used when skia is not available so
 # the loader still returns vector-like objects that tests can inspect.
@@ -72,12 +74,12 @@ if skia is None:
 
         def addRect(self, rect):
             try:
-                l = rect.left()
-                t = rect.top()
-                r = rect.right()
-                b = rect.bottom()
-                self._pts.append((l, t))
-                self._pts.append((r, b))
+                left = rect.left()
+                top = rect.top()
+                right = rect.right()
+                bottom = rect.bottom()
+                self._pts.append((left, top))
+                self._pts.append((right, bottom))
             except Exception:
                 pass
 
@@ -111,10 +113,14 @@ if skia is None:
 
     skia = _skia_stub()
 
+# Optional svg.path.parse_path helper. Annotate as an optional callable so mypy
+# understands the name even when the optional dependency is missing.
+parse_path: Optional[Callable[..., Any]] = None
 try:
-    from svg.path import parse_path
-except Exception:  # pragma: no cover - tests supply svg.path
-    parse_path = None  # type: ignore
+    from svg.path import parse_path as _parse_path
+    parse_path = _parse_path
+except Exception:
+    parse_path = None
 
 
 def _ensure_file(path: str) -> str:
@@ -411,26 +417,26 @@ class PCShape:
         for p in getattr(self, 'skia_paths', []) or []:
             try:
                 b = p.computeTightBounds()
-                l = float(b.left())
-                t = float(b.top())
-                r = float(b.right())
-                bb = float(b.bottom())
-                left = min(left, l)
-                top = min(top, t)
-                right = max(right, r)
-                bottom = max(bottom, bb)
+                left_bound = float(b.left())
+                top_bound = float(b.top())
+                right_bound = float(b.right())
+                bottom_bound = float(b.bottom())
+                left = min(left, left_bound)
+                top = min(top, top_bound)
+                right = max(right, right_bound)
+                bottom = max(bottom, bottom_bound)
                 any_pts = True
             except Exception:
                 try:
                     br = p.getBounds()
-                    l = float(br.left())
-                    t = float(br.top())
-                    r = float(br.right())
-                    bb = float(br.bottom())
-                    left = min(left, l)
-                    top = min(top, t)
-                    right = max(right, r)
-                    bottom = max(bottom, bb)
+                    left_bound = float(br.left())
+                    top_bound = float(br.top())
+                    right_bound = float(br.right())
+                    bottom_bound = float(br.bottom())
+                    left = min(left, left_bound)
+                    top = min(top, top_bound)
+                    right = max(right, right_bound)
+                    bottom = max(bottom, bottom_bound)
                     any_pts = True
                 except Exception:
                     continue
@@ -455,7 +461,7 @@ def _parse_number(v: Optional[str], default: float = 0.0) -> float:
 
 
 def _parse_color(s: Optional[str]) -> Optional[Tuple[float, float, float, float]]:
-    if not s:
+    if s is None:
         return None
     s = s.strip()
     # hex
@@ -463,13 +469,13 @@ def _parse_color(s: Optional[str]) -> Optional[Tuple[float, float, float, float]
     if m:
         hexs = m.group(1)
         if len(hexs) == 3:
-            r = int(hexs[0] * 2, 16)
-            g = int(hexs[1] * 2, 16)
-            b = int(hexs[2] * 2, 16)
+            r = float(int(hexs[0] * 2, 16))
+            g = float(int(hexs[1] * 2, 16))
+            b = float(int(hexs[2] * 2, 16))
         else:
-            r = int(hexs[0:2], 16)
-            g = int(hexs[2:4], 16)
-            b = int(hexs[4:6], 16)
+            r = float(int(hexs[0:2], 16))
+            g = float(int(hexs[2:4], 16))
+            b = float(int(hexs[4:6], 16))
         return (r / 255.0, g / 255.0, b / 255.0, 1.0)
     # rgb/rgba
     m = re.match(r"rgba?\(([^)]+)\)", s)
@@ -490,11 +496,11 @@ def _parse_color(s: Optional[str]) -> Optional[Tuple[float, float, float, float]
                 return None
     # basic named colors (small set)
     NAMED = {
-        "black": (0, 0, 0, 1),
-        "white": (1, 1, 1, 1),
-        "red": (1, 0, 0, 1),
-        "green": (0, 1, 0, 1),
-        "blue": (0, 0, 1, 1),
+        "black": (0.0, 0.0, 0.0, 1.0),
+        "white": (1.0, 1.0, 1.0, 1.0),
+        "red": (1.0, 0.0, 0.0, 1.0),
+        "green": (0.0, 1.0, 0.0, 1.0),
+        "blue": (0.0, 0.0, 1.0, 1.0),
         "none": None,
     }
     key = s.lower()
@@ -609,7 +615,7 @@ def _path_from_points(points: List[Tuple[float, float]], close: bool = True) -> 
 def _parse_path_d_to_skia(d: str) -> "skia.Path":
     # Conservative approximation: sample each segment at several t positions.
     p = skia.Path()
-    if not parse_path:
+    if parse_path is None:
         # Simple fallback: extract numeric coordinate pairs from common M/L commands.
         nums = re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", d)
         pts: List[Tuple[float, float]] = []
@@ -624,6 +630,7 @@ def _parse_path_d_to_skia(d: str) -> "skia.Path":
             return _path_from_points(pts, close=d.strip().upper().endswith('Z'))
         return p
     try:
+        # parse_path may be provided by the optional svg.path package
         parsed = parse_path(d)
     except Exception:
         return p
@@ -664,8 +671,8 @@ def _parse_style(elem: ET.Element) -> Dict[str, Any]:
         if not part.strip():
             continue
         if ":" in part:
-            k, v = part.split(":", 1)
-            style[k.strip()] = v.strip()
+            k, val = part.split(":", 1)
+            style[k.strip()] = val.strip()
     # presentation attributes
     for k in ("fill", "stroke", "fill-opacity", "stroke-opacity", "opacity", "stroke-width", "stroke-linecap", "stroke-linejoin"):
         v = elem.get(k)
@@ -712,7 +719,7 @@ def load_svg(path: str) -> PCShape:
     try:
         # strip leading whitespace that can break XML declaration position
         root = ET.fromstring(text.lstrip())
-    except Exception as e:
+    except Exception:
         # try decoding as text then parse
         try:
             root = ET.fromstring(text.decode("utf-8").lstrip())
@@ -725,7 +732,8 @@ def load_svg(path: str) -> PCShape:
     # the viewBox (which provides explicit document coordinates), falling
     # back to width/height attributes if present.
     try:
-        vb = (root.get('viewBox') or root.get('viewbox') or '').strip()
+        vb_raw = root.get('viewBox') or root.get('viewbox') or ''
+        vb = vb_raw.strip()
         if vb:
             parts = [p for p in re.split(r"[\s,]+", vb) if p]
             if len(parts) >= 4:
@@ -771,26 +779,14 @@ def load_svg(path: str) -> PCShape:
         path_obj = None
         try:
             if tag == "g":
-                # group: create a child PCShape to preserve nesting
-                child = PCShape()
-                # inherit document width/height from parent when sensible
-                try:
-                    child.width = parent_shape.width
-                    child.height = parent_shape.height
-                except Exception:
-                    pass
-                # attach child to parent
-                try:
-                    parent_shape.add_child(child)
-                except Exception:
-                    # fallback: append to internal list if method missing
-                    try:
-                        parent_shape._children.append(child)  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
-                # recurse into children using the child as parent
+                # group: recurse into children. For loader compatibility we
+                # flatten group contents into the parent shape so callers
+                # receive skia_paths at the top-level (many sketches expect
+                # shapes to contain paths regardless of grouping). The
+                # transform `total` is still propagated so child geometry is
+                # transformed correctly.
                 for ch in node:
-                    recurse(ch, total, child)
+                    recurse(ch, total, parent_shape)
                 return
             elif tag == "circle":
                 cx = _parse_number(node.get("cx"), 0.0)

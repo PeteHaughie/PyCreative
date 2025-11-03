@@ -9,13 +9,11 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter7/Examp
 // Example 7-1: Wolfram Elementary Cellular Automata
 """
 
-from pycreative.app import Sketch
 
-
-class Example_7_01_Wolfram_Elementary_Cellular_Automata(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 320)
-        self.set_title("Example 7-1: Wolfram Elementary Cellular Automata")
+        self.window_title("Example 7-1: Wolfram Elementary Cellular Automata")
         self.background(255)
         # An array of 0s and 1s
         self.cells = [0] * (self.width // self.w)

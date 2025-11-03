@@ -13,16 +13,15 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter5/Examp
 // A path is a series of connected points
 """
 
-from pycreative.app import Sketch
 from Path import Path
 from Vehicle import Vehicle
 
 
-class Example_5_8_Path_Following(Sketch):
+class Sketch:
     def setup(self):
         self.size(640, 360)
         print("Hit space bar to toggle debugging lines.\nClick the mouse to generate a new path.")
-
+        self.window_title("NOC: Example 5.8 Path Following")
         self.new_path()
 
         # Each vehicle has different maxspeed and maxforce for demo purposes
@@ -32,7 +31,7 @@ class Example_5_8_Path_Following(Sketch):
         self.debug = True
 
     def draw(self):
-        self.background((255, 255, 255))
+        self.background(255)
         # Display the path
         self.path.show()
         # The boids follow the path

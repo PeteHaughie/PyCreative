@@ -9,10 +9,8 @@ https://github.com/nature-of-code/noc-2-processing-port/blob/main/chapter5/Examp
 // Using a Lookup Table for Sine and Cosine
 """
 
-from pycreative.app import Sketch
 
-
-class Example_5_14_COS_SIN_LUT(Sketch):
+class Sketch:
     def settings(self):
         self.size(640, 360)
 
