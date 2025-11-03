@@ -36,6 +36,10 @@ if skia is None:
             self._r = right
             self._b = bottom
 
+        @staticmethod
+        def MakeLTRB(left, top, right, bottom):
+            return _FakeRect(left, top, right, bottom)
+
         def left(self):
             return self._l
 
@@ -122,9 +126,319 @@ def _ensure_file(path: str) -> str:
 
 
 class PCShape:
+    """Lightweight PCShape-like object returned by the SVG loader.
+
+    The full Processing-style PCShape API is large; the SVG loader returns a
+    minimal, compatible object that exposes `skia_paths` and `paths` and a few
+    small helper methods/properties that callers expect (width/height and
+    no-op style/transform helpers). This keeps loader-returned shapes usable
+    by the rest of the codebase without requiring a heavy PCShape class.
+    """
+
     def __init__(self):
+        # list of skia.Path-like objects created by the loader
         self.skia_paths: List[skia.Path] = [] if skia else []
+        # per-path metadata (style/tag) collected during parsing
+        # each entry is typically {'style': {...}, 'tag': 'path'}
         self.paths: List[Dict[str, Any]] = []
+        # document-level width/height (floats) when available from <svg>
+        self.width: Optional[float] = None
+        self.height: Optional[float] = None
+
+        # Visibility and style flags
+        self._visible: bool = True
+        self._use_style: bool = True
+
+        # Children: for compatibility we can treat each appended child as
+        # a nested PCShape. The loader itself doesn't currently create
+        # explicit group children, but callers may programmatically add
+        # children.
+        self._children: List["PCShape"] = []
+
+        # For programmatic shape creation (create_shape / begin_shape), we
+        # store transient recording state here. Recorded commands are kept
+        # in path_cmds entries inside self.paths for later inspection.
+        self._building: bool = False
+        self._current_cmds: List[Dict[str, Any]] = []
+        self._current_closed: bool = False
+
+        # Simple transform storage (not applied eagerly to skia_paths).
+        # Callers may query/expect transform methods to exist — we record
+        # transforms but don't mutate existing path geometry here.
+        self._tx: float = 0.0
+        self._ty: float = 0.0
+        self._sx: float = 1.0
+        self._sy: float = 1.0
+        self._rotation: float = 0.0
+
+    # Visibility
+    def is_visible(self) -> bool:
+        return bool(self._visible)
+
+    def set_visible(self, v: bool):
+        try:
+            self._visible = bool(v)
+        except Exception:
+            self._visible = True
+        return None
+
+    # Style helpers
+    def enable_style(self):
+        self._use_style = True
+        return None
+
+    def disable_style(self):
+        self._use_style = False
+        return None
+
+    # Child management
+    def add_child(self, who: "PCShape") -> "PCShape":
+        if not isinstance(who, PCShape):
+            raise TypeError('add_child expects a PCShape')
+        self._children.append(who)
+        return who
+
+    def get_child_count(self) -> int:
+        return len(self._children)
+
+    def get_child(self, index: int) -> Optional["PCShape"]:
+        try:
+            return self._children[int(index)]
+        except Exception:
+            return None
+
+    # Simple programmatic shape recording (begin_shape / vertex / end_shape)
+    def begin_shape(self, kind: Optional[str] = None):
+        self._building = True
+        self._current_cmds = []
+        self._current_closed = False
+        return None
+
+    def end_shape(self, close: bool = False):
+        if not self._building:
+            return None
+        self._building = False
+        self._current_closed = bool(close)
+        # Convert recorded commands into a skia.Path if available
+        cmds = list(self._current_cmds)
+        # store in paths for fallback rendering
+        self.paths.append({'path_cmds': cmds, 'style': {}})
+        try:
+            if skia:
+                p = skia.Path()
+                first = True
+                for cmd in cmds:
+                    c = cmd.get('cmd')
+                    if c in ('moveTo', 'lineTo'):
+                        for (x, y) in cmd.get('pts', []):
+                            if first and c == 'moveTo':
+                                p.moveTo(float(x), float(y))
+                                first = False
+                            else:
+                                p.lineTo(float(x), float(y))
+                    elif c == 'close':
+                        p.close()
+                if self._current_closed:
+                    p.close()
+                self.skia_paths.append(p)
+        except Exception:
+            # leave only the path_cmds if skia conversion failed
+            pass
+        self._current_cmds = []
+        return None
+
+    def begin_contour(self):
+        # For simplicity, a contour is just another sequence of cmds
+        # represented inside the current path_cmds.
+        return None
+
+    def end_contour(self):
+        return None
+
+    def get_vertex_count(self) -> int:
+        # Count vertices recorded in path_cmds across all stored paths
+        total = 0
+        for p in self.paths:
+            cmds = p.get('path_cmds') or []
+            for c in cmds:
+                if c.get('cmd') in ('moveTo', 'lineTo'):
+                    total += len(c.get('pts', []))
+        return total
+
+    def get_vertex(self, index: int) -> Optional[Tuple[float, float]]:
+        i = int(index)
+        cnt = 0
+        for p in self.paths:
+            cmds = p.get('path_cmds') or []
+            for c in cmds:
+                if c.get('cmd') in ('moveTo', 'lineTo'):
+                    pts = c.get('pts', [])
+                    if i < cnt + len(pts):
+                        return pts[i - cnt]
+                    cnt += len(pts)
+        return None
+
+    def set_vertex(self, index: int, x: float, y: float):
+        i = int(index)
+        cnt = 0
+        for p in self.paths:
+            cmds = p.get('path_cmds') or []
+            for c in cmds:
+                if c.get('cmd') in ('moveTo', 'lineTo'):
+                    pts = c.get('pts', [])
+                    if i < cnt + len(pts):
+                        pts[i - cnt] = (float(x), float(y))
+                        return None
+                    cnt += len(pts)
+        raise IndexError('vertex index out of range')
+
+    # Style setters: accept either an rgba tuple or single value(s)
+    def _normalize_color(self, color: Any) -> Optional[Tuple[float, float, float, float]]:
+        if color is None:
+            return None
+        if isinstance(color, tuple) or isinstance(color, list):
+            vals = list(color)
+            if len(vals) == 3:
+                r, g, b = vals
+                a = 1.0
+            elif len(vals) >= 4:
+                r, g, b, a = vals[0], vals[1], vals[2], vals[3]
+            else:
+                return None
+            # convert 0-255 ints to 0-1 floats
+            try:
+                if any(v > 1 for v in (r, g, b)):
+                    r = float(r) / 255.0
+                    g = float(g) / 255.0
+                    b = float(b) / 255.0
+                return (float(r), float(g), float(b), float(a))
+            except Exception:
+                return None
+        # accept strings by delegating to parser
+        if isinstance(color, str):
+            return _parse_color(color)
+        # single numeric
+        try:
+            v = float(color)
+            return (v, v, v, 1.0)
+        except Exception:
+            return None
+
+    def set_fill(self, *args):
+        c = args[0] if args else None
+        rgba = self._normalize_color(c)
+        # apply to top-level style or each path if present
+        if not self.paths:
+            self.paths.append({'path_cmds': None, 'style': {}})
+        try:
+            for p in self.paths:
+                st = p.setdefault('style', {})
+                st['fill_rgba'] = rgba
+        except Exception:
+            pass
+        return None
+
+    def set_stroke(self, *args):
+        c = args[0] if args else None
+        rgba = self._normalize_color(c)
+        if not self.paths:
+            self.paths.append({'path_cmds': None, 'style': {}})
+        try:
+            for p in self.paths:
+                st = p.setdefault('style', {})
+                st['stroke_rgba'] = rgba
+        except Exception:
+            pass
+        return None
+
+    # Transform helpers (record transforms but do not mutate geometry)
+    def translate(self, tx: float, ty: float = 0.0):
+        try:
+            self._tx += float(tx)
+            self._ty += float(ty)
+        except Exception:
+            pass
+        return None
+
+    def rotate_x(self, *args, **kwargs):
+        return None
+
+    def rotate_y(self, *args, **kwargs):
+        return None
+
+    def rotate_z(self, *args, **kwargs):
+        return None
+
+    def rotate(self, angle: float):
+        try:
+            self._rotation += float(angle)
+        except Exception:
+            pass
+        return None
+
+    def scale(self, sx: float, sy: Optional[float] = None):
+        try:
+            self._sx *= float(sx)
+            if sy is None:
+                self._sy *= float(sx)
+            else:
+                self._sy *= float(sy)
+        except Exception:
+            pass
+        return None
+
+    def reset_matrix(self):
+        self._tx = 0.0
+        self._ty = 0.0
+        self._sx = 1.0
+        self._sy = 1.0
+        self._rotation = 0.0
+        return None
+
+    # Convenience: compute tight bounds across all skia_paths when caller
+    # needs a numeric width/height but the SVG didn't include explicit
+    # document dimensions.
+    def compute_document_size(self) -> Tuple[float, float]:
+        try:
+            if self.width is not None and self.height is not None:
+                return float(self.width), float(self.height)
+        except Exception:
+            pass
+        # fallback: union bounds of constituent paths
+        left = top = float('inf')
+        right = bottom = float('-inf')
+        any_pts = False
+        for p in getattr(self, 'skia_paths', []) or []:
+            try:
+                b = p.computeTightBounds()
+                l = float(b.left())
+                t = float(b.top())
+                r = float(b.right())
+                bb = float(b.bottom())
+                left = min(left, l)
+                top = min(top, t)
+                right = max(right, r)
+                bottom = max(bottom, bb)
+                any_pts = True
+            except Exception:
+                try:
+                    br = p.getBounds()
+                    l = float(br.left())
+                    t = float(br.top())
+                    r = float(br.right())
+                    bb = float(br.bottom())
+                    left = min(left, l)
+                    top = min(top, t)
+                    right = max(right, r)
+                    bottom = max(bottom, bb)
+                    any_pts = True
+                except Exception:
+                    continue
+        if not any_pts:
+            return 0.0, 0.0
+        w = max(0.0, right - left)
+        h = max(0.0, bottom - top)
+        return w, h
 
 
 def _parse_number(v: Optional[str], default: float = 0.0) -> float:
@@ -407,7 +721,45 @@ def load_svg(path: str) -> PCShape:
 
     shape = PCShape()
 
-    def recurse(node: ET.Element, inherited_matrix: Tuple[float, float, float, float, float, float]):
+    # Try to populate document-level width/height from the SVG root. Prefer
+    # the viewBox (which provides explicit document coordinates), falling
+    # back to width/height attributes if present.
+    try:
+        vb = (root.get('viewBox') or root.get('viewbox') or '').strip()
+        if vb:
+            parts = [p for p in re.split(r"[\s,]+", vb) if p]
+            if len(parts) >= 4:
+                try:
+                    shape.width = float(parts[2])
+                    shape.height = float(parts[3])
+                except Exception:
+                    pass
+        else:
+            w = root.get('width')
+            h = root.get('height')
+            if w is not None:
+                try:
+                    shape.width = _parse_number(w)
+                except Exception:
+                    shape.width = None
+            if h is not None:
+                try:
+                    shape.height = _parse_number(h)
+                except Exception:
+                    shape.height = None
+    except Exception:
+        # best-effort: leave width/height as None if parsing fails
+        pass
+
+    # Build a simple id -> element map to resolve <use> and <defs> references
+    id_map: Dict[str, ET.Element] = {}
+    for el in root.iter():
+        eid = el.get('id')
+        if eid:
+            id_map[eid] = el
+
+
+    def recurse(node: ET.Element, inherited_matrix: Tuple[float, float, float, float, float, float], parent_shape: PCShape):
         # compute this node's transform
         t = node.get("transform")
         local = parse_matrix(t) if t else (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
@@ -419,9 +771,26 @@ def load_svg(path: str) -> PCShape:
         path_obj = None
         try:
             if tag == "g":
-                # group: recurse into children
+                # group: create a child PCShape to preserve nesting
+                child = PCShape()
+                # inherit document width/height from parent when sensible
+                try:
+                    child.width = parent_shape.width
+                    child.height = parent_shape.height
+                except Exception:
+                    pass
+                # attach child to parent
+                try:
+                    parent_shape.add_child(child)
+                except Exception:
+                    # fallback: append to internal list if method missing
+                    try:
+                        parent_shape._children.append(child)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                # recurse into children using the child as parent
                 for ch in node:
-                    recurse(ch, total)
+                    recurse(ch, total, child)
                 return
             elif tag == "circle":
                 cx = _parse_number(node.get("cx"), 0.0)
@@ -477,21 +846,35 @@ def load_svg(path: str) -> PCShape:
             else:
                 # unsupported element: recurse children
                 for ch in node:
-                    recurse(ch, total)
+                    recurse(ch, total, parent_shape)
                 return
         except Exception:
             path_obj = None
 
         if path_obj is not None:
             _apply_matrix_to_path(path_obj, total)
-            shape.skia_paths.append(path_obj)
-            shape.paths.append({"style": style, "tag": tag})
+            parent_shape.skia_paths.append(path_obj)
+            parent_shape.paths.append({"style": style, "tag": tag})
 
-        # recurse children for nested shapes
+        # handle <use> which references another element by id (href="#id")
+        if tag == 'use':
+            # SVG may use xlink:href or href (SVG2)
+            href = node.get('{http://www.w3.org/1999/xlink}href') or node.get('href') or node.get('xlink:href')
+            if href:
+                ref = href.lstrip('#')
+                ref_el = id_map.get(ref)
+                if ref_el is not None:
+                    # apply use-specific x/y as an extra translate
+                    ux = _parse_number(node.get('x'), 0.0)
+                    uy = _parse_number(node.get('y'), 0.0)
+                    use_mat = _compose_matrix(total, (1.0, 0.0, 0.0, 1.0, ux, uy))
+                    recurse(ref_el, use_mat, parent_shape)
+
+        # recurse children for nested shapes (when not handled above)
         for ch in node:
-            recurse(ch, total)
+            recurse(ch, total, parent_shape)
 
-    recurse(root, (1.0, 0.0, 0.0, 1.0, 0.0, 0.0))
+    recurse(root, (1.0, 0.0, 0.0, 1.0, 0.0, 0.0), shape)
     return shape
 
 

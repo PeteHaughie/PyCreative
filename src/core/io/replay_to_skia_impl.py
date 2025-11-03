@@ -351,6 +351,34 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                 # supports paint/color filters. For now just record it.
                 continue
 
+            if op == 'svg_dom':
+                dom = args.get('dom')
+                w = args.get('width')
+                h = args.get('height')
+                # Respect provided container size when possible
+                try:
+                    if dom is not None:
+                        if w is not None and h is not None:
+                            try:
+                                dom.setContainerSize(float(w), float(h))
+                            except Exception:
+                                try:
+                                    dom.setContainerSize((float(w), float(h)))
+                                except Exception:
+                                    pass
+                        # Render the DOM directly onto the canvas
+                        try:
+                            dom.render(canvas)
+                        except Exception:
+                            # older bindings may expose renderNode/render
+                            try:
+                                dom.renderNode(canvas)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                continue
+
             if op == 'line':
                 x1 = float(args.get('x1', 0))
                 y1 = float(args.get('y1', 0))

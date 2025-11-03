@@ -287,7 +287,12 @@ class SimpleSketchAPI:
         except Exception:
             pass
         try:
-            from pycreative.shape.loader import load_shape as _ls
+            # Prefer the package-level loader which may select a skia-backed
+            # adapter when available. Importing the implementation module
+            # directly bypasses that selection and can return an empty XML
+            # loader result for some files (see issue with percentage
+            # width/height + viewBox). Use the public API instead.
+            from pycreative.shape import load_shape as _ls
 
             p = path
             # If a relative path was provided, resolve it relative to the
@@ -631,6 +636,34 @@ class SimpleSketchAPI:
             skia = None
 
         try:
+            # If shape carries a Skia SVG DOM, record a dedicated svg_dom op
+            # so presenters can render the DOM directly with full fidelity.
+            if hasattr(s, '_svg_dom') and getattr(s, '_svg_dom') is not None:
+                self.push_matrix()
+                try:
+                    self.translate(x, y)
+                except Exception:
+                    pass
+                try:
+                    args = {
+                        'dom': getattr(s, '_svg_dom'),
+                        'width': getattr(s, 'width', None),
+                        'height': getattr(s, 'height', None),
+                        'shape_mode': getattr(self._engine, 'shape_mode', None),
+                        'blend_mode': getattr(self._engine, 'blend_mode', None),
+                    }
+                    try:
+                        self._engine.graphics.record('svg_dom', **args)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+                try:
+                    self.pop_matrix()
+                except Exception:
+                    pass
+                return None
+
             # If shape carries skia_paths (returned by the SVG loader), record
             # each one as a skia_path op including per-path style when present.
             if hasattr(s, 'skia_paths') and getattr(s, 'skia_paths'):
