@@ -47,6 +47,20 @@ class Engine(EngineProtocol):
         self.api = APIRegistry()
         self.graphics = GraphicsBuffer()
 
+        # Publish this engine as the current pycreative engine so public
+        # shims (e.g., `pycreative.typography`) that call `_get_engine()`
+        # can delegate correctly. This is intentionally best-effort so
+        # environments that don't provide the `pycreative` package won't
+        # fail engine construction.
+        try:
+            import pycreative as _pc
+            try:
+                _pc.set_current_engine(self)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
         # lifecycle & environment
         self._setup_done = False
         self.looping = True
@@ -913,7 +927,94 @@ class Engine(EngineProtocol):
                             continue
                     except Exception:
                         pass
+                # Before finalizing the instantiated sketch, attempt to attach
+                # lightweight typography helpers when available. Some test or
+                # minimal environments may not register a full 'text' API via
+                # the engine API registry; attach conservative wrappers that
+                # call into the core.typography implementation with the
+                # engine pre-bound so `self.text(...)` and friends remain
+                # callable for examples.
+                try:
+                    import logging as _logging
+                    logger = _logging.getLogger(__name__)
+                    # Try to import the core implementation first; fall back to
+                    # the public pycreative shim when running from the built
+                    # package or in environments where `core.typography` isn't
+                    # available on sys.path.
+                    try:
+                        import core.typography as _typ
+                    except Exception:
+                        try:
+                            import pycreative.typography as _typ
+                        except Exception:
+                            _typ = None
+                    _attached = []
+                    for _name in ('text', 'text_width', 'text_ascent', 'text_descent', 'load_font', 'text_font', 'text_size'):
+                        if hasattr(inst, _name):
+                            continue
+                        _fn = getattr(_typ, _name, None)
+                        if _fn is None:
+                            continue
+                        try:
+                            def _make_wrapper(_f, _mod):
+                                # core.typography functions expect the engine as
+                                # the first argument (engine, ...). The public
+                                # `pycreative.typography` shims expect the usual
+                                # public signature (s, x, y, ...). Detect which
+                                # module we imported and create an appropriate
+                                # wrapper so calls from `self.text(...)` behave
+                                # correctly.
+                                mod_name = getattr(_mod, '__name__', '')
+                                if mod_name.startswith('pycreative'):
+                                    return lambda *a, **k: _f(*a, **k)
+                                return lambda *a, **k: _f(self, *a, **k)
+
+                            setattr(inst, _name, _make_wrapper(_fn, _typ))
+                            _attached.append(_name)
+                        except Exception:
+                            pass
+                    if _attached:
+                        try:
+                            logger.debug('Attached typography wrappers to sketch: %s', _attached)
+                        except Exception:
+                            pass
+                except Exception:
+                    # Best-effort only; don't fail sketch instantiation if logging
+                    # or typography imports fail.
+                    pass
+
                 self.sketch = inst
+                # Ensure pycreative public typography shims are attached as
+                # instance methods when available. This is a conservative
+                # post-attachment step to cover environments where the
+                # earlier core.typography import path did not bind the
+                # public shim functions onto the sketch instance.
+                try:
+                    import pycreative.typography as _ppt
+                    _added = []
+                    for _nm in ('text', 'text_width', 'text_ascent', 'text_descent', 'load_font', 'text_font', 'text_size'):
+                        if hasattr(self.sketch, _nm):
+                            continue
+                        _fn = getattr(_ppt, _nm, None)
+                        if _fn is None:
+                            continue
+                        try:
+                            # Attach a simple wrapper that preserves the
+                            # public signature (pycreative shims call
+                            # `_get_engine()` internally) so calling
+                            # `self.text(...)` works in examples.
+                            setattr(self.sketch, _nm, (lambda f: (lambda *a, **k: f(*a, **k)))(_fn))
+                            _added.append(_nm)
+                        except Exception:
+                            pass
+                    if _added:
+                        try:
+                            import logging as _logging
+                            _logging.getLogger(__name__).debug('Attached pycreative typography shims to sketch: %s', _added)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
                 # Ensure some API helpers that are implemented on SimpleSketchAPI
                 # are available as methods on the instance in edge cases where
                 # the previous attach logic did not succeed.

@@ -79,6 +79,37 @@ def main(argv: list[str] | None = None) -> int:
 	repo_src = Path(__file__).resolve().parents[1] / 'src'
 	sys.path.insert(0, str(repo_src))
 
+	# If the repository contains a project-local virtualenv at `.venv`,
+	# prefer to run using that Python interpreter. This helps avoid using a
+	# globally-installed `pycreative` entrypoint that points to a different
+	# Python (e.g., Anaconda) and can lead to surprising backend differences
+	# (skia available vs not). We do not force a re-exec by default; instead
+	# we print a helpful hint. Set PYCREATIVE_AUTO_REEXEC=1 to automatically
+	# re-exec into the local venv Python when present.
+	try:
+		import sys as _sys
+		repo_root = Path(__file__).resolve().parents[2]
+		venv_python = repo_root / '.venv' / 'bin' / 'python'
+		if venv_python.exists():
+			try:
+				cur = Path(_sys.executable).resolve()
+				vpy = venv_python.resolve()
+				if cur != vpy:
+					print(f"Detected project .venv at {venv_python}; current python is {_sys.executable}")
+					print("To run with the project venv, either activate it or run:\n  .venv/bin/python -m pycreative <sketch> [args]")
+					if os.getenv('PYCREATIVE_AUTO_REEXEC', '') == '1':
+						# Re-exec into the venv python so the rest of the CLI runs
+						# in the intended environment. Preserve argv.
+						try:
+							os.execv(str(vpy), [str(vpy), '-m', 'pycreative'] + list(_sys.argv[1:]))
+						except Exception:
+							# fall through to continue with existing interpreter
+							pass
+			except Exception:
+				pass
+	except Exception:
+		pass
+
 	# Optionally enable logging debug output when lifecycle debug is requested.
 	# Many internal diagnostic messages use the logging module; enable a
 	# basicConfig here when the environment requests lifecycle debug so
@@ -125,31 +156,23 @@ def main(argv: list[str] | None = None) -> int:
 				print(cmd)
 			# Optionally produce a single offscreen PNG replay for debugging
 			repr_path = 'render_debug.png'
-			backend_written = False
+			# Skia-first policy: prefer the Skia replayer and fail fast if it's
+			# not available. We intentionally do not fall back to Pillow here to
+			# keep the runtime GPU-forward and to surface missing backend
+			# configuration early for developers.
 			try:
 				from core.io.skia_replayer import replay_to_image_skia as _rsi
+			except Exception as _imp_err:
+				print('Skia replayer not available or failed to import:', _imp_err)
+				print('This project is Skia-GPU-forward; please install skia-python in the active environment and retry.')
+				return 4
 
-				try:
-					_rsi(eng, repr_path)
-					print(f'Wrote Skia offscreen replay to {repr_path}')
-					backend_written = True
-				except Exception as _err:
-					print(f'Skia replayer failed: {_err}')
-			except Exception:
-				# skia-python not available or import failed; try Pillow replayer
-				try:
-					from core.io.replayer import replay_to_image as _rti
-
-					try:
-						_rti(eng, repr_path)
-						print(f'Wrote Pillow offscreen replay to {repr_path}')
-						backend_written = True
-					except Exception as _err:
-						print(f'Pillow replayer failed: {_err}')
-				except Exception:
-					print('Offscreen replayer not available (Pillow missing?)')
-			if not backend_written:
-				print('No offscreen snapshot could be written')
+			try:
+				_rsi(eng, repr_path)
+				print(f'Wrote Skia offscreen replay to {repr_path}')
+			except Exception as _err:
+				print(f'Skia replayer failed while rendering: {_err}')
+				return 5
 	else:
 		# windowed mode: start() will block until the frames complete.
 		# Omit max_frames for an interactive session that stays open until closed.

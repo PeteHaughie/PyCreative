@@ -1158,6 +1158,48 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                                     pass
                 continue
 
+            if op == 'text':
+                # Draw simple text using the current fill color. We prefer
+                # the recorded `fill()` color (current_fill) when present.
+                try:
+                    txt = str(args.get('text') or args.get('s') or '')
+                    tx = float(args.get('x', 0))
+                    ty = float(args.get('y', 0))
+                    # Allow callers to provide a size via kwargs (best-effort).
+                    kw = args.get('kwargs', {}) or {}
+                    size = None
+                    try:
+                        size = float(args.get('size', None) or kw.get('size', None))
+                    except Exception:
+                        size = None
+                    if size is None:
+                        # Best-effort default: read a recorded font_size from the
+                        # args mapping (pycreative.typography records this when
+                        # available). Fall back to 12.0 when absent.
+                        try:
+                            size = float(args.get('font_size', 12.0) or 12.0)
+                        except Exception:
+                            size = 12.0
+
+                    # Create a simple skia.Font and paint, then draw the string.
+                    try:
+                        f = skia.Font(None, float(size))
+                    except Exception:
+                        f = None
+
+                    p = _make_paint_from_color(current_fill, fill=True, alpha=current_fill_alpha)
+                    if p is not None and f is not None:
+                        try:
+                            canvas.drawString(txt, tx, ty, f, p)
+                        except Exception:
+                            try:
+                                canvas.drawText(txt, tx, ty, f, p)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                continue
+
             if op == 'image':
                 # Draw an image-like object. We attempt a few strategies in
                 # order of preference:
