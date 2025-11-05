@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     # attributes sketches commonly read/write (blend_mode, shape_mode, etc.).
     # Import via the pycreative shim to avoid mypy duplicate-module issues
     # when both `pycreative.*` and `core.*` packages are analysed.
-    from pycreative._types import EngineProtocol as Engine
+    pass
 
 
 class SimpleSketchAPI:
@@ -17,7 +17,7 @@ class SimpleSketchAPI:
     and control lifecycle behaviour (size/no_loop/loop/redraw/save_frame).
     """
 
-    def __init__(self, engine: 'Engine'):
+    def __init__(self, engine: Any):
         self._engine = engine
         # Cache frequently-used engine functions as instance attributes to
         # avoid the per-call registry lookup overhead when sketches call
@@ -432,9 +432,15 @@ class SimpleSketchAPI:
             except Exception:
                 args['h'] = h
         try:
-            return self._engine.graphics.record('image', **args)
+            g = getattr(self._engine, 'graphics', None)
+            if g is not None:
+                try:
+                    return g.record('image', **args)
+                except Exception:
+                    return None
         except Exception:
-            return None
+            pass
+        return None
 
     def image_mode(self, mode: str):
         """Set the image drawing mode (e.g., 'CENTER', 'CORNER', 'CORNERS').
@@ -538,7 +544,12 @@ class SimpleSketchAPI:
                         'blend_mode': getattr(self._engine, 'blend_mode', None),
                     }
                     try:
-                        self._engine.graphics.record('svg_dom', **args)
+                        g = getattr(self._engine, 'graphics', None)
+                        if g is not None:
+                            try:
+                                g.record('svg_dom', **args)
+                            except Exception:
+                                pass
                     except Exception:
                         pass
                 except Exception:
@@ -634,7 +645,12 @@ class SimpleSketchAPI:
                             'blend_mode': getattr(self._engine, 'blend_mode', None),
                         }
                         try:
-                            self._engine.graphics.record('skia_path', **args)
+                            g = getattr(self._engine, 'graphics', None)
+                            if g is not None:
+                                try:
+                                    g.record('skia_path', **args)
+                                except Exception:
+                                    pass
                         except Exception:
                             pass
                     except Exception:
@@ -701,9 +717,10 @@ class SimpleSketchAPI:
             # Record the operation in the graphics buffer so headless replays
             # and presenters see the chosen blend mode.
             try:
-                if getattr(self._engine, 'graphics', None) is not None:
+                g = getattr(self._engine, 'graphics', None)
+                if g is not None:
                     try:
-                        self._engine.graphics.record('blend_mode', mode=str(mode))
+                        g.record('blend_mode', mode=str(mode))
                     except Exception:
                         pass
             except Exception:
@@ -807,9 +824,15 @@ class SimpleSketchAPI:
                 pass
             # Fallback: record the tint op on the graphics buffer
             try:
-                return self._engine.graphics.record('tint', color=c)
+                g = getattr(self._engine, 'graphics', None)
+                if g is not None:
+                    try:
+                        return g.record('tint', color=c)
+                    except Exception:
+                        return None
             except Exception:
-                return None
+                pass
+            return None
         except Exception:
             return None
 
@@ -978,77 +1001,125 @@ class SimpleSketchAPI:
                 args = {'x': float(x), 'y': float(y)}
                 if z is not None:
                     args['z'] = float(z)
-                return self._engine.graphics.record('translate', **args)
+                g = getattr(self._engine, 'graphics', None)
+                if g is not None:
+                    try:
+                        return g.record('translate', **args)
+                    except Exception:
+                        return None
             except Exception:
-                return None
+                pass
+            return None
 
     def rotate(self, angle):
         try:
             return self._engine.rotate(angle)
         except Exception:
             try:
-                return self._engine.graphics.record('rotate', angle=float(angle))
+                g = getattr(self._engine, 'graphics', None)
+                if g is not None:
+                    try:
+                        return g.record('rotate', angle=float(angle))
+                    except Exception:
+                        return None
             except Exception:
-                return None
+                pass
+            return None
 
     def scale(self, sx, sy=None, sz=None):
         try:
             return self._engine.scale(sx, sy, sz)
         except Exception:
             try:
-                if sy is None and sz is None:
-                    return self._engine.graphics.record('scale', sx=float(sx))
-                args = {'sx': float(sx), 'sy': float(sy) if sy is not None else float(sx)}
-                if sz is not None:
-                    args['sz'] = float(sz)
-                return self._engine.graphics.record('scale', **args)
+                g = getattr(self._engine, 'graphics', None)
+                if g is not None:
+                    try:
+                        if sy is None and sz is None:
+                            return g.record('scale', sx=float(sx))
+                        args = {'sx': float(sx), 'sy': float(sy) if sy is not None else float(sx)}
+                        if sz is not None:
+                            args['sz'] = float(sz)
+                        return g.record('scale', **args)
+                    except Exception:
+                        return None
             except Exception:
-                return None
+                pass
+            return None
 
     def push_matrix(self):
         try:
             return self._engine.push_matrix()
         except Exception:
             try:
-                return self._engine.graphics.record('push_matrix')
+                g = getattr(self._engine, 'graphics', None)
+                if g is not None:
+                    try:
+                        return g.record('push_matrix')
+                    except Exception:
+                        return None
             except Exception:
-                return None
+                pass
+            return None
 
     def pop_matrix(self):
         try:
             return self._engine.pop_matrix()
         except Exception:
             try:
-                return self._engine.graphics.record('pop_matrix')
+                g = getattr(self._engine, 'graphics', None)
+                if g is not None:
+                    try:
+                        return g.record('pop_matrix')
+                    except Exception:
+                        return None
             except Exception:
-                return None
+                pass
+            return None
 
     def shear_x(self, angle):
         try:
             return self._engine.shear_x(angle)
         except Exception:
             try:
-                return self._engine.graphics.record('shear_x', angle=float(angle))
+                g = getattr(self._engine, 'graphics', None)
+                if g is not None:
+                    try:
+                        return g.record('shear_x', angle=float(angle))
+                    except Exception:
+                        return None
             except Exception:
-                return None
+                pass
+            return None
 
     def shear_y(self, angle):
         try:
             return self._engine.shear_y(angle)
         except Exception:
             try:
-                return self._engine.graphics.record('shear_y', angle=float(angle))
+                g = getattr(self._engine, 'graphics', None)
+                if g is not None:
+                    try:
+                        return g.record('shear_y', angle=float(angle))
+                    except Exception:
+                        return None
             except Exception:
-                return None
+                pass
+            return None
 
     def reset_matrix(self):
         try:
             return self._engine.reset_matrix()
         except Exception:
             try:
-                return self._engine.graphics.record('reset_matrix')
+                g = getattr(self._engine, 'graphics', None)
+                if g is not None:
+                    try:
+                        return g.record('reset_matrix')
+                    except Exception:
+                        return None
             except Exception:
-                return None
+                pass
+            return None
 
     def apply_matrix(self, *args):
         """Apply a matrix. Accepts either a single source matrix or 16 numbers."""
@@ -1056,9 +1127,15 @@ class SimpleSketchAPI:
             return self._engine.apply_matrix(*args)
         except Exception:
             try:
-                if len(args) == 1:
-                    src = args[0]
-                    return self._engine.graphics.record('apply_matrix', matrix=src)
-                return self._engine.graphics.record('apply_matrix', values=list(args))
+                g = getattr(self._engine, 'graphics', None)
+                if g is not None:
+                    try:
+                        if len(args) == 1:
+                            src = args[0]
+                            return g.record('apply_matrix', matrix=src)
+                        return g.record('apply_matrix', values=list(args))
+                    except Exception:
+                        return None
             except Exception:
-                return None
+                pass
+            return None

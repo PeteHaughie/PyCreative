@@ -12,12 +12,20 @@ import ctypes
 import logging
 from typing import Any, Optional, Sequence
 import os
+import json
+import time
 
 
 class SkiaGLPresenter:
-    def __init__(self, width: int, height: int, force_present_mode: Optional[str] = None, force_gles: bool = False):
+    def __init__(self, width: int, height: int, force_present_mode: Optional[str] = None, force_gles: bool = False, window: Any | None = None):
         self.width = int(width)
         self.height = int(height)
+        # Preserve the logical size the presenter was created for. The
+        # presenter may resize its backing (device) texture/FBO to the
+        # drawable/backing size during render; keep the original logical
+        # size so we can compute the correct logical->backing scale for
+        # HiDPI displays when replaying recorded commands.
+        self._logical_size = (int(width), int(height))
         self.tex_id: Optional[int] = None
         self.fbo_id: Optional[int] = None
         self.gr_context = None
@@ -36,6 +44,60 @@ class SkiaGLPresenter:
         self._last_present_mode = None
         # Optional override to force which present mode to use: 'vbo', 'blit', 'immediate' or None
         self.force_present_mode = force_present_mode
+        # Optional window reference (passed by engine) so presenters can
+        # query the underlying framebuffer size / pixel ratio when
+        # allocating GL resources on HiDPI displays.
+        self._window = window
+        # If a window is provided, try to recover the logical (CSS) size
+        # the engine expects. Engines may pass a backing/device-pixel
+        # size when creating the presenter (to help allocate textures at
+        # the correct size). If so, prefer deriving the logical size from
+        # the window's pixel ratio so later replay scaling computes the
+        # correct logical->backing scale (fixes HiDPI/Retina half-size
+        # rendering when the presenter was constructed with backing dims).
+        try:
+            if self._window is not None:
+                pr = getattr(self._window, 'get_pixel_ratio', None)
+                if pr is not None:
+                    try:
+                        ratio = float(self._window.get_pixel_ratio())
+                        if ratio and ratio != 1.0:
+                            # Derive logical size from the provided width/height
+                            # which may be a backing size. Use round to be safe
+                            # against integer division rounding differences.
+                            try:
+                                self._logical_size = (int(round(self.width / ratio)), int(round(self.height / ratio)))
+                            except Exception:
+                                # Fall back to the original values on error
+                                self._logical_size = (int(width), int(height))
+                    except Exception:
+                        # If get_pixel_ratio exists but fails, keep provided logical size
+                        self._logical_size = (int(width), int(height))
+                else:
+                    # No pixel-ratio helper; keep the size as provided
+                    self._logical_size = (int(width), int(height))
+        except Exception:
+            # Defensive fallback to original behaviour
+            self._logical_size = (int(width), int(height))
+        # Debug: report what logical size we ended up with and the window's
+        # pixel ratio (if available). This helps triage cases where the
+        # presenter was constructed with backing dimensions and the
+        # logical size derivation may have failed or been skipped.
+        try:
+            try:
+                pr = None
+                if getattr(self, '_window', None) is not None:
+                    pr_fn = getattr(self._window, 'get_pixel_ratio', None)
+                    if pr_fn is not None:
+                        try:
+                            pr = float(self._window.get_pixel_ratio())
+                        except Exception:
+                            pr = None
+                logging.getLogger(__name__).debug('SkiaGLPresenter.__init__: window=%r pixel_ratio=%r derived_logical=%r ctor_w=%r ctor_h=%r', getattr(self, '_window', None), pr, getattr(self, '_logical_size', None), width, height)
+            except Exception:
+                pass
+        except Exception:
+            pass
         # diagnostics printed once on first present
         self._present_diag_done = False
         # optional testing flag: force using GLES shader variant (if available)
@@ -109,12 +171,72 @@ class SkiaGLPresenter:
             gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex_id)
             gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
             gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+            # Prefer allocating the texture at the drawable/backing size
+            # (device pixels) when available. First prefer an explicit
+            # window-provided framebuffer size (engine passes the window
+            # into the presenter where supported). Next try the pixel
+            # ratio helpers. Finally fall back to querying the GL
+            # viewport. As a last resort use the presenter's logical
+            # width/height.
+            bw = bh = None
+            try:
+                if getattr(self, '_window', None) is not None:
+                    try:
+                        # Some window implementations expose get_framebuffer_size()
+                        fb = getattr(self._window, 'get_framebuffer_size', None)
+                        if fb is not None:
+                            fw, fh = self._window.get_framebuffer_size()
+                            if fw and fh:
+                                bw, bh = int(fw), int(fh)
+                        else:
+                            # Fall back to get_pixel_ratio if framebuffer API
+                            pr = getattr(self._window, 'get_pixel_ratio', None)
+                            if pr is not None:
+                                ratio = float(self._window.get_pixel_ratio())
+                                if ratio and ratio != 1.0:
+                                    bw = int(self.width * ratio)
+                                    bh = int(self.height * ratio)
+                    except Exception:
+                        bw = bh = None
+            except Exception:
+                bw = bh = None
+
+            if bw is None or bh is None:
+                try:
+                    vp = (gl.GLint * 4)()
+                    gl.glGetIntegerv(gl.GL_VIEWPORT, vp)
+                    bw = int(vp[2])
+                    bh = int(vp[3])
+                    if bw <= 0 or bh <= 0:
+                        raise Exception('invalid viewport')
+                except Exception:
+                    bw = int(self.width)
+                    bh = int(self.height)
+
             # Use RGBA8 where available; fallback to RGBA
             try:
                 internal = gl.GL_RGBA8
             except Exception:
                 internal = gl.GL_RGBA
-            gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, internal, self.width, self.height, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, None)
+            # record backing size for later use by Skia surface creation
+            try:
+                self._backing_size = (int(bw), int(bh))
+            except Exception:
+                pass
+            # Debug: record the exact size used to allocate the GL texture
+            try:
+                try:
+                    logging.getLogger(__name__).debug('ensure_resources: allocating GL texture tex_id=%s size=%s', self.tex_id, (int(bw), int(bh)))
+                except Exception:
+                    pass
+                try:
+                    with open('/tmp/pycreative_present_allocations.log', 'a') as _af:
+                        _af.write(f'{time.time():.6f} ensure_resources: tex_id={self.tex_id} alloc_w={int(bw)} alloc_h={int(bh)}\n')
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, internal, bw, bh, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, None)
             # If a setup background color is known, initialize the texture
             # contents to that opaque color so alpha isn't left zero. This
             # protects against drivers or Skia surface creation paths that
@@ -140,13 +262,23 @@ class SkiaGLPresenter:
                             buf[idx + 2] = b
                             buf[idx + 3] = 255
                             idx += 4
-                        # Upload as full texture data
+                        # Upload as full texture data — ensure unpack alignment = 1
                         try:
-                            gl.glTexSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, w, h, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, buf)
-                        except Exception:
-                            # Some platforms may require a pointer cast
                             try:
-                                gl.glTexSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, w, h, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, ctypes.byref(buf))
+                                gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
+                            except Exception:
+                                pass
+                            try:
+                                gl.glTexSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, w, h, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, buf)
+                            except Exception:
+                                # Some platforms may require a pointer cast
+                                try:
+                                    gl.glTexSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, w, h, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, ctypes.byref(buf))
+                                except Exception:
+                                    pass
+                        finally:
+                            try:
+                                gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 4)
                             except Exception:
                                 pass
                     except Exception:
@@ -168,6 +300,20 @@ class SkiaGLPresenter:
             gl.glGenFramebuffers(1, ctypes.byref(fbo))
             self.fbo_id = int(fbo.value)
             gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, int(self.fbo_id))
+            # Make sure the viewport matches the backing size when the
+            # FBO is bound so GPU drawing (and Skia) has the correct extents.
+            try:
+                try:
+                    bw, bh = getattr(self, '_backing_size')
+                except Exception:
+                    bw, bh = int(self.width), int(self.height)
+                if bw and bh:
+                    try:
+                        gl.glViewport(0, 0, int(bw), int(bh))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             # attach texture
             try:
                 gl.glFramebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D, int(self.tex_id), 0)
@@ -230,7 +376,16 @@ class SkiaGLPresenter:
             # If we already have a surface and gr_context for the same size,
             # reuse it to preserve GPU-side pixels across frames rather
             # than recreating a new Skia surface each frame.
-            if getattr(self, 'surface', None) is not None and getattr(self, 'gr_context', None) is not None and self._surface_size == (int(self.width), int(self.height)):
+            # If we already have a surface and gr_context for the same
+            # device-pixel backing size, reuse it. Compare against the
+            # recorded backing size rather than the logical presenter
+            # width/height to avoid reusing a surface created for the
+            # wrong framebuffer scale (HiDPI displays).
+            try:
+                current_backing = getattr(self, '_backing_size')
+            except Exception:
+                current_backing = (int(self.width), int(self.height))
+            if getattr(self, 'surface', None) is not None and getattr(self, 'gr_context', None) is not None and self._surface_size == (int(current_backing[0]), int(current_backing[1])):
                 try:
                         if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
                             try:
@@ -260,8 +415,27 @@ class SkiaGLPresenter:
             except Exception:
                 fb_fmt = int(gl.GL_RGBA)
 
+            # Prefer to create the backend render target at the device pixel
+            # backing size recorded when the GL texture was allocated.
+            try:
+                bw, bh = getattr(self, '_backing_size')
+            except Exception:
+                bw, bh = int(self.width), int(self.height)
+            # Debug: record the size used to create the GrBackendRenderTarget
+            try:
+                try:
+                    logging.getLogger(__name__).debug('create_skia_surface: creating backend RT fbo=%s tex=%s size=%s', self.fbo_id, self.tex_id, (int(bw), int(bh)))
+                except Exception:
+                    pass
+                try:
+                    with open('/tmp/pycreative_present_allocations.log', 'a') as _af:
+                        _af.write(f'create_skia_surface: fbo={self.fbo_id} tex={self.tex_id} rt_w={int(bw)} rt_h={int(bh)}\n')
+                except Exception:
+                    pass
+            except Exception:
+                pass
             fb_info = skia.GrGLFramebufferInfo(int(self.fbo_id or 0), fb_fmt)
-            backend_rt = skia.GrBackendRenderTarget(self.width, self.height, 0, 0, fb_info)
+            backend_rt = skia.GrBackendRenderTarget(int(bw), int(bh), 0, 0, fb_info)
             surf = skia.Surface.MakeFromBackendRenderTarget(
                 ctx,
                 backend_rt,
@@ -283,7 +457,20 @@ class SkiaGLPresenter:
             self.gr_context = ctx
             self.surface = surf
             try:
-                self._surface_size = (int(self.width), int(self.height))
+                # Record the actual device-pixel size the Skia surface was
+                # created for. Use the recorded backing size when available
+                # and fall back to the presenter's configured width/height.
+                try:
+                    bw, bh = getattr(self, '_backing_size', (int(self.width), int(self.height)))
+                except Exception:
+                    bw, bh = int(self.width), int(self.height)
+                self._surface_size = (int(bw), int(bh))
+                # Also update backing size to match the surface to keep
+                # other code paths consistent.
+                try:
+                    self._backing_size = (int(bw), int(bh))
+                except Exception:
+                    pass
             except Exception:
                 self._surface_size = None
             try:
@@ -331,6 +518,18 @@ class SkiaGLPresenter:
                 gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, int(self.fbo_id or 0))
             except Exception:
                 pass
+            # Debug: log current GL viewport and bound FBO to diagnose HiDPI mapping
+            try:
+                vp = (gl.GLint * 4)()
+                gl.glGetIntegerv(gl.GL_VIEWPORT, vp)
+                try:
+                    fb = (gl.GLint)()
+                    gl.glGetIntegerv(gl.GL_FRAMEBUFFER_BINDING, fb)
+                    logging.getLogger(__name__).debug('render_commands: GL viewport=%s bound_fbo=%s', (int(vp[2]), int(vp[3])), int(fb.value))
+                except Exception:
+                    logging.getLogger(__name__).debug('render_commands: GL viewport=%s', (int(vp[2]), int(vp[3])))
+            except Exception:
+                pass
 
         # Get canvas and replay commands
         try:
@@ -357,15 +556,203 @@ class SkiaGLPresenter:
         # cleared by `background()`.
 
         # Call the replay function provided by the engine to draw recorded ops
+        try:
+            if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                try:
+                    logging.getLogger(__name__).debug('render_commands: calling replay_fn with %s commands', len(commands))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # The recorded commands are in logical (CSS) pixels. When replaying
+        # into a GPU-backed Skia surface that is created at device/backing
+        # pixels we must scale the Skia canvas so the replayer can draw in
+        # logical coordinates and the output maps correctly onto the
+        # backing texture (fixes HiDPI/Retina half-size rendering).
+        try:
+            bw, bh = None, None
             try:
-                if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                    try:
-                        logging.getLogger(__name__).debug('render_commands: calling replay_fn with %s commands', len(commands))
-                    except Exception:
-                        pass
+                if getattr(self, '_surface_size', None):
+                    bw, bh = self._surface_size
+            except Exception:
+                bw, bh = None, None
+            if bw is None or bh is None:
+                try:
+                    if getattr(self, '_backing_size', None):
+                        bw, bh = self._backing_size
+                except Exception:
+                    bw, bh = None, None
+
+            # Use the preserved logical size (the size the presenter was
+            # initially created with) when computing the replay scale.
+            # Fall back to the presenter's current width/height if the
+            # logical size is not available for any reason.
+            try:
+                lw, lh = getattr(self, '_logical_size', (None, None))
+                lw = int(lw) if lw is not None else int(getattr(self, 'width', 0) or 0)
+                lh = int(lh) if lh is not None else int(getattr(self, 'height', 0) or 0)
+            except Exception:
+                lw = int(getattr(self, 'width', 0) or 0)
+                lh = int(getattr(self, 'height', 0) or 0)
+
+            # Debug: log the resolved sizes used for potential scaling so we
+            # can diagnose why the scale path may be skipped on some runs.
+            try:
+                logging.getLogger(__name__).debug('render_commands: resolved sizes bw=%r bh=%r lw=%r lh=%r', bw, bh, lw, lh)
             except Exception:
                 pass
-        replay_fn(commands, canvas)
+            try:
+                # Write a small trace into repo-local tmp so we can inspect
+                # sizes without relying on terminal output (avoids binary
+                # flooding/truncation during analysis runs).
+                _dbg_path = 'tmp/pycreative_present_resolved_sizes.log'
+                try:
+                    with open(_dbg_path, 'a') as _df:
+                        _df.write(f"resolved sizes bw={bw} bh={bh} lw={lw} lh={lh}\n")
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+            if bw and bh and lw and lh:
+                try:
+                    sx = float(bw) / float(lw)
+                    sy = float(bh) / float(lh)
+                    # debug log
+                    try:
+                        logging.getLogger(__name__).debug('render_commands: applying canvas scale sx=%r sy=%r (bw=%r bh=%r lw=%r lh=%r)', sx, sy, bw, bh, lw, lh)
+                    except Exception:
+                        pass
+
+                    # Log canvas state before applying scale so we can compare
+                    # to the canvas observed inside the replayer.
+                    try:
+                        try:
+                            _bef = canvas.getTotalMatrix().asAffine()
+                        except Exception:
+                            # some skia-python versions differ
+                            try:
+                                _bef = canvas.getTotalMatrix().asM33()
+                            except Exception:
+                                _bef = None
+                        logging.getLogger(__name__).debug('render_commands: canvas BEFORE scale id=%r matrix=%r', id(canvas), _bef)
+                    except Exception:
+                        pass
+                    try:
+                        _dbg_path = 'tmp/pycreative_present_canvas_before.log'
+                        try:
+                            with open(_dbg_path, 'a') as _df:
+                                _df.write(f"BEFORE id={id(canvas)} matrix={_bef}\n")
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+
+                    # save/restore so we don't leak transforms
+                    try:
+                        canvas.save()
+                    except Exception:
+                        pass
+
+                    # Try to scale; fall back to matrix concat if needed
+                    try:
+                        canvas.scale(sx, sy)
+                    except Exception:
+                        try:
+                            import skia as _skia
+                            m = _skia.Matrix()
+                            m.setScale(sx, sy)
+                            canvas.concat(m)
+                        except Exception:
+                            pass
+
+                    # Log canvas state after applying scale so we can verify the
+                    # transform took effect on the same canvas object.
+                    try:
+                        try:
+                            _aft = canvas.getTotalMatrix().asAffine()
+                        except Exception:
+                            try:
+                                _aft = canvas.getTotalMatrix().asM33()
+                            except Exception:
+                                _aft = None
+                        logging.getLogger(__name__).debug('render_commands: canvas AFTER scale id=%r matrix=%r', id(canvas), _aft)
+                    except Exception:
+                        pass
+                    try:
+                        _dbg_path = 'tmp/pycreative_present_canvas_after.log'
+                        try:
+                            with open(_dbg_path, 'a') as _df:
+                                _df.write(f"AFTER id={id(canvas)} matrix={_aft}\n")
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+
+                    # Optional forced full-coverage test draw (draws a semi-transparent
+                    # red rectangle across the logical canvas so we can verify the
+                    # Skia->FBO->present pipeline actually wrote to the full backing).
+                    try:
+                        if os.getenv('PYCREATIVE_DEBUG_FORCE_FULL_DRAW', '') == '1':
+                            try:
+                                import skia as _skia
+                                _paint = _skia.Paint()
+                                _paint.setStyle(_skia.Paint.kFill_Style)
+                                # semi-transparent red
+                                try:
+                                    _paint.setColor(_skia.ColorSetARGB(192, 255, 0, 0))
+                                except Exception:
+                                    try:
+                                        _paint.setColor(0xC0FF0000)
+                                    except Exception:
+                                        pass
+                                # draw in logical coordinates (will be scaled)
+                                try:
+                                    _rect = _skia.Rect.MakeLTRB(0, 0, float(lw), float(lh))
+                                    canvas.drawRect(_rect, _paint)
+                                except Exception:
+                                    try:
+                                        canvas.drawRect(0, 0, float(lw), float(lh), _paint)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
+                    try:
+                        logging.getLogger(__name__).debug('render_commands: about to call replay_fn id=%r', id(canvas))
+                    except Exception:
+                        pass
+                    try:
+                        _dbg_path = 'tmp/pycreative_present_about_to_replay.log'
+                        try:
+                            with open(_dbg_path, 'a') as _df:
+                                _df.write(f"ABOUT_TO_REPLAY id={id(canvas)}\n")
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+
+                    try:
+                        replay_fn(commands, canvas)
+                    finally:
+                        try:
+                            canvas.restore()
+                        except Exception:
+                            pass
+                    # we've delegated and restored, skip the default call
+                    goto_skip = True
+                except Exception:
+                    goto_skip = False
+            else:
+                goto_skip = False
+        except Exception:
+            goto_skip = False
+
+        if not (locals().get('goto_skip', False)):
+            replay_fn(commands, canvas)
 
         # Flush/submit
         try:
@@ -479,8 +866,15 @@ class SkiaGLPresenter:
                             try:
                                 from pyglet import gl as _gl
                                 from PIL import Image as _Image
-                                w = int(self.width)
-                                h = int(self.height)
+                                # Prefer device-pixel surface/backing size for readback
+                                try:
+                                    w, h = getattr(self, '_surface_size') or getattr(self, '_backing_size')
+                                except Exception:
+                                    try:
+                                        w, h = getattr(self, '_backing_size')
+                                    except Exception:
+                                        w = int(self.width)
+                                        h = int(self.height)
                                 try:
                                     logging.getLogger(__name__).debug('save_frame glReadPixels using w=%d h=%d fbo=%s', w, h, getattr(self, 'fbo_id', None))
                                     try:
@@ -493,9 +887,123 @@ class SkiaGLPresenter:
                                     pass
                                 _gl.glBindFramebuffer(_gl.GL_FRAMEBUFFER, int(self.fbo_id or 0))
                                 buf = (ctypes.c_ubyte * (w * h * 4))()
-                                _gl.glReadPixels(0, 0, w, h, _gl.GL_RGBA, _gl.GL_UNSIGNED_BYTE, ctypes.byref(buf))
+                                # Ensure pack alignment is 1 for tightly-packed RGBA rows
+                                try:
+                                    _gl.glPixelStorei(_gl.GL_PACK_ALIGNMENT, 1)
+                                except Exception:
+                                    pass
+                                try:
+                                    _gl.glReadPixels(0, 0, w, h, _gl.GL_RGBA, _gl.GL_UNSIGNED_BYTE, ctypes.byref(buf))
+                                finally:
+                                    try:
+                                        _gl.glPixelStorei(_gl.GL_PACK_ALIGNMENT, 4)
+                                    except Exception:
+                                        pass
                                 raw = bytes(buf)
-                                img_p = _Image.frombytes('RGBA', (w, h), raw)
+                                # Diagnostic: record raw readback length and expected size
+                                try:
+                                    rb_len = len(raw)
+                                    expect = int(w) * int(h) * 4
+                                    try:
+                                        with open('/tmp/pycreative_present_readbacks.log', 'a') as _rf:
+                                            _rf.write(f'{time.time():.6f} save_frame glReadPixels raw_bytes={rb_len} expected={expect} w={w} h={h} fbo={getattr(self, "fbo_id", None)}\n')
+                                    except Exception:
+                                        pass
+                                    try:
+                                        logging.getLogger(__name__).debug('save_frame glReadPixels raw_bytes=%d expected=%d w=%d h=%d fbo=%s', rb_len, expect, w, h, getattr(self, 'fbo_id', None))
+                                    except Exception:
+                                        pass
+                                except Exception:
+                                    pass
+                                try:
+                                    # Debug: record what arguments we will pass to Pillow.frombytes
+                                    try:
+                                        rb_len = len(raw)
+                                    except Exception:
+                                        rb_len = None
+                                    try:
+                                        expect = int(w) * int(h) * 4
+                                    except Exception:
+                                        expect = None
+                                    msg = f'FROMBYTES_CALL: tag=save_frame w={w} h={h} rb_len={rb_len} expect={expect}'
+                                    try:
+                                        logging.getLogger(__name__).debug(msg)
+                                    except Exception:
+                                        pass
+                                    try:
+                                        with open('/tmp/pycreative_frombytes_debug.log', 'a') as _fb:
+                                            _fb.write(msg + '\n')
+                                    except Exception:
+                                        pass
+                                except Exception:
+                                    pass
+
+                                # Only call Pillow.frombytes when the raw buffer length
+                                # matches the expected size for (w,h). If it doesn't match
+                                # try to infer a correct (w,h) from common candidates
+                                # (surface/backing/logical) so we avoid interpreting a
+                                # 400x400 buffer as 200x200 which produced the half-size
+                                # quadrant artifact during debugging.
+                                try:
+                                    rb_len = len(raw)
+                                except Exception:
+                                    rb_len = None
+                                inferred_w = w
+                                inferred_h = h
+                                expect = None
+                                try:
+                                    expect = int(inferred_w) * int(inferred_h) * 4
+                                except Exception:
+                                    expect = None
+                                if rb_len is not None and expect is not None and rb_len != expect:
+                                    # Candidates to try: surface_size, backing_size, presenter's logical size
+                                    candidates = []
+                                    try:
+                                        candidates.append(getattr(self, '_surface_size'))
+                                    except Exception:
+                                        pass
+                                    try:
+                                        candidates.append(getattr(self, '_backing_size'))
+                                    except Exception:
+                                        pass
+                                    try:
+                                        candidates.append(getattr(self, '_logical_size'))
+                                    except Exception:
+                                        pass
+                                    try:
+                                        candidates.append((int(self.width), int(self.height)))
+                                    except Exception:
+                                        pass
+                                    found = False
+                                    for cand in candidates:
+                                        try:
+                                            if not cand:
+                                                continue
+                                            cw, ch = int(cand[0]), int(cand[1])
+                                            if cw * ch * 4 == rb_len:
+                                                inferred_w, inferred_h = cw, ch
+                                                found = True
+                                                try:
+                                                    logging.getLogger(__name__).debug('FROMBYTES_CALL: inferred dims for save_frame -> %dx%d (rb_len=%d)', inferred_w, inferred_h, rb_len)
+                                                except Exception:
+                                                    pass
+                                                try:
+                                                    with open('/tmp/pycreative_frombytes_debug.log', 'a') as _fb:
+                                                        _fb.write(f'INFERRED_SAVE_FRAME w={inferred_w} h={inferred_h} rb_len={rb_len}\n')
+                                                except Exception:
+                                                    pass
+                                                break
+                                        except Exception:
+                                            continue
+                                    if not found:
+                                        try:
+                                            logging.getLogger(__name__).debug('FROMBYTES_CALL: unable to infer valid dims for save_frame rb_len=%r w=%r h=%r', rb_len, w, h)
+                                        except Exception:
+                                            pass
+                                        # Skip this save_frame write to avoid corrupt output
+                                        raise RuntimeError('raw readback size mismatch; skipping save_frame')
+
+                                img_p = _Image.frombytes('RGBA', (int(inferred_w), int(inferred_h)), raw)
                                 img_p = img_p.transpose(_Image.FLIP_TOP_BOTTOM)
                                 import io as _io
                                 bio = _io.BytesIO()
@@ -571,7 +1079,7 @@ class SkiaGLPresenter:
                         if data is None:
                             logging.getLogger(__name__).debug('encodeToData returned None; falling back to glReadPixels')
                             # Fallback: read pixels from the bound FBO using glReadPixels.
-                            # This is guarded and best-effort; failure here should not raise.
+                            # Use device-pixel backing/surface size when possible.
                             try:
                                 from pyglet import gl as _gl
                                 import io as _io
@@ -599,13 +1107,115 @@ class SkiaGLPresenter:
                                     pass
 
                                 try:
-                                    w = int(self.width)
-                                    h = int(self.height)
+                                    try:
+                                        w, h = getattr(self, '_surface_size') or getattr(self, '_backing_size')
+                                    except Exception:
+                                        try:
+                                            w, h = getattr(self, '_backing_size')
+                                        except Exception:
+                                            w = int(self.width)
+                                            h = int(self.height)
                                     # Read pixels into a ctypes buffer (RGBA)
                                     buf = (ctypes.c_ubyte * (w * h * 4))()
                                     _gl.glReadPixels(0, 0, w, h, _gl.GL_RGBA, _gl.GL_UNSIGNED_BYTE, ctypes.byref(buf))
                                     raw = bytes(buf)
-                                    img_p = _Image.frombytes('RGBA', (w, h), raw)
+                                    # Diagnostic: record raw readback length and expected size
+                                    try:
+                                        rb_len = len(raw)
+                                        expect = int(w) * int(h) * 4
+                                        try:
+                                            with open('/tmp/pycreative_present_readbacks.log', 'a') as _rf:
+                                                _rf.write(f'debug_frame glReadPixels raw_bytes={rb_len} expected={expect} w={w} h={h} fbo={getattr(self, "fbo_id", None)}\n')
+                                        except Exception:
+                                            pass
+                                        try:
+                                            logging.getLogger(__name__).debug('debug glReadPixels raw_bytes=%d expected=%d w=%d h=%d fbo=%s', rb_len, expect, w, h, getattr(self, 'fbo_id', None))
+                                        except Exception:
+                                            pass
+                                    except Exception:
+                                        pass
+                                    try:
+                                        # Debug: record what arguments we will pass to Pillow.frombytes
+                                        try:
+                                            rb_len = len(raw)
+                                        except Exception:
+                                            rb_len = None
+                                        try:
+                                            expect = int(w) * int(h) * 4
+                                        except Exception:
+                                            expect = None
+                                        msg = f'FROMBYTES_CALL: tag=debug_frame_fallback w={w} h={h} rb_len={rb_len} expect={expect}'
+                                        try:
+                                            logging.getLogger(__name__).debug(msg)
+                                        except Exception:
+                                            pass
+                                        try:
+                                            with open('/tmp/pycreative_frombytes_debug.log', 'a') as _fb:
+                                                _fb.write(msg + '\n')
+                                        except Exception:
+                                            pass
+                                    except Exception:
+                                        pass
+
+                                    try:
+                                        rb_len = len(raw)
+                                    except Exception:
+                                        rb_len = None
+                                    inferred_w = w
+                                    inferred_h = h
+                                    expect = None
+                                    try:
+                                        expect = int(inferred_w) * int(inferred_h) * 4
+                                    except Exception:
+                                        expect = None
+                                    if rb_len is not None and expect is not None and rb_len != expect:
+                                        # Try to infer correct dims from common candidates
+                                        candidates = []
+                                        try:
+                                            candidates.append(getattr(self, '_surface_size'))
+                                        except Exception:
+                                            pass
+                                        try:
+                                            candidates.append(getattr(self, '_backing_size'))
+                                        except Exception:
+                                            pass
+                                        try:
+                                            candidates.append(getattr(self, '_logical_size'))
+                                        except Exception:
+                                            pass
+                                        try:
+                                            candidates.append((int(self.width), int(self.height)))
+                                        except Exception:
+                                            pass
+                                        found = False
+                                        for cand in candidates:
+                                            try:
+                                                if not cand:
+                                                    continue
+                                                cw, ch = int(cand[0]), int(cand[1])
+                                                if cw * ch * 4 == rb_len:
+                                                    inferred_w, inferred_h = cw, ch
+                                                    found = True
+                                                    try:
+                                                        logging.getLogger(__name__).debug('FROMBYTES_CALL: inferred dims for debug_frame_fallback -> %dx%d (rb_len=%d)', inferred_w, inferred_h, rb_len)
+                                                    except Exception:
+                                                        pass
+                                                    try:
+                                                        with open('/tmp/pycreative_frombytes_debug.log', 'a') as _fb:
+                                                            _fb.write(f'INFERRED_DEBUG_FRAME w={inferred_w} h={inferred_h} rb_len={rb_len}\n')
+                                                    except Exception:
+                                                        pass
+                                                    break
+                                            except Exception:
+                                                continue
+                                        if not found:
+                                            try:
+                                                logging.getLogger(__name__).debug('FROMBYTES_CALL: unable to infer valid dims for debug_frame rb_len=%r w=%r h=%r', rb_len, w, h)
+                                            except Exception:
+                                                pass
+                                            raise RuntimeError('raw readback size mismatch; skipping debug_frame snapshot')
+
+                                    img_p = _Image.frombytes('RGBA', (int(inferred_w), int(inferred_h)), raw)
                                     img_p = img_p.transpose(_Image.FLIP_TOP_BOTTOM)
                                     bio = _io.BytesIO()
                                     img_p.save(bio, 'PNG')
@@ -663,405 +1273,278 @@ class SkiaGLPresenter:
         return surf
 
     def present(self):
-        # Draw the presenter texture to the default framebuffer using the
-        # fixed-function pipeline. This avoids depending on a shader/VBO setup
-        # which may be fragile across platforms and driver combinations.
+        # Simpler, robust present implementation with minimal nesting so
+        # syntax errors are less likely and diagnostics are still emitted.
         from pyglet import gl
+
+        # Query drawable size (viewport) if available
         try:
-            # Basic diagnostics
-            # One-time GL diagnostics to help identify runtime capabilities.
+            vp = (gl.GLint * 4)()
+            gl.glGetIntegerv(gl.GL_VIEWPORT, vp)
+            vw = int(vp[2])
+            vh = int(vp[3])
+        except Exception:
+            vw = None
+            vh = None
+
+        # If the drawable size differs from our presenter logical size,
+        # resize now and ask the caller to re-render once at the correct
+        # device-pixel size by returning True.
+        if vw and vh and (int(getattr(self, 'width', 0)) != vw or int(getattr(self, 'height', 0)) != vh):
             try:
-                if not getattr(self, '_present_diag_done', False):
-                    def _gl_str(name):
-                        try:
-                            s = gl.glGetString(name)
-                            return s.decode('utf-8', 'ignore') if s else '<none>'
-                        except Exception:
-                            return '<unknown>'
-                    info = {
-                        'GL_VERSION': _gl_str(gl.GL_VERSION),
-                        'GL_RENDERER': _gl_str(gl.GL_RENDERER),
-                        'GL_VENDOR': _gl_str(gl.GL_VENDOR),
-                        'GL_SHADING_LANGUAGE_VERSION': _gl_str(gl.GL_SHADING_LANGUAGE_VERSION),
-                        'HAS_glBlitFramebuffer': hasattr(gl, 'glBlitFramebuffer'),
-                    }
+                logging.getLogger(__name__).debug('present early-detect: viewport %s,%s != presenter %s,%s; resizing', vw, vh, getattr(self, 'width', None), getattr(self, 'height', None))
+            except Exception:
+                pass
+            try:
+                self.resize(int(vw), int(vh))
+                return True
+            except Exception:
+                pass
+
+        # Try a framebuffer blit (preferred); fall back to a simple bind+no-op
+        # if blit is unavailable or fails.
+        try:
+            try:
+                gl.glBindFramebuffer(gl.GL_READ_FRAMEBUFFER, int(self.fbo_id))
+                gl.glBindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0)
+            except Exception:
+                try:
+                    gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, int(self.fbo_id))
+                except Exception:
+                    pass
+
+            if hasattr(gl, 'glBlitFramebuffer'):
+                try:
+                    # Source (FBO / Skia surface) size should be the device-pixel
+                    # backing size the texture/FBO was allocated with. Prefer the
+                    # actual Skia surface size, falling back to the recorded
+                    # backing size or the presenter's logical size.
                     try:
-                        logging.getLogger(__name__).info('SkiaGLPresenter GL diagnostics: %r', info)
+                        src_w, src_h = getattr(self, '_surface_size') or getattr(self, '_backing_size')
+                    except Exception:
+                        try:
+                            src_w, src_h = getattr(self, '_backing_size')
+                        except Exception:
+                            src_w, src_h = int(self.width), int(self.height)
+                    dst_w = int(vw) if vw is not None else int(self.width)
+                    dst_h = int(vh) if vh is not None else int(self.height)
+                    gl.glBlitFramebuffer(0, 0, int(src_w), int(src_h), 0, 0, dst_w, dst_h, gl.GL_COLOR_BUFFER_BIT, gl.GL_NEAREST)
+                    try:
+                        self._last_present_mode = 'blit'
                     except Exception:
                         pass
-                    self._present_diag_done = True
-            except Exception:
-                pass
-
-            # Bind default framebuffer
-            try:
-                gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0)
-                # If a setup background color was recorded on the presenter,
-                # clear the default framebuffer to that opaque color so any
-                # transparent pixels in the presenter's texture show the
-                # intended background instead of black/transparent.
-                try:
-                    bg = getattr(self, '_setup_background_color', None)
-                    if bg is not None:
-                        try:
-                            r = float(int(bg[0]) / 255.0)
-                            g = float(int(bg[1]) / 255.0)
-                            b = float(int(bg[2]) / 255.0)
-                            gl.glClearColor(r, g, b, 1.0)
-                            gl.glClear(gl.GL_COLOR_BUFFER_BIT)
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-            except Exception as e:
-                try:
-                    logging.getLogger(__name__).debug('present: glBindFramebuffer raised %r', repr(e))
-                except Exception:
-                    pass
-            try:
-                err = int(gl.glGetError())
-                if err != 0:
+                except Exception as e:
                     try:
-                        logging.getLogger(__name__).debug('present: glGetError after glBindFramebuffer %r', err)
+                        logging.getLogger(__name__).debug('present: glBlitFramebuffer raised %r', repr(e))
                     except Exception:
                         pass
-            except Exception:
-                pass
-
-            # We attempt a framebuffer blit first (core-profile friendly).
-            # Only if blit is unsupported or fails do we attempt a textured-quad
-            # fallback. Avoid calling deprecated fixed-function enums like
-            # glEnable(GL_TEXTURE_2D) in core profiles.
-
-            # Save projection/modelview and set an ortho matching the texture size
-            try:
-                gl.glMatrixMode(gl.GL_PROJECTION)
-                gl.glPushMatrix()
-                gl.glLoadIdentity()
-                gl.glOrtho(0, int(self.width), 0, int(self.height), -1, 1)
-                gl.glMatrixMode(gl.GL_MODELVIEW)
-                gl.glPushMatrix()
-                gl.glLoadIdentity()
-            except Exception:
-                pass
-
-            # Draw a fullscreen quad covering [0..width] x [0..height]
-            try:
-                # Query the current viewport to get the actual drawable size
-                vp = (gl.GLint * 4)()
+            else:
                 try:
-                    gl.glGetIntegerv(gl.GL_VIEWPORT, vp)
-                    vw = int(vp[2])
-                    vh = int(vp[3])
-                except Exception:
-                    vw = int(self.width)
-                    vh = int(self.height)
-                try:
-                    err = int(gl.glGetError())
-                    if err != 0:
-                        pass
+                    # No blit available; attempt to bind back to default
+                    gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0)
                 except Exception:
                     pass
-                # Decide preferred present path. If `force_present_mode` is set,
-                # prefer that path (and fall back if it fails). Otherwise try
-                # blit first, then VBO, then immediate-mode.
-                preferred = getattr(self, 'force_present_mode', None)
-                # Try a direct framebuffer blit first (more portable to core profiles)
-                blit_done = False
+        finally:
+            try:
+                gl.glBindFramebuffer(gl.GL_READ_FRAMEBUFFER, 0)
+            except Exception:
                 try:
-                    # Bind read (source) to our FBO and draw (dest) to default
-                    try:
-                        gl.glBindFramebuffer(gl.GL_READ_FRAMEBUFFER, int(self.fbo_id))
-                        gl.glBindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0)
-                    except Exception:
-                        # Some drivers may not expose separate READ/DRAW enums; try GL_FRAMEBUFFER
-                        try:
-                            gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, int(self.fbo_id))
-                        except Exception:
-                            pass
-                    # Perform blit
-                    try:
-                        if preferred in (None, 'blit'):
-                            if hasattr(gl, 'glBlitFramebuffer'):
-                                gl.glBlitFramebuffer(0, 0, int(self.width), int(self.height), 0, 0, int(vw), int(vh), gl.GL_COLOR_BUFFER_BIT, gl.GL_NEAREST)
-                                blit_done = True
-                                try:
-                                    self._last_present_mode = 'blit'
-                                except Exception:
-                                    pass
-                                try:
-                                    err = int(gl.glGetError())
-                                    if err != 0:
-                                        logging.getLogger(__name__).debug('present: glBlitFramebuffer glGetError=%r', err)
-                                except Exception:
-                                    pass
-                            else:
-                                blit_done = False
-                        else:
-                            # forced a non-blit mode; skip attempting blit
-                            blit_done = False
-                    except Exception as e:
-                        try:
-                            logging.getLogger(__name__).debug('present: glBlitFramebuffer raised %r', repr(e))
-                        except Exception:
-                            pass
-                    # Unbind any read framebuffer bindings we changed
-                    try:
-                        gl.glBindFramebuffer(gl.GL_READ_FRAMEBUFFER, 0)
-                    except Exception:
-                        try:
-                            gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0)
-                        except Exception:
-                            pass
+                    gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0)
                 except Exception:
                     pass
 
-                if not blit_done:
-                    # Try a modern, core-profile friendly VBO+shader textured-quad
-                    # fallback (GLSL 1.20 variant for macOS). This avoids
-                    # immediate-mode calls which are invalid in core profiles.
-                    vbo_ok = False
-                    try:
-                        # Ensure program and VBO exist (lazily created)
-                        self._ensure_textured_quad_resources()
-                        # Draw using the shader and VBO. Temporarily disable
-                        # GL blending so any alpha in the presenter's texture
-                        # does not blend with the default framebuffer (which
-                        # could show as white). Remember previous state and
-                        # restore it afterwards.
-                        try:
-                            was_blend = False
-                            try:
-                                was_blend = bool(gl.glIsEnabled(gl.GL_BLEND))
-                            except Exception:
-                                was_blend = False
-                            try:
-                                gl.glDisable(gl.GL_BLEND)
-                            except Exception:
-                                pass
-                        except Exception:
-                            was_blend = False
-
-                        self._draw_textured_quad_vbo(int(self.tex_id), flip_y=True)
-
-                        try:
-                            if was_blend:
-                                try:
-                                    gl.glEnable(gl.GL_BLEND)
-                                except Exception:
-                                    pass
-                        except Exception:
-                            pass
-                        vbo_ok = True
-                        try:
-                            self._last_present_mode = 'vbo'
-                        except Exception:
-                            pass
-                    except Exception:
-                        vbo_ok = False
-
-                    if not vbo_ok:
-                        # Last-resort: fall back to immediate-mode textured-quad
-                        # if present in this GL profile (kept for compatibility).
-                        used_tex = False
-                        try:
-                            try:
-                                gl.glBindTexture(gl.GL_TEXTURE_2D, int(self.tex_id))
-                                used_tex = True
-                            except Exception:
-                                pass
-                        except Exception:
-                            used_tex = False
-
-                        try:
-                            gl.glBegin(gl.GL_QUADS)
-                        except Exception:
-                            pass
-                        try:
-                            gl.glTexCoord2f(0.0, 0.0)
-                            gl.glVertex2f(0.0, 0.0)
-                            gl.glTexCoord2f(1.0, 0.0)
-                            gl.glVertex2f(float(vw), 0.0)
-                            gl.glTexCoord2f(1.0, 1.0)
-                            gl.glVertex2f(float(vw), float(vh))
-                            gl.glTexCoord2f(0.0, 1.0)
-                            gl.glVertex2f(0.0, float(vh))
-                        except Exception:
-                            pass
-                        try:
-                            gl.glEnd()
-                        except Exception:
-                            pass
-                        # record immediate-mode usage
-                        try:
-                            self._last_present_mode = 'immediate'
-                        except Exception:
-                            pass
-                        if used_tex:
-                            try:
-                                gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
-                            except Exception:
-                                pass
-                            try:
-                                gl.glDisable(gl.GL_TEXTURE_2D)
-                            except Exception:
-                                pass
-                # Log which present mode was used for this frame
+        # Lightweight diagnostics (short line and JSON record) for offline analysis
+        try:
+            if os.getenv('PYCREATIVE_DEBUG_PRESENT', '') == '1':
                 try:
-                    if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                        try:
-                            logging.getLogger(__name__).debug('present used mode=%s viewport=%s %s', getattr(self, '_last_present_mode', None), vw, vh)
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-
-            except Exception:
-                # Suppress detailed fallback errors in normal runs
-                pass
-
-            # Restore matrices
-            try:
-                gl.glMatrixMode(gl.GL_PROJECTION)
-                gl.glPopMatrix()
-                gl.glMatrixMode(gl.GL_MODELVIEW)
-                gl.glPopMatrix()
-            except Exception:
-                pass
-
-            # Optional runtime diagnostic: report which present mode was
-            # used and any GL error after presenting. Enabled via
-            # PYCREATIVE_DEBUG_PRESENT=1 so it can be toggled without code
-            # changes during debugging sessions.
-            try:
-                if os.getenv('PYCREATIVE_DEBUG_PRESENT', '') == '1':
+                    from pyglet import gl as _gl
                     try:
-                        from pyglet import gl as _gl
-                        try:
-                            _err = int(_gl.glGetError())
-                        except Exception:
-                            _err = None
+                        _err = int(_gl.glGetError())
                     except Exception:
                         _err = None
+                except Exception:
+                    _err = None
+                try:
+                    print(f'PRESENTER DEBUG: mode={getattr(self, "_last_present_mode", None)} glError={_err}')
+                except Exception:
+                    pass
+                try:
+                    with open('/tmp/pycreative_present_log.txt', 'a') as _f:
+                        _f.write(f'mode={getattr(self, "_last_present_mode", None)} glError={_err}\n')
+                except Exception:
+                    pass
+                try:
+                    full = {
+                        'ts': time.time(),
+                        'present_mode': getattr(self, '_last_present_mode', None),
+                        'viewport_w': int(vw) if vw is not None else None,
+                        'viewport_h': int(vh) if vh is not None else None,
+                        'presenter_width': int(getattr(self, 'width', None)) if getattr(self, 'width', None) is not None else None,
+                        'presenter_height': int(getattr(self, 'height', None)) if getattr(self, 'height', None) is not None else None,
+                        'backing_size': getattr(self, '_backing_size', None),
+                        'surface_size': getattr(self, '_surface_size', None),
+                        'tex_id': int(getattr(self, 'tex_id', None)) if getattr(self, 'tex_id', None) is not None else None,
+                        'fbo_id': int(getattr(self, 'fbo_id', None)) if getattr(self, 'fbo_id', None) is not None else None,
+                    }
                     try:
-                        # Print directly to stdout to ensure visibility in
-                        # CLI runs; logging may be configured at a higher
-                        # level in user environments.
-                        print(f'PRESENTER DEBUG: mode={getattr(self, "_last_present_mode", None)} glError={_err}')
+                        with open('/tmp/pycreative_present_full_diagnostics.log', 'a') as _f:
+                            _f.write(json.dumps(full) + '\n')
                     except Exception:
                         pass
-                    # Also append a small debug line to /tmp so CI or headless
-                    # runs can inspect it even if stdout is swallowed.
-                    try:
-                        with open('/tmp/pycreative_present_log.txt', 'a') as _f:
-                            _f.write(f'mode={getattr(self, "_last_present_mode", None)} glError={_err}\n')
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
-            # Optional: dump the default framebuffer after present to verify what was drawn
-            try:
-                if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE_DUMP', '') == '1':
+        # Optional post-present framebuffer dump for visual verification
+        try:
+            if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE_DUMP', '') == '1':
+                try:
+                    from pyglet import gl as _gl
+                    w = int(vw) if vw is not None else int(self.width)
+                    h = int(vh) if vh is not None else int(self.height)
+                    buf = (_gl.GLubyte * (w * h * 4))()
+                    _gl.glBindFramebuffer(_gl.GL_FRAMEBUFFER, 0)
+                    _gl.glReadPixels(0, 0, w, h, _gl.GL_RGBA, _gl.GL_UNSIGNED_BYTE, buf)
+                    raw = bytes(buf)
+                    from PIL import Image as _Image
                     try:
-                        from pyglet import gl as _gl
-                        # read pixels from default framebuffer (0)
-                        buf = (_gl.GLubyte * (int(vw) * int(vh) * 4))()
-                        _gl.glBindFramebuffer(_gl.GL_FRAMEBUFFER, 0)
-                        _gl.glReadPixels(0, 0, int(vw), int(vh), _gl.GL_RGBA, _gl.GL_UNSIGNED_BYTE, buf)
-                        raw = bytes(buf)
+                        # Debug: record what arguments we will pass to Pillow.frombytes
                         try:
-                            from PIL import Image as _Image
-                            img_p = _Image.frombytes('RGBA', (int(vw), int(vh)), raw)
-                            img_p = img_p.transpose(_Image.FLIP_TOP_BOTTOM)
-                            path = '/tmp/pycreative_post_present.png'
-                            img_p.save(path, 'PNG')
-                            try:
-                                logging.getLogger(__name__).debug('wrote post-present snapshot to %s', path)
-                            except Exception:
-                                pass
-                        except Exception as e:
-                            try:
-                                logging.getLogger(__name__).debug('post-present Pillow write failed %r', repr(e))
-                            except Exception:
-                                pass
-                    except Exception as e:
+                            rb_len = len(raw)
+                        except Exception:
+                            rb_len = None
                         try:
-                            logging.getLogger(__name__).debug('post-present readback failed %r', repr(e))
+                            expect = int(w) * int(h) * 4
+                        except Exception:
+                            expect = None
+                        msg = f'FROMBYTES_CALL: tag=post_present w={w} h={h} rb_len={rb_len} expect={expect}'
+                        try:
+                            logging.getLogger(__name__).debug(msg)
                         except Exception:
                             pass
-            except Exception:
-                pass
+                        try:
+                            with open('/tmp/pycreative_frombytes_debug.log', 'a') as _fb:
+                                _fb.write(msg + '\n')
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                    try:
+                        rb_len = len(raw)
+                    except Exception:
+                        rb_len = None
+                    inferred_w = w
+                    inferred_h = h
+                    expect = None
+                    try:
+                        expect = int(inferred_w) * int(inferred_h) * 4
+                    except Exception:
+                        expect = None
+                    if rb_len is not None and expect is not None and rb_len != expect:
+                        candidates = []
+                        try:
+                            candidates.append(getattr(self, '_surface_size'))
+                        except Exception:
+                            pass
+                        try:
+                            candidates.append(getattr(self, '_backing_size'))
+                        except Exception:
+                            pass
+                        try:
+                            candidates.append(getattr(self, '_logical_size'))
+                        except Exception:
+                            pass
+                        try:
+                            candidates.append((int(self.width), int(self.height)))
+                        except Exception:
+                            pass
+                        found = False
+                        for cand in candidates:
+                            try:
+                                if not cand:
+                                    continue
+                                cw, ch = int(cand[0]), int(cand[1])
+                                if cw * ch * 4 == rb_len:
+                                    inferred_w, inferred_h = cw, ch
+                                    found = True
+                                    try:
+                                        logging.getLogger(__name__).debug('FROMBYTES_CALL: inferred dims for post_present -> %dx%d (rb_len=%d)', inferred_w, inferred_h, rb_len)
+                                    except Exception:
+                                        pass
+                                    try:
+                                        with open('/tmp/pycreative_frombytes_debug.log', 'a') as _fb:
+                                            _fb.write(f'INFERRED_POST_PRESENT w={inferred_w} h={inferred_h} rb_len={rb_len}\n')
+                                    except Exception:
+                                        pass
+                                    break
+                            except Exception:
+                                continue
+                        if not found:
+                            try:
+                                logging.getLogger(__name__).debug('FROMBYTES_CALL: unable to infer valid dims for post_present rb_len=%r w=%r h=%r', rb_len, w, h)
+                            except Exception:
+                                pass
+                            raise RuntimeError('raw readback size mismatch; skipping post_present snapshot')
 
-            # Do not call fixed-function texture enable/disable unconditionally;
-            # those calls may be invalid in core or forward-compatible GL
-            # contexts. Any texture unbind/disable performed for the fallback
-            # path is handled inline where the bind succeeded.
-            try:
-                pass
-            except Exception:
-                pass
+                    img_p = _Image.frombytes('RGBA', (int(inferred_w), int(inferred_h)), raw)
+                    img_p = img_p.transpose(_Image.FLIP_TOP_BOTTOM)
+                    path = '/tmp/pycreative_post_present.png'
+                    img_p.save(path, 'PNG')
+                    try:
+                        logging.getLogger(__name__).debug('wrote post-present snapshot to %s', path)
+                    except Exception:
+                        pass
+                except Exception:
+                    try:
+                        logging.getLogger(__name__).debug('post-present readback failed')
+                    except Exception:
+                        pass
         except Exception:
-            # let caller fallback to readback if present fails
-            raise
+            pass
+
+        return False
 
     def replay_fn(self, commands, canvas):
+        # Delegate to the centralized replayer which handles transforms
+        # and shape commands consistently across offscreen and GPU paths.
         try:
-            # Delegate to the centralized replayer which handles transforms
-            # and shape commands consistently across offscreen and GPU paths.
+            from core.io.replay_to_skia_impl import replay_to_skia_canvas
+        except Exception:
+            # If we can't import the centralized replayer, log when
+            # debugging and return (the caller may provide other fallbacks).
             try:
-                from core.io.replay_to_skia_impl import replay_to_skia_canvas
+                import os
+                import logging
+                import traceback
+                if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                    logging.getLogger(__name__).debug('presenter.replay_fn: failed to import core.io.replay_to_skia_impl')
+                    traceback.print_exc()
             except Exception:
-                # Log import failure when debugging lifecycle so the
-                # underlying traceback is visible instead of being silently
-                # swallowed.
-                try:
-                    import os
-                    import traceback
-                    import logging
-                    if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                        logging.getLogger(__name__).debug('presenter.replay_fn: failed to import core.io.replay_to_skia, falling back to internal replay')
-                        traceback.print_exc()
-                except Exception:
-                    pass
-                raise
-
-            try:
-                # Announce delegation when debugging so we see delegate logs
-                try:
-                    import os
-                    import logging
-                    if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                        logging.getLogger(__name__).debug('presenter.replay_fn: delegating to replay_to_skia_canvas')
-                except Exception:
-                    pass
-                replay_to_skia_canvas(commands, canvas)
-                return
-            except Exception:
-                # If the delegate fails, print traceback when debugging and
-                # fall back to the internal replay implementation.
-                try:
-                    import os
-                    import traceback
-                    import logging
-                    if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                        logging.getLogger(__name__).debug('presenter.replay_fn: replay_to_skia_canvas raised an exception; falling back')
-                        traceback.print_exc()
-                except Exception:
-                    pass
-                # Fall through to an internal fallback if delegate fails
                 pass
-        except Exception:
-            # Fall back to the presenter's internal replay logic below
-            # (left for backward compatibility).
-            pass
+            return
+
         try:
-            logging.getLogger(__name__).debug('presenter.last_present_mode=%r', getattr(self, '_last_present_mode', None))
+            try:
+                import os
+                import logging
+                if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                    logging.getLogger(__name__).debug('presenter.replay_fn: delegating to replay_to_skia_canvas')
+            except Exception:
+                pass
+            replay_to_skia_canvas(commands, canvas)
         except Exception:
-            pass
-        # NOTE: The original replay implementation follows here as a
-        # compatibility fallback. In most cases `replay_to_skia_canvas`
-        # will handle drawing and transforms.
+            # If the delegate raises, log the traceback when debugging
+            # so we can diagnose problems in the replayer implementation.
+            try:
+                import os
+                import logging
+                import traceback
+                if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                    logging.getLogger(__name__).debug('presenter.replay_fn: replay_to_skia_canvas raised an exception')
+                    traceback.print_exc()
+            except Exception:
+                pass
 
     def teardown(self):
         # Make teardown idempotent: multiple calls are safe and will be

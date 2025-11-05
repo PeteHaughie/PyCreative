@@ -54,6 +54,57 @@ def setup_window_loop(
     except Exception:  # pragma: no cover - platform specific
         raise RuntimeError('pyglet is required for windowed mode')
 
+    # Detect window backing pixel size (DPR) and resize presenter accordingly.
+    # On high-DPI displays the window logical size (engine.width/height)
+    # may differ from the framebuffer size used for GL/Skia surfaces. Try
+    # a few strategies to discover the backing size and call presenter.resize
+    # so the presenter creates an appropriately-sized FBO/texture.
+    try:
+        win = getattr(engine, '_window', None)
+        if win is not None and hasattr(presenter, 'resize'):
+            try:
+                # Preferred: pyglet Window method get_framebuffer_size()
+                if hasattr(win, 'get_framebuffer_size'):
+                    try:
+                        fb_w, fb_h = win.get_framebuffer_size()
+                        if fb_w and fb_h:
+                            try:
+                                presenter.resize(int(fb_w), int(fb_h))
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                # Fallback: use pixel ratio when available
+                elif hasattr(win, 'get_pixel_ratio'):
+                    try:
+                        pr = float(win.get_pixel_ratio())
+                        if pr and pr != 1.0:
+                            try:
+                                presenter.resize(int(engine.width * pr), int(engine.height * pr))
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                else:
+                    # As a last resort, query GL viewport for drawable size
+                    try:
+                        from pyglet import gl
+                        vp = (gl.GLint * 4)()
+                        gl.glGetIntegerv(gl.GL_VIEWPORT, vp)
+                        vw = int(vp[2])
+                        vh = int(vp[3])
+                        if vw and vh:
+                            try:
+                                presenter.resize(vw, vh)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     # Capture replay function if presenter exposes one
     replay_fn = getattr(presenter, 'replay_fn', None)
 

@@ -214,8 +214,30 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
 
     try:
         canvas.save()
+        # Do NOT blindly reset the canvas matrix: the presenter may apply
+        # a device/backing scale (HiDPI) before calling the replayer. Resetting
+        # the matrix here wipes that transform and causes recorded logical
+        # coordinates to be drawn at the wrong scale. Only set an explicit
+        # identity matrix if the canvas currently has no transform (or we
+        # are unable to inspect it).
         if hasattr(canvas, 'setMatrix'):
-            canvas.setMatrix(skia.Matrix())
+            try:
+                cur = None
+                try:
+                    cur = canvas.getTotalMatrix().asAffine()
+                except Exception:
+                    try:
+                        cur = canvas.getTotalMatrix().asM33()
+                    except Exception:
+                        cur = None
+                # If we can inspect the matrix and it's not the identity,
+                # preserve it. Otherwise set an explicit identity.
+                if cur is None or cur == [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]:
+                    canvas.setMatrix(skia.Matrix())
+            except Exception:
+                # If anything goes wrong inspecting, fall back to not
+                # interfering with the canvas (safe default).
+                pass
     except Exception:
         pass
 
@@ -1148,6 +1170,93 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                 ix = float(args.get('x', 0))
                 iy = float(args.get('y', 0))
                 skimg = None
+                # Debug: log canvas matrix/CTM and image draw location so we
+                # can detect whether images are being drawn at logical
+                # coordinates or already device/backing coordinates.
+                if dbg:
+                    try:
+                        try:
+                            logger.debug('replay_to_skia_impl: entry canvas id=%r', id(canvas))
+                        except Exception:
+                            pass
+                        try:
+                            logger.debug('replay_to_skia_impl: IMAGE op at (%s, %s) img_obj=%r', ix, iy, type(img_obj))
+                        except Exception:
+                            logger.debug('replay_to_skia_impl: IMAGE op at (%s, %s)', ix, iy)
+                        m = None
+                        if hasattr(canvas, 'getTotalMatrix'):
+                            try:
+                                m = canvas.getTotalMatrix()
+                            except Exception:
+                                m = None
+                        elif hasattr(canvas, 'getMatrix'):
+                            try:
+                                m = canvas.getMatrix()
+                            except Exception:
+                                m = None
+                            try:
+                                # Write a small workspace-local trace for easier inspection
+                                try:
+                                    _dbg_path = 'tmp/pycreative_replayer_canvas.log'
+                                    with open(_dbg_path, 'a') as _df:
+                                        try:
+                                            _id = id(canvas)
+                                        except Exception:
+                                            _id = None
+                                        try:
+                                            _mat = m.asAffine() if m is not None else None
+                                        except Exception:
+                                            try:
+                                                _mat = m.asM33() if m is not None else None
+                                            except Exception:
+                                                _mat = None
+                                        _df.write(f'REPLAYER_ENTRY id={_id} matrix={_mat}\n')
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
+                        try:
+                            # Try to extract numeric matrix values using a few
+                            # different Skia Matrix helper method names. The
+                            # skia-python binding surface varies by version so
+                            # we probe several common accessor names and log
+                            # whichever one works. If none exist, log the
+                            # available attributes to aid debugging.
+                            if m is None:
+                                logger.debug('replay_to_skia_impl: canvas matrix=NULL')
+                            else:
+                                extracted = False
+                                for fn in (
+                                    'asCols', 'asColMaj', 'asColMajor', 'asRowMajor',
+                                    'asAffine', 'toFloatArray', 'to_tuple', 'toTuple',
+                                    'toList', 'getValues', 'to4x4', 'asTuple', 'asList',
+                                ):
+                                    try:
+                                        if hasattr(m, fn):
+                                            try:
+                                                vals = getattr(m, fn)()
+                                            except TypeError:
+                                                # some callables may require args
+                                                vals = getattr(m, fn)
+                                            logger.debug('replay_to_skia_impl: canvas matrix.%s() -> %r', fn, vals)
+                                            extracted = True
+                                            break
+                                    except Exception:
+                                        # continue probing other names
+                                        continue
+
+                                if not extracted:
+                                    # Fallback: list public attributes (methods) so
+                                    # we can inspect available accessors in logs.
+                                    try:
+                                        public_attrs = [a for a in dir(m) if not a.startswith('_')]
+                                        logger.debug('replay_to_skia_impl: canvas matrix object (no extractor) attrs=%s', public_attrs)
+                                    except Exception:
+                                        logger.debug('replay_to_skia_impl: canvas matrix object (no extractor) repr=%r', m)
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
                 try:
                     if img_obj is not None:
                         # Preferred path: PCImage.to_skia exists in the

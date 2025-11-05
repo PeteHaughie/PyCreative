@@ -14,18 +14,32 @@ def create_presenter(
     *,
     present_mode=None,
     force_gles: bool = False,
+    window: Any | None = None,
 ) -> Any:
     """Instantiate a presenter adapter.
 
     Mirrors the constructor usage that was previously in the engine.
     The helper forwards the optional flags the engine used to pass.
     """
-    return presenter_cls(
-        width,
-        height,
-        force_present_mode=present_mode,
-        force_gles=force_gles,
-    )
+    # Pass the optional window through so presenters can query the
+    # framebuffer backing size / pixel ratio when creating GL resources.
+    try:
+        return presenter_cls(
+            width,
+            height,
+            force_present_mode=present_mode,
+            force_gles=force_gles,
+            window=window,
+        )
+    except TypeError:
+        # Backwards-compatible: if the presenter doesn't accept `window`,
+        # fall back to the older constructor signature.
+        return presenter_cls(
+            width,
+            height,
+            force_present_mode=present_mode,
+            force_gles=force_gles,
+        )
 
 
 def render_and_present(
@@ -58,6 +72,24 @@ def render_and_present(
                         cur_w, cur_h = cur_surface[0], cur_surface[1]
                 except Exception:
                     pass
+                # Ask GL for the current drawable size (viewport) and prefer
+                # that when deciding to resize. This avoids creating an FBO
+                # at logical sizes when the framebuffer uses device pixels
+                # (HiDPI / Retina displays).
+                try:
+                    from pyglet import gl
+                    vp = (gl.GLint * 4)()
+                    try:
+                        gl.glGetIntegerv(gl.GL_VIEWPORT, vp)
+                        vp_w = int(vp[2])
+                        vp_h = int(vp[3])
+                        if vp_w and vp_h:
+                            req_w, req_h = int(vp_w), int(vp_h)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
                 if cur_w is None or cur_h is None or int(cur_w) != req_w or int(cur_h) != req_h:
                     try:
                         presenter.resize(req_w, req_h)
@@ -82,7 +114,29 @@ def render_and_present(
                 logging.getLogger(__name__).debug('render_and_present: calling present()')
             except Exception:
                 pass
-        presenter.present()
+
+        # Call present once. If present() returns True it indicates the
+        # presenter detected that the drawable (viewport) size changed and
+        # resized itself. In that case we should re-render the recorded
+        # commands so the Skia surface/texture are created at the new
+        # device-pixel size and then present again. Limit to one extra
+        # re-render to avoid infinite loops.
+        try:
+            did_resize = presenter.present()
+        except Exception:
+            did_resize = False
+
+        if did_resize:
+            try:
+                # Re-render at the new size and present again
+                presenter.render_commands(list(cmds), replay_fn)
+                try:
+                    presenter.present()
+                except Exception:
+                    pass
+            except Exception:
+                # Best-effort: ignore render failures on the second pass
+                pass
 
     except Exception:
         # Guard the helper itself from crashing callers.

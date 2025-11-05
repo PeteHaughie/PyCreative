@@ -1395,12 +1395,58 @@ class Engine:
         from core.engine.presenter import create_presenter
         from core.engine.loop import setup_window_loop
 
+        # Compute an initial backing size to pass to the presenter so
+        # its GL FBO/texture creation matches the real framebuffer where
+        # possible (important for HiDPI displays).
+        init_w = int(self.width)
+        init_h = int(self.height)
+        try:
+            win = getattr(self, '_window', None)
+            if win is not None:
+                # Ensure the window's GL context is current so framebuffer
+                # queries return accurate values on some platforms.
+                try:
+                    if hasattr(win, 'switch_to'):
+                        try:
+                            win.switch_to()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                try:
+                    if hasattr(win, 'get_framebuffer_size'):
+                        fb_w, fb_h = win.get_framebuffer_size()
+                        if fb_w and fb_h:
+                            init_w, init_h = int(fb_w), int(fb_h)
+                    elif hasattr(win, 'get_pixel_ratio'):
+                        pr = float(win.get_pixel_ratio())
+                        if pr and pr != 1.0:
+                            init_w = int(self.width * pr)
+                            init_h = int(self.height * pr)
+                    else:
+                        # Last resort, try querying GL viewport
+                        try:
+                            from pyglet import gl
+                            vp = (gl.GLint * 4)()
+                            gl.glGetIntegerv(gl.GL_VIEWPORT, vp)
+                            vw = int(vp[2])
+                            vh = int(vp[3])
+                            if vw and vh:
+                                init_w, init_h = int(vw), int(vh)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         presenter: _Any = create_presenter(
             SkiaGLPresenter,
-            self.width,
-            self.height,
+            init_w,
+            init_h,
             present_mode=self.present_mode,
             force_gles=self.force_gles,
+            window=getattr(self, '_window', None),
         )
         # Persist presenter onto the engine so other helpers (e.g. save_frame)
         # can access the presenter's backing surface for accurate screen
