@@ -5,14 +5,24 @@ from typing import Any, Optional, Protocol
 
 class APIProtocol(Protocol):
     def get(self, name: str) -> Any: ...
+    def register(self, name: str, fn: Any) -> None: ...
 
 
 class GraphicsBufferProtocol(Protocol):
     def record(self, op: str, **kwargs: Any) -> Any: ...
+    # The recorded commands list is inspected by the presenter/loop code.
+    commands: list[Any]
 
 
 class PresenterProtocol(Protocol):
     def present(self, *args: Any, **kwargs: Any) -> Any: ...
+    def resize(self, w: int, h: int) -> None: ...
+    def ensure_resources(self) -> None: ...
+    def teardown(self) -> None: ...
+    # optional attributes some presenters expose
+    replay_fn: Any
+    fbo_id: Any
+    _setup_background_color: Any
 
 
 class EngineProtocol(Protocol):
@@ -40,12 +50,39 @@ class EngineProtocol(Protocol):
     fill_color: Any
     stroke_color: Any
     stroke_weight: Any
+    # optional stroke style attributes
+    stroke_cap: Any
+    stroke_join: Any
 
     # internal helpers used by API wrappers
     _presenter: Any
     _in_draw: Any
     _is_offscreen_graphics: bool
     _sketch_module: Any
+    # internal state used by the window loop and transforms helpers
+    _matrix_stack: Any
+    _window: Any
+    _pending_save_frames: Any
+    _setup_bg_applied: Any
+    _default_bg_applied: Any
+    _default_bg_cleared: Any
+    _apply_mouse_update: Any
+    sketch: Any
+    _call_sketch_method: Any
+    mouse_pressed: Any
+    mouse_button: Any
+    key: Any
+    key_code: Any
+    key_pressed: Any
+    _setup_background: Any
+    _setup_done: Any
+    _ignore_no_loop: Any
+    looping: Any
+    _no_loop_drawn: Any
+    _frames_left: Any
+    _verbose: Any
+    # lifecycle helpers
+    def step_frame(self) -> None: ...
 
     # lifecycle hooks used by SimpleSketchAPI
     def _set_size(self, w: int, h: int) -> None: ...

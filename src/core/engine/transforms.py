@@ -5,7 +5,10 @@ operations and functions that operate on an Engine instance's matrix
 stack. They are extracted from the large engine implementation to keep
 that file smaller and easier to reason about.
 """
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, List, Optional
+
+if TYPE_CHECKING:
+    from core._types import EngineProtocol as Engine
 
 
 def identity_matrix() -> List[float]:
@@ -35,12 +38,12 @@ def mul_mat(a: List[float], b: List[float]) -> List[float]:
     ]
 
 
-def ensure_matrix_stack(engine: Any) -> None:
+def ensure_matrix_stack(engine: 'Engine') -> None:
     if not hasattr(engine, '_matrix_stack'):
         engine._matrix_stack = [identity_matrix()]
 
 
-def push_matrix(engine: Any):
+def push_matrix(engine: 'Engine'):
     ensure_matrix_stack(engine)
     try:
         top = list(engine._matrix_stack[-1])
@@ -48,12 +51,18 @@ def push_matrix(engine: Any):
     except Exception:
         engine._matrix_stack = [identity_matrix()]
     try:
-        return engine.graphics.record('push_matrix')
+        g = getattr(engine, 'graphics', None)
+        if g is not None:
+            try:
+                return g.record('push_matrix')
+            except Exception:
+                return None
     except Exception:
-        return None
+        pass
+    return None
 
 
-def pop_matrix(engine: Any):
+def pop_matrix(engine: 'Engine'):
     ensure_matrix_stack(engine)
     try:
         if len(engine._matrix_stack) > 1:
@@ -63,24 +72,36 @@ def pop_matrix(engine: Any):
     except Exception:
         engine._matrix_stack = [identity_matrix()]
     try:
-        return engine.graphics.record('pop_matrix')
+        g = getattr(engine, 'graphics', None)
+        if g is not None:
+            try:
+                return g.record('pop_matrix')
+            except Exception:
+                return None
     except Exception:
-        return None
+        pass
+    return None
 
 
-def reset_matrix(engine: Any):
+def reset_matrix(engine: 'Engine'):
     ensure_matrix_stack(engine)
     try:
         engine._matrix_stack[-1] = identity_matrix()
     except Exception:
         engine._matrix_stack = [identity_matrix()]
     try:
-        return engine.graphics.record('reset_matrix')
+        g = getattr(engine, 'graphics', None)
+        if g is not None:
+            try:
+                return g.record('reset_matrix')
+            except Exception:
+                return None
     except Exception:
-        return None
+        pass
+    return None
 
 
-def apply_transform_matrix(engine: Any, mat: List[float]) -> None:
+def apply_transform_matrix(engine: 'Engine', mat: List[float]) -> None:
     """Right-multiply the current matrix by mat (both flat 3x3 lists)."""
     ensure_matrix_stack(engine)
     try:
@@ -90,7 +111,7 @@ def apply_transform_matrix(engine: Any, mat: List[float]) -> None:
         engine._matrix_stack[-1] = list(mat)
 
 
-def translate(engine: Any, x: float, y: float):
+def translate(engine: 'Engine', x: float, y: float):
     try:
         tx = float(x)
         ty = float(y)
@@ -101,12 +122,18 @@ def translate(engine: Any, x: float, y: float):
            0.0, 0.0, 1.0]
     apply_transform_matrix(engine, mat)
     try:
-        return engine.graphics.record('translate', x=tx, y=ty)
+        g = getattr(engine, 'graphics', None)
+        if g is not None:
+            try:
+                return g.record('translate', x=tx, y=ty)
+            except Exception:
+                return None
     except Exception:
-        return None
+        pass
+    return None
 
 
-def rotate(engine: Any, angle: float):
+def rotate(engine: 'Engine', angle: float):
     import math
     try:
         a = float(angle)
@@ -119,12 +146,18 @@ def rotate(engine: Any, angle: float):
            0.0,0.0,1.0]
     apply_transform_matrix(engine, mat)
     try:
-        return engine.graphics.record('rotate', angle=float(a))
+        g = getattr(engine, 'graphics', None)
+        if g is not None:
+            try:
+                return g.record('rotate', angle=float(a))
+            except Exception:
+                return None
     except Exception:
-        return None
+        pass
+    return None
 
 
-def scale(engine: Any, sx: float, sy: Optional[float] = None):
+def scale(engine: 'Engine', sx: float, sy: Optional[float] = None):
     try:
         sx_f = float(sx)
         sy_f = float(sy) if sy is not None else sx_f
@@ -135,12 +168,18 @@ def scale(engine: Any, sx: float, sy: Optional[float] = None):
            0.0, 0.0, 1.0]
     apply_transform_matrix(engine, mat)
     try:
-        return engine.graphics.record('scale', sx=sx_f, sy=sy_f)
+        g = getattr(engine, 'graphics', None)
+        if g is not None:
+            try:
+                return g.record('scale', sx=sx_f, sy=sy_f)
+            except Exception:
+                return None
     except Exception:
-        return None
+        pass
+    return None
 
 
-def shear_x(engine: Any, angle: float):
+def shear_x(engine: 'Engine', angle: float):
     import math
     try:
         a = float(angle)
@@ -151,12 +190,18 @@ def shear_x(engine: Any, angle: float):
            0.0, 0.0,        1.0]
     apply_transform_matrix(engine, mat)
     try:
-        return engine.graphics.record('shear_x', angle=float(a))
+        g = getattr(engine, 'graphics', None)
+        if g is not None:
+            try:
+                return g.record('shear_x', angle=float(a))
+            except Exception:
+                return None
     except Exception:
-        return None
+        pass
+    return None
 
 
-def shear_y(engine: Any, angle: float):
+def shear_y(engine: 'Engine', angle: float):
     import math
     try:
         a = float(angle)
@@ -167,12 +212,18 @@ def shear_y(engine: Any, angle: float):
            0.0, 0.0,        1.0]
     apply_transform_matrix(engine, mat)
     try:
-        return engine.graphics.record('shear_y', angle=float(a))
+        g = getattr(engine, 'graphics', None)
+        if g is not None:
+            try:
+                return g.record('shear_y', angle=float(a))
+            except Exception:
+                return None
     except Exception:
-        return None
+        pass
+    return None
 
 
-def apply_matrix(engine: Any, *args):
+def apply_matrix(engine: 'Engine', *args):
     """Apply a provided matrix to the current transform.
 
     Accepts either a single sequence-like of 9 or 6 numbers, or 6/9 numbers
@@ -210,6 +261,12 @@ def apply_matrix(engine: Any, *args):
         return None
 
     try:
-        return engine.graphics.record('apply_matrix', matrix=mat)
+        g = getattr(engine, 'graphics', None)
+        if g is not None:
+            try:
+                return g.record('apply_matrix', matrix=mat)
+            except Exception:
+                return None
     except Exception:
-        return None
+        pass
+    return None

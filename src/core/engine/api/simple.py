@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     # attributes sketches commonly read/write (blend_mode, shape_mode, etc.).
     # Import via the pycreative shim to avoid mypy duplicate-module issues
     # when both `pycreative.*` and `core.*` packages are analysed.
-    pass
+    from pycreative._types import EngineProtocol as Engine
 
 
 class SimpleSketchAPI:
@@ -17,7 +17,7 @@ class SimpleSketchAPI:
     and control lifecycle behaviour (size/no_loop/loop/redraw/save_frame).
     """
 
-    def __init__(self, engine: Any):
+    def __init__(self, engine: 'Engine'):
         self._engine = engine
         # Cache frequently-used engine functions as instance attributes to
         # avoid the per-call registry lookup overhead when sketches call

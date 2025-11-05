@@ -3,10 +3,13 @@
 This module centralizes third-party or optional API registrations so the
 main Engine implementation stays compact and easier to review.
 """
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core._types import EngineProtocol as Engine
 
 
-def register_shape_apis(engine: Any):
+def register_shape_apis(engine: 'Engine'):
     # Import the shape module and look up functions by name at runtime.
     # This avoids mypy/static-import complaints when optional helpers
     # (like `ellipse`) are not present in the module.
@@ -36,7 +39,7 @@ def register_shape_apis(engine: Any):
         pass
 
 
-def register_random_and_noise(engine: Any):
+def register_random_and_noise(engine: 'Engine'):
     try:
         from core.random import (
             random as _rand,
@@ -74,7 +77,7 @@ def register_random_and_noise(engine: Any):
         pass
 
 
-def register_math(engine: Any):
+def register_math(engine: 'Engine'):
     """Expose the small core.math helpers via the engine API so sketches
     can access them as `self.sin`, `self.cos`, `self.radians`, etc.
     """
@@ -90,7 +93,7 @@ def register_math(engine: Any):
         pass
 
 
-def register_state_apis(engine: Any):
+def register_state_apis(engine: 'Engine'):
     """Register simple color and stroke related APIs on the engine.
 
     These functions mutate engine state (fill_color, stroke_color,
@@ -101,49 +104,79 @@ def register_state_apis(engine: Any):
     try:
         def _rec_fill(rgba):
             engine.fill_color = tuple(int(x) for x in rgba)
-            return engine.graphics.record('fill', color=engine.fill_color, fill_alpha=getattr(engine, 'fill_alpha', None))
+            g = getattr(engine, 'graphics', None)
+            if g is not None:
+                try:
+                    return g.record('fill', color=engine.fill_color, fill_alpha=getattr(engine, 'fill_alpha', None))
+                except Exception:
+                    return None
+            return None
 
         def _rec_stroke(rgba):
             engine.stroke_color = tuple(int(x) for x in rgba)
-            return engine.graphics.record('stroke', color=engine.stroke_color, stroke_alpha=getattr(engine, 'stroke_alpha', None))
+            g = getattr(engine, 'graphics', None)
+            if g is not None:
+                try:
+                    return g.record('stroke', color=engine.stroke_color, stroke_alpha=getattr(engine, 'stroke_alpha', None))
+                except Exception:
+                    return None
+            return None
 
         def _rec_no_fill():
             engine.fill_color = None
-            try:
-                return engine.graphics.record('no_fill')
-            except Exception:
-                return None
+            g = getattr(engine, 'graphics', None)
+            if g is not None:
+                try:
+                    return g.record('no_fill')
+                except Exception:
+                    return None
+            return None
 
         def _rec_no_stroke():
             engine.stroke_color = None
-            try:
-                return engine.graphics.record('no_stroke')
-            except Exception:
-                return None
+            g = getattr(engine, 'graphics', None)
+            if g is not None:
+                try:
+                    return g.record('no_stroke')
+                except Exception:
+                    return None
+            return None
 
         def _rec_stroke_weight(w):
             engine.stroke_weight = int(w)
-            return engine.graphics.record('stroke_weight', weight=int(w))
+            g = getattr(engine, 'graphics', None)
+            if g is not None:
+                try:
+                    return g.record('stroke_weight', weight=int(w))
+                except Exception:
+                    return None
+            return None
 
         def _rec_stroke_cap(cap):
             try:
                 engine.stroke_cap = cap
             except Exception:
                 pass
-            try:
-                return engine.graphics.record('stroke_cap', cap=cap)
-            except Exception:
-                return None
+            g = getattr(engine, 'graphics', None)
+            if g is not None:
+                try:
+                    return g.record('stroke_cap', cap=cap)
+                except Exception:
+                    return None
+            return None
 
         def _rec_stroke_join(join):
             try:
                 engine.stroke_join = join
             except Exception:
                 pass
-            try:
-                return engine.graphics.record('stroke_join', join=join)
-            except Exception:
-                return None
+            g = getattr(engine, 'graphics', None)
+            if g is not None:
+                try:
+                    return g.record('stroke_join', join=join)
+                except Exception:
+                    return None
+            return None
 
         try:
             engine.api.register('fill', _rec_fill)
@@ -168,7 +201,7 @@ def register_state_apis(engine: Any):
         pass
 
 
-def register_transforms(engine: Any):
+def register_transforms(engine: 'Engine'):
     """Register transform/matrix helpers so they are available via
     the engine API and can be attached to class-based sketch instances.
     """

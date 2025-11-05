@@ -7,13 +7,16 @@ import-safe.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
+if TYPE_CHECKING:
+    from core._types import EngineProtocol as Engine
+    from core._types import PresenterProtocol as PresenterProtocol
 import os
 
 
 def setup_window_loop(
-    engine: Any,
-    presenter: Any,
+    engine: 'Engine',
+    presenter: 'PresenterProtocol',
     max_frames: Optional[int] = None,
 ) -> bool:
     """Register handlers on `engine._window`, schedule updates, and run the app.
@@ -112,7 +115,11 @@ def setup_window_loop(
     @engine._window.event
     def on_draw():
         # Start with the recorded graphics commands for this draw
-        cmds = list(engine.graphics.commands)
+        g = getattr(engine, 'graphics', None)
+        try:
+            cmds = list(g.commands) if (g is not None and getattr(g, 'commands', None) is not None) else []
+        except Exception:
+            cmds = []
         # If any pending save_frame requests were recorded outside of the
         # normal frame-recording (for example via key handlers), append
         # them now so the presenter sees and processes them. Use a copy
@@ -267,7 +274,7 @@ def setup_window_loop(
             pass
 
     # helper to create a SimpleSketchAPI instance without repeating long imports
-    def _make_simple_api(e: Any):
+    def _make_simple_api(e: 'Engine'):
         mod = __import__('core.engine.api.simple', fromlist=['SimpleSketchAPI'])
         return mod.SimpleSketchAPI(e)
 
@@ -774,11 +781,16 @@ def setup_window_loop(
             return
         engine.step_frame()
         if getattr(engine, '_verbose', False):
-            for cmd in engine.graphics.commands:
-                try:
-                    print('VERBOSE CMD:', cmd)
-                except Exception:
-                    pass
+            try:
+                g = getattr(engine, 'graphics', None)
+                if g is not None:
+                    for cmd in getattr(g, 'commands', []):
+                        try:
+                            print('VERBOSE CMD:', cmd)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
         try:
             engine._window.invalid = True
         except Exception:
@@ -794,7 +806,8 @@ def setup_window_loop(
                 pyglet.app.exit()
 
     # schedule updates
-    interval = None if engine.frame_rate < 1 else 1.0 / float(engine.frame_rate)
+    fr = getattr(engine, 'frame_rate', None)
+    interval = None if (fr is None or fr < 1) else 1.0 / float(fr)
     if interval is None:
         pyglet.clock.schedule(update)
     else:

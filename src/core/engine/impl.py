@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 from contextlib import redirect_stderr
 from typing import Any, Callable, Optional
+from core._types import EngineProtocol
 
 from core.adapters.skia_gl_present import SkiaGLPresenter
 from core.graphics import GraphicsBuffer
@@ -19,7 +20,7 @@ from .api import SimpleSketchAPI
 from .api.registry import APIRegistry
 
 
-class Engine:
+class Engine(EngineProtocol):
     """A tiny headless engine for testing sketches.
 
     Lifecycle behaviour implemented:
@@ -77,8 +78,8 @@ class Engine:
         self.color_mode = 'RGB'
         # pluggable snapshot backend: callable(path, width, height, engine)
         # default is None (the engine will attempt a Pillow-based write)
-        # Keep un-annotated to avoid long type expressions in this file.
-        self.snapshot_backend = None
+        # Annotate as Optional[Callable[[str, int, int, Engine], Any]]
+        self.snapshot_backend: Optional[Callable[[str, int, int, "Engine"], Any]] = None
 
         # Normalize sketch: if a module contains a `Sketch` class, instantiate it
         # Register default API functions so SimpleSketchAPI delegates work
