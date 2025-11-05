@@ -942,6 +942,10 @@ class Engine(EngineProtocol):
                     # package or in environments where `core.typography` isn't
                     # available on sys.path.
                     try:
+                        # Pre-declare _typ with a permissive Any type so static
+                        # checkers don't complain about the differing runtime
+                        # assignment shapes below (module or None).
+                        _typ: Any = None
                         import core.typography as _typ
                     except Exception:
                         try:
