@@ -1412,7 +1412,8 @@ class Engine(EngineProtocol):
                         self._call_sketch_method(setup, this)
                     except Exception:
                         try:
-                            import logging, traceback
+                            import logging
+                            import traceback
                             try:
                                 if __import__('os').getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
                                     logging.getLogger(__name__).exception('setup() raised an exception in Engine.start:')
@@ -1572,6 +1573,25 @@ class Engine(EngineProtocol):
         # captures when running windowed.
         try:
             setattr(self, '_presenter', presenter)
+        except Exception:
+            pass
+        # If Skia/GL is available, register a GPU-backed create_graphics
+        # provider so `create_graphics(w,h)` returns a Skia-backed offscreen
+        # surface. This is best-effort: failures are swallowed and the core
+        # fallback remains available.
+        try:
+            try:
+                from core.graphics.pcgraphics_skia import PCGraphicsSkia
+                # Register provider that constructs a PCGraphicsSkia bound to this engine
+                try:
+                    # use default args capture to bind `self` now
+                    self.api.register('create_graphics', (lambda w, h, _eng=self: PCGraphicsSkia(w, h, engine=_eng)))
+                except Exception:
+                    # registration failure is non-fatal
+                    pass
+            except Exception:
+                # pcgraphics_skia not available/import failed
+                pass
         except Exception:
             pass
         # Debug: record which presenter class was instantiated so we can

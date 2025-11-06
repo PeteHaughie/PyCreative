@@ -11,21 +11,51 @@ from __future__ import annotations
 import math
 import os
 import logging
-from typing import Sequence, Mapping, Any
+from typing import Sequence, Mapping, Any, Optional, Callable
 
 try:
     import skia
 except Exception:
     skia = None
 
+# Import mapping helpers when available; annotate as Optional to avoid
+# mypy complaining when we assign None on import failure.
+map_stroke_cap: Optional[Callable[[Any, str], Any]]
+map_stroke_join: Optional[Callable[[Any, str], Any]]
 try:
-    from core.shape.stroke_utils import map_stroke_cap, map_stroke_join
+    from core.shape.stroke_utils import map_stroke_cap as _map_stroke_cap, map_stroke_join as _map_stroke_join
+    map_stroke_cap = _map_stroke_cap
+    map_stroke_join = _map_stroke_join
 except Exception:
-    # best-effort: if imports fail, the map helpers won't be available
+    # best-effort: fall back to None when helpers aren't available
     map_stroke_cap = None
     map_stroke_join = None
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_float(v: Any, default: float = 0.0) -> float:
+    """Safely convert a value to float, returning default on failure or None.
+
+    This helper avoids repeated try/except blocks and makes intent explicit
+    for mypy when values may be Any or None.
+    """
+    try:
+        if v is None:
+            return default
+        return float(v)
+    except Exception:
+        return default
+
+
+def _opt_float(v: Any) -> Optional[float]:
+    """Return a float or None if conversion fails or v is None."""
+    try:
+        if v is None:
+            return None
+        return float(v)
+    except Exception:
+        return None
 
 
 def map_blend_mode(skia_mod, name: str):
@@ -202,15 +232,15 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
         except Exception:
             pass
 
-    current_blend_mode = None
-    current_fill = None
-    current_fill_alpha = None
+    current_blend_mode: Optional[Any] = None
+    current_fill: Optional[Any] = None
+    current_fill_alpha: Optional[float] = None
     # Stroke state recorded by ops like 'stroke', 'stroke_weight', 'stroke_cap', 'stroke_join'
-    current_stroke = None
-    current_stroke_alpha = None
-    current_stroke_weight = 1
-    current_stroke_cap = None
-    current_stroke_join = None
+    current_stroke: Optional[Any] = None
+    current_stroke_alpha: Optional[float] = None
+    current_stroke_weight: float = 1.0
+    current_stroke_cap: Optional[Any] = None
+    current_stroke_join: Optional[Any] = None
 
     try:
         canvas.save()
@@ -255,7 +285,7 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
         # `PCShader._program` when compilation succeeds. When a 'shader'
         # op is recorded we attempt to bind the program and upload any
         # stored uniforms. A subsequent 'reset_shader' op will unbind.
-        current_gl_shader_bound = None
+        _current_gl_shader_bound = None
 
         try:
             if op in ('push_matrix', 'save'):
@@ -277,7 +307,7 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                             gl.glUseProgram(0)
                         except Exception:
                             pass
-                        current_gl_shader_bound = None
+                        _current_gl_shader_bound = None
                     else:
                         try:
                             prog = getattr(sh, '_program', None)
@@ -314,7 +344,7 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                                             pass
                                 except Exception:
                                     pass
-                                current_gl_shader_bound = prog
+                                _current_gl_shader_bound = prog
                         except Exception:
                             pass
                 except Exception:
@@ -327,7 +357,7 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                     gl.glUseProgram(0)
                 except Exception:
                     pass
-                current_gl_shader_bound = None
+                _current_gl_shader_bound = None
                 continue
             if op in ('pop_matrix', 'restore'):
                 try:
@@ -337,8 +367,8 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                 continue
 
             if op == 'translate':
-                tx = float(args.get('x', 0))
-                ty = float(args.get('y', 0))
+                tx = _safe_float(args.get('x', 0))
+                ty = _safe_float(args.get('y', 0))
                 try:
                     canvas.translate(tx, ty)
                 except Exception:
@@ -351,7 +381,7 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                 continue
 
             if op == 'rotate':
-                a = float(args.get('angle', 0))
+                a = _safe_float(args.get('angle', 0))
                 deg = math.degrees(a)
                 try:
                     canvas.rotate(deg)
@@ -365,23 +395,23 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                 continue
 
             if op == 'background':
-                r = int(args.get('r', 200))
-                g = int(args.get('g', 200))
-                b = int(args.get('b', 200))
+                br = int(args.get('r', 200))
+                bg = int(args.get('g', 200))
+                bb = int(args.get('b', 200))
                 try:
                     p = skia.Paint()
                     p.setStyle(skia.Paint.kFill_Style)
                     p.setAntiAlias(False)
                     try:
-                        p.setColor(skia.Color4f(r / 255.0, g / 255.0, b / 255.0, 1.0))
+                        p.setColor(skia.Color4f(br / 255.0, bg / 255.0, bb / 255.0, 1.0))
                         canvas.drawPaint(p)
                     except Exception:
-                        ival = (0xFF << 24) | (r << 16) | (g << 8) | b
+                        ival = (0xFF << 24) | (br << 16) | (bg << 8) | bb
                         p.setColor(ival)
                         canvas.drawPaint(p)
                 except Exception:
                     try:
-                        canvas.clear((0xFF << 24) | (r << 16) | (g << 8) | b)
+                        canvas.clear((0xFF << 24) | (br << 16) | (bg << 8) | bb)
                     except Exception:
                         pass
                 continue
@@ -401,10 +431,10 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
 
             if op == 'stroke_weight':
                 try:
-                    current_stroke_weight = float(args.get('weight', args.get('w', current_stroke_weight)))
+                    current_stroke_weight = _safe_float(args.get('weight', args.get('w', current_stroke_weight)))
                 except Exception:
                     try:
-                        current_stroke_weight = float(args.get('weight', current_stroke_weight))
+                        current_stroke_weight = _safe_float(args.get('weight', current_stroke_weight))
                     except Exception:
                         pass
                 continue
@@ -465,10 +495,16 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                         if dom is None:
                             continue
 
-                        # parse intrinsic/document size when available
+                        # Narrow `dom` for static analysis (mypy) so subsequent
+                        # calls like dom.render(...) are not flagged as possible
+                        # attribute access on None.
+                        assert dom is not None
+
+                        # parse intrinsic/document size when available using
+                        # helper that safely handles Any/None inputs.
                         try:
-                            iw = float(intrinsic_w) if intrinsic_w is not None else None
-                            ih = float(intrinsic_h) if intrinsic_h is not None else None
+                            iw = _opt_float(intrinsic_w)
+                            ih = _opt_float(intrinsic_h)
                         except Exception:
                             iw = ih = None
 
@@ -498,10 +534,12 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                                     if surf is not None:
                                         cs = surf.getCanvas()
                                         try:
-                                            dom.render(cs)
+                                            if dom is not None:
+                                                dom.render(cs)
                                         except Exception:
                                             try:
-                                                dom.renderNode(cs)
+                                                if dom is not None:
+                                                    dom.renderNode(cs)
                                             except Exception:
                                                 pass
                                         img_mask = surf.makeImageSnapshot()
@@ -575,8 +613,8 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
 
                                         # Scale to requested size and draw the colored image
                                         try:
-                                            sx = float(w) / float(iw)
-                                            sy = float(h) / float(ih)
+                                            sx = _safe_float(w) / _safe_float(iw, 1.0)
+                                            sy = _safe_float(h) / _safe_float(ih, 1.0)
                                             try:
                                                 canvas.scale(sx, sy)
                                             except Exception:
@@ -676,37 +714,45 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                             # size (some DOM implementations scale on their own)
                             if w is not None and h is not None:
                                 try:
-                                    dom.setContainerSize(float(w), float(h))
+                                    if dom is not None:
+                                        dom.setContainerSize(float(w), float(h))
                                 except Exception:
                                     try:
-                                        dom.setContainerSize((float(w), float(h)))
+                                        if dom is not None:
+                                            dom.setContainerSize((float(w), float(h)))
                                     except Exception:
                                         pass
-                            try:
-                                dom.render(canvas)
-                            except Exception:
                                 try:
-                                    dom.renderNode(canvas)
+                                    if dom is not None:
+                                        dom.render(canvas)
                                 except Exception:
-                                    pass
+                                    try:
+                                        if dom is not None:
+                                            dom.renderNode(canvas)
+                                    except Exception:
+                                        pass
                     except Exception:
-                        # protective fallback: attempt a simple render
+                        # protective fallback: attempt a simple render but
+                        # only call methods when `dom` is not None to help
+                        # static analyzers (and be defensive at runtime).
                         try:
-                            dom.render(canvas)
+                            if dom is not None:
+                                dom.render(canvas)
                         except Exception:
                             try:
-                                dom.renderNode(canvas)
+                                if dom is not None:
+                                    dom.renderNode(canvas)
                             except Exception:
                                 pass
                     continue
 
             if op == 'line':
-                x1 = float(args.get('x1', 0))
-                y1 = float(args.get('y1', 0))
-                x2 = float(args.get('x2', 0))
-                y2 = float(args.get('y2', 0))
+                x1 = _safe_float(args.get('x1', 0))
+                y1 = _safe_float(args.get('y1', 0))
+                x2 = _safe_float(args.get('x2', 0))
+                y2 = _safe_float(args.get('y2', 0))
                 stroke = args.get('stroke') if args.get('stroke') is not None else current_stroke
-                sw = float(args.get('stroke_weight') if args.get('stroke_weight') is not None else (current_stroke_weight or 1))
+                sw = _safe_float(args.get('stroke_weight') if args.get('stroke_weight') is not None else (current_stroke_weight or 1))
                 p = _make_paint_from_color(
                     stroke,
                     fill=False,
@@ -739,13 +785,13 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                 continue
 
             if op == 'point':
-                x = float(args.get('x', 0))
-                y = float(args.get('y', 0))
+                x = _safe_float(args.get('x', 0))
+                y = _safe_float(args.get('y', 0))
                 # Per API: `fill()` has no effect on point; only stroke should
                 # influence point rendering. We therefore ignore any explicit
                 # fill and only draw when a stroke is provided.
                 stroke_col = args.get('stroke') if args.get('stroke') is not None else current_stroke
-                sw = float(args.get('stroke_weight', 1) or 0)
+                sw = _safe_float(args.get('stroke_weight', 1) or 0)
                 # If stroke_weight is zero or negative, the point should not render.
                 if sw <= 0 or stroke_col is None:
                     # per API, do not render when no stroke or zero weight
@@ -774,9 +820,9 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                 continue
 
             if op == 'circle':
-                x = float(args.get('x', 0))
-                y = float(args.get('y', 0))
-                r = float(args.get('r', 0))
+                x = _safe_float(args.get('x', 0))
+                y = _safe_float(args.get('y', 0))
+                r = _safe_float(args.get('r', 0))
                 # determine fill and stroke
                 fill_col = args.get('fill') if args.get('fill') is not None else None
                 stroke_col = args.get('stroke') if args.get('stroke') is not None else None
@@ -785,7 +831,7 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                         fill_col = current_fill
                 except Exception:
                     fill_col = None
-                sw = float(args.get('stroke_weight') if args.get('stroke_weight') is not None else (current_stroke_weight or 1))
+                sw = _safe_float(args.get('stroke_weight') if args.get('stroke_weight') is not None else (current_stroke_weight or 1))
 
                 # draw fill first if present
                 if fill_col is not None:
@@ -840,12 +886,12 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                 continue
 
             if op == 'ellipse':
-                x = float(args.get('x', 0))
-                y = float(args.get('y', 0))
-                w = float(args.get('w', 0))
-                h = float(args.get('h', 0))
+                x = _safe_float(args.get('x', 0))
+                y = _safe_float(args.get('y', 0))
+                w = _safe_float(args.get('w', 0))
+                h = _safe_float(args.get('h', 0))
                 fill_col = args.get('fill') if args.get('fill') is not None else None
-                sw = float(args.get('stroke_weight') if args.get('stroke_weight') is not None else (current_stroke_weight or 1))
+                sw = _safe_float(args.get('stroke_weight') if args.get('stroke_weight') is not None else (current_stroke_weight or 1))
                 stroke_col = args.get('stroke') if args.get('stroke') is not None else current_stroke
                 try:
                     if fill_col is None:
@@ -932,7 +978,7 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                     stroke_col = current_stroke
                     if stroke_alpha is None:
                         stroke_alpha = current_stroke_alpha
-                sw = float(args.get('stroke_weight') if args.get('stroke_weight') is not None else (current_stroke_weight or 1))
+                sw = _safe_float(args.get('stroke_weight') if args.get('stroke_weight') is not None else (current_stroke_weight or 1))
 
                 try:
                     # Helper to extract per-vertex color if present
@@ -1085,7 +1131,7 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                 fill_alpha = args.get('fill_alpha', None)
                 stroke_col = args.get('stroke') if args.get('stroke') is not None else current_stroke
                 stroke_alpha = args.get('stroke_alpha', None)
-                sw = float(args.get('stroke_weight') if args.get('stroke_weight') is not None else (current_stroke_weight or 1))
+                sw = _safe_float(args.get('stroke_weight') if args.get('stroke_weight') is not None else (current_stroke_weight or 1))
 
                 # Fill first
                 if fill_col is not None:
@@ -1235,13 +1281,13 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                 # the recorded `fill()` color (current_fill) when present.
                 try:
                     txt = str(args.get('text') or args.get('s') or '')
-                    tx = float(args.get('x', 0))
-                    ty = float(args.get('y', 0))
+                    tx = _safe_float(args.get('x', 0))
+                    ty = _safe_float(args.get('y', 0))
                     # Allow callers to provide a size via kwargs (best-effort).
                     kw = args.get('kwargs', {}) or {}
                     size = None
                     try:
-                        size = float(args.get('size', None) or kw.get('size', None))
+                        size = _opt_float(args.get('size', None) or kw.get('size', None))
                     except Exception:
                         size = None
                     if size is None:
@@ -1249,7 +1295,7 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                         # args mapping (pycreative.typography records this when
                         # available). Fall back to 12.0 when absent.
                         try:
-                            size = float(args.get('font_size', 12.0) or 12.0)
+                            size = _safe_float(args.get('font_size', 12.0) or 12.0)
                         except Exception:
                             size = 12.0
 

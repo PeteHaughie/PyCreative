@@ -44,7 +44,8 @@ def step_frame(engine: Any) -> None:
                 # users can see why setup() may have aborted early and
                 # left engine state (e.g., rect_mode) unset.
                 try:
-                    import logging, traceback
+                    import logging
+                    import traceback
                     try:
                         if __import__('os').getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
                             logging.getLogger(__name__).exception('setup() raised an exception:')

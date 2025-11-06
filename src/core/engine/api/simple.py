@@ -510,28 +510,7 @@ class SimpleSketchAPI:
         except Exception:
             pass
 
-    def shape_mode(self, mode: str):
-        """Set generic shape mode on the engine (e.g., for `shape()` helpers).
-
-        Some sketches call `self.shape_mode(...)` in setup; expose this on the
-        SimpleSketchAPI so the engine attribute is always set regardless of
-        call path.
-        """
-        try:
-            setattr(self._engine, 'shape_mode', str(mode))
-        except Exception:
-            pass
-
-    def image_mode(self, mode: str):
-        """Set image drawing mode (CORNER, CENTER, etc.).
-
-        Mirrors the convenience fallback attached to sketch instances so
-        calling `self.image_mode(...)` updates engine state consistently.
-        """
-        try:
-            setattr(self._engine, 'image_mode', str(mode))
-        except Exception:
-            pass
+    
 
     def image_mode(self, mode: str):
         """Set the image drawing mode (e.g., 'CENTER', 'CORNER', 'CORNERS').
@@ -878,9 +857,19 @@ class SimpleSketchAPI:
         if fn:
             return fn(x1, y1, x2, y2, **kwargs)
 
-    def circle(self, x, y, r, **kwargs):
+    def circle(self, x, y, d, **kwargs):
+        """Public API: circle(x, y, d)
+
+        Processing-compatible: the third argument is a diameter. Convert
+        to a radius before delegating to the registered implementation so
+        internal code can continue to work with radius semantics.
+        """
         fn = self._engine.api.get('circle')
         if fn:
+            try:
+                r = float(d) / 2.0
+            except Exception:
+                r = d
             return fn(x, y, r, **kwargs)
 
     def ellipse(self, x, y, w, h=None, **kwargs):

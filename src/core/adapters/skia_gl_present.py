@@ -259,7 +259,6 @@ class SkiaGLPresenter:
                                 # passthrough vertex shader so compilation succeeds.
                                 variants = self._variant_ordering()
                                 compiled_prog = None
-                                last_exc = None
                                 for var in variants:
                                     # conservative sanitizer to adapt shader text per-variant
                                     def _sanitize_source(src: str | None, stage: str, variant_tag: str) -> str:
@@ -308,9 +307,7 @@ class SkiaGLPresenter:
                                         return s
 
                                     try:
-                                        v_prefix = ''
                                         frag_prefix = ''
-                                        vert_src = getattr(s, 'vert_source', None)
                                         # Map variant tags to #version lines and defaults
                                         if var == '150':
                                             frag_prefix = '#version 150\n'
@@ -394,8 +391,7 @@ class SkiaGLPresenter:
                                         except Exception:
                                             pass
                                         break
-                                    except Exception as e:
-                                        last_exc = e
+                                    except Exception:
                                         # try next variant
                                         continue
 
@@ -908,13 +904,224 @@ class SkiaGLPresenter:
                     except Exception:
                         pass
 
+                    # Pre-process commands: if a shader program is bound via
+                    # recorded 'shader' op and we encounter an 'image' op,
+                    # draw that image through the bound GL program using the
+                    # presenter's textured-quad VBO. Otherwise delegate to
+                    # the skia replayer for standard drawing.
                     try:
-                        replay_fn(commands, canvas)
-                    finally:
+                        from pyglet import gl
+                        bound_shader_obj = None
+                        processed_cmds = []
+                        for cmd in list(commands):
+                            try:
+                                op = cmd.get('op')
+                                args = cmd.get('args', {}) or {}
+                                if op == 'shader':
+                                    # shader obj stored in args
+                                    try:
+                                        bound_shader_obj = args.get('shader')
+                                    except Exception:
+                                        bound_shader_obj = None
+                                    # keep shader op so replayer can also see it if needed
+                                    processed_cmds.append(cmd)
+                                    continue
+                                if op == 'reset_shader':
+                                    bound_shader_obj = None
+                                    processed_cmds.append(cmd)
+                                    continue
+
+                                if op == 'image' and bound_shader_obj is not None:
+                                    # Best-effort: if image bytes + size are present, upload
+                                    # to a temporary GL texture and draw a quad with the
+                                    # bound shader program. Otherwise fall back to skia.
+                                    try:
+                                        ib = args.get('image_bytes')
+                                        isize = args.get('image_size')
+                                        if ib and isize:
+                                            iw, ih = int(isize[0]), int(isize[1])
+                                            # create GL texture
+                                            tex = gl.GLuint()
+                                            gl.glGenTextures(1, ctypes.byref(tex))
+                                            tex_id = int(tex.value)
+                                            gl.glBindTexture(gl.GL_TEXTURE_2D, tex_id)
+                                            try:
+                                                gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
+                                                gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+                                            except Exception:
+                                                pass
+                                            # upload data
+                                            try:
+                                                arr = (gl.GLubyte * len(ib)).from_buffer_copy(ib)
+                                                gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
+                                                gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, iw, ih, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, ctypes.byref(arr))
+                                            finally:
+                                                try:
+                                                    gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 4)
+                                                except Exception:
+                                                    pass
+
+                                            # draw with user's shader program if compiled
+                                            prog = getattr(bound_shader_obj, '_program', None)
+                                            if prog is not None:
+                                                try:
+                                                    prog = int(prog)
+                                                    prev_prog = gl.GLint()
+                                                    try:
+                                                        gl.glGetIntegerv(gl.GL_CURRENT_PROGRAM, ctypes.byref(prev_prog))
+                                                    except Exception:
+                                                        prev_prog = None
+                                                    gl.glUseProgram(prog)
+                                                    # bind texture unit 0
+                                                    gl.glActiveTexture(gl.GL_TEXTURE0)
+                                                    gl.glBindTexture(gl.GL_TEXTURE_2D, tex_id)
+                                                    # set common sampler uniform (try common names)
+                                                    for uname in ('iChannel0', 'u_tex', 'tex', 'uTexture'):
+                                                        try:
+                                                            loc = gl.glGetUniformLocation(prog, uname.encode('utf-8'))
+                                                            if loc and int(loc) >= 0:
+                                                                try:
+                                                                    gl.glUniform1i(int(loc), 0)
+                                                                except Exception:
+                                                                    pass
+                                                        except Exception:
+                                                            pass
+                                                    # upload any stored uniforms on the shader object
+                                                    try:
+                                                        for uname, uvals in getattr(bound_shader_obj, '_uniforms', {}).items():
+                                                            try:
+                                                                loc = gl.glGetUniformLocation(prog, str(uname).encode('utf-8'))
+                                                                if not loc:
+                                                                    continue
+                                                                loci = int(loc)
+                                                                try:
+                                                                    valsf = tuple(float(v) for v in uvals)
+                                                                    if len(valsf) == 1:
+                                                                        gl.glUniform1f(loci, valsf[0])
+                                                                    elif len(valsf) == 2:
+                                                                        gl.glUniform2f(loci, valsf[0], valsf[1])
+                                                                    elif len(valsf) == 3:
+                                                                        gl.glUniform3f(loci, valsf[0], valsf[1], valsf[2])
+                                                                    elif len(valsf) == 4:
+                                                                        gl.glUniform4f(loci, valsf[0], valsf[1], valsf[2], valsf[3])
+                                                                except Exception:
+                                                                    try:
+                                                                        ivals = tuple(int(v) for v in uvals)
+                                                                        if len(ivals) == 1:
+                                                                            gl.glUniform1i(loci, ivals[0])
+                                                                    except Exception:
+                                                                        pass
+                                                            except Exception:
+                                                                pass
+                                                    except Exception:
+                                                        pass
+
+                                                    # Ensure quad resources exist
+                                                    try:
+                                                        self._ensure_textured_quad_resources()
+                                                    except Exception:
+                                                        pass
+
+                                                    # Bind VBO and set attribute pointers for this program
+                                                    try:
+                                                        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, int(self._fs_vbo))
+                                                        stride = ctypes.sizeof(ctypes.c_float) * 4
+                                                        # attribute candidates
+                                                        pos_candidates = ('position', 'a_pos', 'aPosition')
+                                                        uv_candidates = ('texcoord0', 'a_uv', 'uv', 'aUV')
+                                                        enabled_attribs = []
+                                                        for name in pos_candidates:
+                                                            try:
+                                                                loc = gl.glGetAttribLocation(prog, name.encode('utf-8'))
+                                                                if loc is not None and int(loc) >= 0:
+                                                                    gl.glEnableVertexAttribArray(int(loc))
+                                                                    gl.glVertexAttribPointer(int(loc), 2, gl.GL_FLOAT, False, stride, ctypes.c_void_p(0))
+                                                                    enabled_attribs.append(int(loc))
+                                                                    break
+                                                            except Exception:
+                                                                continue
+                                                        for name in uv_candidates:
+                                                            try:
+                                                                loc = gl.glGetAttribLocation(prog, name.encode('utf-8'))
+                                                                if loc is not None and int(loc) >= 0:
+                                                                    gl.glEnableVertexAttribArray(int(loc))
+                                                                    gl.glVertexAttribPointer(int(loc), 2, gl.GL_FLOAT, False, stride, ctypes.c_void_p(ctypes.sizeof(ctypes.c_float) * 2))
+                                                                    enabled_attribs.append(int(loc))
+                                                                    break
+                                                            except Exception:
+                                                                continue
+
+                                                    except Exception:
+                                                        pass
+
+                                                    # Draw quad
+                                                    try:
+                                                        gl.glEnable(gl.GL_BLEND)
+                                                        gl.glBlendFuncSeparate(gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA, gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA)
+                                                    except Exception:
+                                                        pass
+                                                    try:
+                                                        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6)
+                                                    except Exception:
+                                                        pass
+
+                                                    # cleanup attribute state
+                                                    try:
+                                                        for a in enabled_attribs:
+                                                            try:
+                                                                gl.glDisableVertexAttribArray(int(a))
+                                                            except Exception:
+                                                                pass
+                                                    except Exception:
+                                                        pass
+
+                                                    # restore previous program
+                                                    try:
+                                                        if prev_prog is not None:
+                                                            gl.glUseProgram(int(prev_prog))
+                                                        else:
+                                                            gl.glUseProgram(0)
+                                                    except Exception:
+                                                        pass
+                                                # close draw-with-program try
+                                                except Exception:
+                                                    # best-effort: ignore program-draw errors and fall back
+                                                    pass
+                                                # delete temp texture
+                                                try:
+                                                    tdel = gl.GLuint(int(tex_id))
+                                                    gl.glDeleteTextures(1, ctypes.byref(tdel))
+                                                except Exception:
+                                                    pass
+                                                # we handled drawing this image, skip passing to skia
+                                                continue
+                                        # else fall through to processed_cmds to let Skia draw
+                                    except Exception:
+                                        # on any failure, fall back to Skia replay
+                                        pass
+                                # default: keep the command for Skia replay
+                                processed_cmds.append(cmd)
+                            except Exception:
+                                # if anything goes wrong per-command, keep it so replayer can try
+                                processed_cmds.append(cmd)
+
+                        # Delegate remaining commands to the skia replayer
                         try:
-                            canvas.restore()
-                        except Exception:
-                            pass
+                            replay_fn(processed_cmds, canvas)
+                        finally:
+                            try:
+                                canvas.restore()
+                            except Exception:
+                                pass
+                    except Exception:
+                        # If GL path failed for any reason, fall back to original delegate
+                        try:
+                            replay_fn(commands, canvas)
+                        finally:
+                            try:
+                                canvas.restore()
+                            except Exception:
+                                pass
                     # we've delegated and restored, skip the default call
                     goto_skip = True
                 except Exception:
@@ -923,6 +1130,11 @@ class SkiaGLPresenter:
                 goto_skip = False
         except Exception:
             goto_skip = False
+
+        except Exception:
+            # Defensive fallback for the outer replay pre-processing try
+            # (ensures we always have matching except/finally blocks).
+            pass
 
         if not (locals().get('goto_skip', False)):
             replay_fn(commands, canvas)
@@ -1224,6 +1436,307 @@ class SkiaGLPresenter:
                     pass
         except Exception:
             pass
+
+        # Process any recorded save_offscreen commands. Keep this simple and
+        # robust: for each recorded request, try to create a raster Skia
+        # surface, replay the ops into it using the central replayer and
+        # write out PNG bytes. Failures are non-fatal.
+        for cmd in list(commands):
+            try:
+                if cmd.get('op') != 'save_offscreen':
+                    continue
+                args = cmd.get('args', {}) or {}
+                path = args.get('path') or args.get('p') or args.get('a')
+                if not path:
+                    continue
+                w = int(args.get('width') or args.get('w') or 0)
+                h = int(args.get('height') or args.get('h') or 0)
+                ops = args.get('ops') or []
+
+                try:
+                    import skia
+                    from core.io.replay_to_skia_impl import replay_to_skia_canvas
+                except Exception:
+                    # skia or replayer not available; skip handling here
+                    continue
+
+                if not w or not h:
+                    try:
+                        w = int(getattr(self, 'width', w) or w)
+                        h = int(getattr(self, 'height', h) or h)
+                    except Exception:
+                        pass
+                if not w or not h:
+                    continue
+
+                # Create raster surface at device/backing pixels (apply HiDPI)
+                try:
+                    # compute device size for offscreen target
+                    try:
+                        tw = int(round(float(w) * sx)) if (w and sx) else int(w)
+                    except Exception:
+                        try:
+                            tw = int(w)
+                        except Exception:
+                            tw = 0
+                    try:
+                        th = int(round(float(h) * sy)) if (h and sy) else int(h)
+                    except Exception:
+                        try:
+                            th = int(h)
+                        except Exception:
+                            th = 0
+                    if not tw or not th:
+                        tw = int(w or 0)
+                        th = int(h or 0)
+                    surf_off = skia.Surface.MakeRasterN32Premul(int(tw), int(th))
+                    canvas_off = surf_off.getCanvas()
+                    try:
+                        canvas_off.clear(0)
+                    except Exception:
+                        pass
+                except Exception:
+                    continue
+
+                # Prepare converted command list with simple scaling logic
+                try:
+                    bw, bh = None, None
+                    try:
+                        bw, bh = getattr(self, '_surface_size') or getattr(self, '_backing_size')
+                    except Exception:
+                        bw = bh = None
+                    try:
+                        lw, lh = getattr(self, '_logical_size', (None, None))
+                        lw = int(lw) if lw is not None else int(getattr(self, 'width', 0) or 0)
+                        lh = int(lh) if lh is not None else int(getattr(self, 'height', 0) or 0)
+                    except Exception:
+                        lw = int(getattr(self, 'width', 0) or 0)
+                        lh = int(getattr(self, 'height', 0) or 0)
+                    sx = sy = 1.0
+                    try:
+                        if bw and bh and lw and lh:
+                            sx = float(bw) / float(lw)
+                            sy = float(bh) / float(lh)
+                    except Exception:
+                        sx = sy = 1.0
+
+                    converted = []
+                    seq2 = 0
+                    for oc in list(ops):
+                        seq2 += 1
+                        opn = oc.get('op')
+                        carg = {}
+                        if opn == 'background' and 'color' in oc:
+                            col = oc.get('color')
+                            try:
+                                if isinstance(col, (list, tuple)):
+                                    if len(col) >= 3:
+                                        carg['r'] = int(col[0])
+                                        carg['g'] = int(col[1])
+                                        carg['b'] = int(col[2])
+                                    if len(col) >= 4:
+                                        carg['a'] = int(col[3])
+                            except Exception:
+                                pass
+
+                        raw_x = oc.get('x')
+                        raw_y = oc.get('y')
+                        raw_w = oc.get('w')
+                        raw_h = oc.get('h')
+                        mode_val = (oc.get('mode') or '').upper()
+                        if mode_val == 'CENTER' and raw_x is not None and raw_y is not None and raw_w is not None and raw_h is not None:
+                            try:
+                                raw_x = float(raw_x) - float(raw_w) / 2.0
+                                raw_y = float(raw_y) - float(raw_h) / 2.0
+                            except Exception:
+                                pass
+
+                        for k, v in oc.items():
+                            if k == 'op':
+                                continue
+                            if opn == 'background' and k == 'color':
+                                continue
+                            if opn == 'stroke_weight' and k == 'w':
+                                try:
+                                    carg['weight'] = float(v)
+                                except Exception:
+                                    carg['weight'] = v
+                                continue
+                            if k == 'x':
+                                try:
+                                    vx = float(raw_x) if raw_x is not None else float(v)
+                                    carg['x'] = float(vx) * sx
+                                    continue
+                                except Exception:
+                                    pass
+                                if isinstance(v, (int, float)):
+                                    carg['x'] = float(v) * sx
+                                    continue
+                                continue
+                            if k == 'y':
+                                try:
+                                    vy = float(raw_y) if raw_y is not None else float(v)
+                                    carg['y'] = float(vy) * sy
+                                    continue
+                                except Exception:
+                                    pass
+                                if isinstance(v, (int, float)):
+                                    carg['y'] = float(v) * sy
+                                    continue
+                                continue
+                            if k == 'w':
+                                try:
+                                    vw = float(raw_w) if raw_w is not None else float(v)
+                                    carg['w'] = float(vw) * sx
+                                except Exception:
+                                    carg['w'] = v
+                                continue
+                            if k == 'r':
+                                # circle radius: scale by device pixel ratio
+                                try:
+                                    vr = float(v)
+                                    carg['r'] = float(vr) * sx
+                                except Exception:
+                                    carg['r'] = v
+                                continue
+                            # stroke weight: scale by approximate device pixel size
+                            if k == 'stroke_weight':
+                                try:
+                                    sw = float(v)
+                                    scale = (sx + sy) / 2.0 if (sx and sy) else sx or sy or 1.0
+                                    carg['stroke_weight'] = float(sw) * float(scale)
+                                except Exception:
+                                    carg['stroke_weight'] = v
+                                continue
+                            # text size / generic size keys that represent pixels
+                            if k in ('text_size', 'size'):
+                                try:
+                                    ts = float(v)
+                                    carg[k] = float(ts) * sx
+                                except Exception:
+                                    carg[k] = v
+                                continue
+                            # vertices lists: scale numeric vertex coordinates
+                            if k == 'vertices' and isinstance(v, (list, tuple)):
+                                try:
+                                    verts = []
+                                    for item in v:
+                                        if isinstance(item, (list, tuple)) and len(item) >= 2:
+                                            try:
+                                                vx = float(item[0]) * sx
+                                                vy = float(item[1]) * sy
+                                                verts.append([vx, vy] + list(item[2:]))
+                                                continue
+                                            except Exception:
+                                                verts.append(item)
+                                        else:
+                                            verts.append(item)
+                                    carg['vertices'] = verts
+                                except Exception:
+                                    carg['vertices'] = v
+                                continue
+                            if k == 'h':
+                                try:
+                                    vh = float(raw_h) if raw_h is not None else float(v)
+                                    carg['h'] = float(vh) * sy
+                                except Exception:
+                                    carg['h'] = v
+                                continue
+                            carg[k] = v
+                        converted.append({'op': opn, 'args': carg, 'meta': {'seq': seq2}})
+
+                except Exception:
+                    # conversion failed; try to continue to next command
+                    continue
+
+                # Replay and write out
+                try:
+                    try:
+                        # Debug dump: write converted commands so we can
+                        # inspect them on systems where Skia replay behaves
+                        # unexpectedly. This file is intentionally best-effort
+                        # and only used when debugging lifecycle issues.
+                        try:
+                            import json as _json
+                            import os as _os
+                            _dbg = '/tmp/pycreative_save_offscreen_cmds.json'
+                            try:
+                                with open(_dbg, 'w') as _df:
+                                    _df.write(_json.dumps(converted, indent=2))
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+
+                        # Optional debug rectangle: draw a visible rectangle to
+                        # prove the raster surface size and coordinate system.
+                        try:
+                            if os.getenv('PYCREATIVE_DEBUG_OFFSCREEN_RECT', '') == '1':
+                                try:
+                                    dbg_paint = skia.Paint()
+                                    dbg_paint.setStyle(skia.Paint.kStroke_Style)
+                                    dbg_paint.setColor(skia.Color4f(1, 0, 1, 1))
+                                    dbg_paint.setStrokeWidth(max(1.0, (sx + sy) / 2.0))
+                                    # draw a rect inset 4 device pixels
+                                    try:
+                                        canvas_off.drawRect(skia.Rect.MakeXYWH(4, 4, max(1, int(tw) - 8), max(1, int(th) - 8)), dbg_paint)
+                                    except Exception:
+                                        try:
+                                            canvas_off.drawRect(4, 4, max(1, int(tw) - 8), max(1, int(th) - 8), dbg_paint)
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+
+                        replay_to_skia_canvas(converted, canvas_off)
+                    except Exception:
+                        pass
+                    img = surf_off.makeImageSnapshot()
+                    if img is None:
+                        continue
+                    data = img.encodeToData()
+                    if data is None:
+                        continue
+                    b = None
+                    try:
+                        if hasattr(data, 'toBytes'):
+                            b = data.toBytes()
+                        elif hasattr(data, 'tobytes'):
+                            b = data.tobytes()
+                        else:
+                            b = bytes(data)
+                    except Exception:
+                        b = None
+                    if not b:
+                        continue
+                    try:
+                        d = os.path.dirname(path)
+                        if d:
+                            os.makedirs(d, exist_ok=True)
+                    except Exception:
+                        pass
+                    try:
+                        with open(path, 'wb') as _f:
+                            _f.write(b)
+                        try:
+                            eng = getattr(self, '_engine', None)
+                            if eng is not None:
+                                try:
+                                    eng.graphics.record('save_offscreen', path=path, backend='presenter')
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                except Exception:
+                    # non-fatal; move on
+                    pass
+            except Exception:
+                # per-command outer catcher
+                pass
 
         # Debug-only: optionally write a PNG snapshot of the Skia surface to disk
         # to verify that drawing occurred. Enabled with PYCREATIVE_DEBUG_LIFECYCLE_DUMP=1

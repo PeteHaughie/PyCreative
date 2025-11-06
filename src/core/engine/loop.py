@@ -57,6 +57,15 @@ def setup_window_loop(
     except Exception:  # pragma: no cover - platform specific
         raise RuntimeError('pyglet is required for windowed mode')
 
+    # Default no-op HiDPI adjustment helper. This may be overridden by
+    # the framebuffer / pixel-ratio probing logic below but must exist
+    # unconditionally so nested event handlers can reference it safely.
+    def _adjust_for_hidpi(mx: int, my: int) -> tuple[int, int]:
+        try:
+            return (int(mx), int(my))
+        except Exception:
+            return (mx, my)
+
     # Detect window backing pixel size (DPR) and resize presenter accordingly.
     # On high-DPI displays the window logical size (engine.width/height)
     # may differ from the framebuffer size used for GL/Skia surfaces. Try
@@ -64,12 +73,15 @@ def setup_window_loop(
     # so the presenter creates an appropriately-sized FBO/texture.
     try:
         win = getattr(engine, '_window', None)
+        # Narrow type for static analysis
+        from typing import cast, Any as _Any
+        w = cast(_Any, win)
         if win is not None and hasattr(presenter, 'resize'):
             try:
                 # Preferred: pyglet Window method get_framebuffer_size()
-                if hasattr(win, 'get_framebuffer_size'):
+                if hasattr(w, 'get_framebuffer_size'):
                     try:
-                        fb_w, fb_h = win.get_framebuffer_size()
+                        fb_w, fb_h = w.get_framebuffer_size()
                         if fb_w and fb_h:
                             try:
                                 presenter.resize(int(fb_w), int(fb_h))
@@ -77,23 +89,24 @@ def setup_window_loop(
                                 pass
                     except Exception:
                         pass
+
                     # Helper to adjust mouse coords for HiDPI / device-pixel ratio differences.
                     def _adjust_for_hidpi(mx: int, my: int) -> tuple[int, int]:
                         try:
-                            if win is None:
+                            if w is None:
                                 return (mx, my)
                             # Prefer explicit pixel ratio API when available
                             try:
-                                if hasattr(win, 'get_pixel_ratio'):
-                                    pr = float(win.get_pixel_ratio())
+                                if hasattr(w, 'get_pixel_ratio'):
+                                    pr = float(w.get_pixel_ratio())
                                     if pr and pr != 1.0:
                                         return (int(round(mx / pr)), int(round(my / pr)))
                             except Exception:
                                 pass
                             # Fallback: compare framebuffer size to logical engine size
                             try:
-                                if hasattr(win, 'get_framebuffer_size'):
-                                    fb_w, fb_h = win.get_framebuffer_size()
+                                if hasattr(w, 'get_framebuffer_size'):
+                                    fb_w, fb_h = w.get_framebuffer_size()
                                     ew = int(getattr(engine, 'width', 0)) or 0
                                     eh = int(getattr(engine, 'height', 0)) or 0
                                     if ew and eh and fb_w and fb_h:
@@ -106,10 +119,11 @@ def setup_window_loop(
                         except Exception:
                             pass
                         return (mx, my)
+
                 # Fallback: use pixel ratio when available
-                elif hasattr(win, 'get_pixel_ratio'):
+                elif hasattr(w, 'get_pixel_ratio'):
                     try:
-                        pr = float(win.get_pixel_ratio())
+                        pr = float(w.get_pixel_ratio())
                         if pr and pr != 1.0:
                             try:
                                 presenter.resize(int(engine.width * pr), int(engine.height * pr))
@@ -117,6 +131,16 @@ def setup_window_loop(
                                 pass
                     except Exception:
                         pass
+
+                    # Provide a HiDPI adjustment helper based on pixel ratio
+                    def _adjust_for_hidpi(mx: int, my: int) -> tuple[int, int]:
+                        try:
+                            pr2 = float(w.get_pixel_ratio())
+                            if pr2 and pr2 != 1.0:
+                                return (int(round(mx / pr2)), int(round(my / pr2)))
+                        except Exception:
+                            pass
+                        return (mx, my)
                 else:
                     # As a last resort, query GL viewport for drawable size
                     try:

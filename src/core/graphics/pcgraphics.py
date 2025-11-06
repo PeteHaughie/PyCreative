@@ -8,7 +8,7 @@ shape helpers, `save`, and basic properties.
 """
 from __future__ import annotations
 
-from typing import Any, List, Tuple, Optional
+from typing import Any, List, Optional
 
 
 class PCGraphics:
@@ -39,9 +39,9 @@ class PCGraphics:
         self._recording: List[dict] = []
         self._in_draw = False
         # Per-surface default state
-        self._fill = (255, 255, 255)
-        self._stroke = (0, 0, 0)
-        self._stroke_weight = 1
+        self._fill: tuple[int, int, int] = (255, 255, 255)
+        self._stroke: tuple[int, int, int] = (0, 0, 0)
+        self._stroke_weight: float = 1.0
         # drawing modes
         self._rect_mode = 'CORNER'
         self._ellipse_mode = 'CENTER'
@@ -117,14 +117,52 @@ class PCGraphics:
             self._recording.append({'op': 'rect', 'x': float(x), 'y': float(y), 'w': float(s), 'h': float(s), 'fill': self._fill, 'stroke': self._stroke, 'stroke_weight': self._stroke_weight, 'mode': self._rect_mode})
 
     def circle(self, x, y, d):
-        """Draw a circle with diameter `d` at (x, y).
+        """Draw a circle at (x, y).
 
-        Respects the current ellipse mode (CENTER or CORNER-like semantics).
+        Note: the engine-level `circle()` primitive expects the third
+        argument to be a radius (r). To keep PCGraphics consistent with
+        the engine API, this records a `circle` op with `r` (radius).
+
+        Respects the current ellipse mode for legacy callers: when the
+        mode is 'CENTER' the (x,y) are treated as the center; when the
+        mode is 'CORNER' the (x,y) are treated as the top-left corner of
+        the bounding box and are converted to a center before recording.
         """
         try:
-            self.ellipse(x, y, d, d)
+            # Diameter -> radius conversion for callers that passed a
+            # diameter value. If callers were already using radius this
+            # will effectively halve/double accordingly; the engine
+            # primitive expects radius so record `r` here.
+            try:
+                dd = float(d)
+            except Exception:
+                dd = d
+
+            mode = (self._ellipse_mode or 'CENTER').upper()
+            if mode == 'CENTER':
+                cx = float(x)
+                cy = float(y)
+            else:
+                # CORNER-like semantics: convert top-left to center
+                try:
+                    cx = float(x) + (dd / 2.0)
+                    cy = float(y) + (dd / 2.0)
+                except Exception:
+                    cx = float(x)
+                    cy = float(y)
+
+            # Treat the provided value as a radius to match the engine API
+            # (engine.circle takes radius). This makes PCGraphics and the
+            # main canvas consistent when callers pass the same number.
+            # Convert diameter -> radius to record engine-style `circle(r)`
+            r = float(dd) / 2.0
+            self._recording.append({'op': 'circle', 'x': cx, 'y': cy, 'r': r, 'fill': self._fill, 'stroke': self._stroke, 'stroke_weight': self._stroke_weight})
         except Exception:
-            self._recording.append({'op': 'ellipse', 'x': float(x), 'y': float(y), 'w': float(d), 'h': float(d), 'fill': self._fill, 'stroke': self._stroke, 'stroke_weight': self._stroke_weight, 'mode': self._ellipse_mode})
+            # Fallback to recording an ellipse (legacy path)
+            try:
+                self._recording.append({'op': 'ellipse', 'x': float(x), 'y': float(y), 'w': float(d), 'h': float(d), 'fill': self._fill, 'stroke': self._stroke, 'stroke_weight': self._stroke_weight, 'mode': self._ellipse_mode})
+            except Exception:
+                pass
 
     def rect_mode(self, mode: str):
         try:
@@ -225,7 +263,217 @@ class PCGraphics:
             except Exception:
                 pass
 
-        # Try to write via Pillow first
+        # Prefer using the centralized Skia replayer when available so
+        # offscreen saves match the engine/save_frame output. This will
+        # produce identical snapshots when Skia is present.
+        try:
+            from core.io.skia_replayer import replay_to_image_skia
+            import types
+
+            try:
+                temp_engine = types.SimpleNamespace()
+                # Determine HiDPI scale if an engine/presenter is available
+                sx = sy = 1.0
+                try:
+                    if self._engine is not None:
+                        pres = getattr(self._engine, '_presenter', None)
+                        if pres is not None:
+                            # prefer explicit surface/backing sizes recorded on presenter
+                            try:
+                                bw_bh = getattr(pres, '_surface_size', None) or getattr(pres, '_backing_size', (None, None))
+                                if isinstance(bw_bh, (list, tuple)) and len(bw_bh) >= 2:
+                                    bw = bw_bh[0]
+                                    bh = bw_bh[1]
+                                else:
+                                    bw = bh = None
+                                lw_lh = getattr(pres, '_logical_size', (None, None))
+                                try:
+                                    lw, lh = lw_lh
+                                except Exception:
+                                    lw = lh = None
+                                if bw and bh and lw and lh:
+                                    sx = float(bw) / float(lw)
+                                    sy = float(bh) / float(lh)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+                # Build commands in engine-expected shape and apply scaling
+                cmds = []
+                seq = 0
+                for c in list(self._recording):
+                    seq += 1
+                    op = c.get('op')
+                    args: dict[str, Any] = {}
+                    # Helper to map color tuples into r/g/b/a keys for background
+                    if op == 'background' and 'color' in c:
+                        col = c.get('color')
+                        try:
+                            if isinstance(col, (list, tuple)):
+                                if len(col) >= 3:
+                                    args['r'] = int(col[0])
+                                    args['g'] = int(col[1])
+                                    args['b'] = int(col[2])
+                                if len(col) >= 4:
+                                    args['a'] = int(col[3])
+                        except Exception:
+                            pass
+                    # Map and scale coordinates/dimensions carefully
+                    # First, extract raw values for possible center->corner conversion
+                    raw_x = c.get('x')
+                    raw_y = c.get('y')
+                    raw_w = c.get('w')
+                    raw_h = c.get('h')
+                    mode_val = (c.get('mode') or '').upper()
+
+                    # If modes indicate CENTER semantics, convert to CORNER (top-left)
+                    if mode_val == 'CENTER' and raw_x is not None and raw_y is not None and raw_w is not None and raw_h is not None:
+                        try:
+                            # compute logical top-left
+                            raw_x = float(raw_x) - float(raw_w) / 2.0
+                            raw_y = float(raw_y) - float(raw_h) / 2.0
+                        except Exception:
+                            pass
+
+                    for k, v in c.items():
+                        if k == 'op':
+                            continue
+                        # background handled above
+                        if op == 'background' and k == 'color':
+                            continue
+                        # stroke_weight: map 'w' to 'weight' and do NOT scale
+                        if op == 'stroke_weight' and k == 'w':
+                            try:
+                                args['weight'] = float(v)
+                            except Exception:
+                                args['weight'] = v
+                            continue
+                        # scale x,y
+                        if k == 'x':
+                            # prefer converted raw_x when present
+                            try:
+                                vx = float(raw_x) if raw_x is not None else float(v)
+                                args['x'] = float(vx) * sx
+                                continue
+                            except Exception:
+                                pass
+                            if isinstance(v, (int, float)):
+                                args['x'] = float(v) * sx
+                                continue
+                            continue
+                        if k == 'y':
+                            try:
+                                vy = float(raw_y) if raw_y is not None else float(v)
+                                args['y'] = float(vy) * sy
+                                continue
+                            except Exception:
+                                pass
+                            if isinstance(v, (int, float)):
+                                args['y'] = float(v) * sy
+                                continue
+                            continue
+                        # scale width/height for drawing ops; width -> sx, height -> sy
+                        if k == 'w':
+                            try:
+                                vw = float(raw_w) if raw_w is not None else float(v)
+                                args['w'] = float(vw) * sx
+                            except Exception:
+                                args['w'] = v
+                            continue
+                        if k == 'r':
+                            # circle radius: scale by device pixel ratio
+                            try:
+                                vr = float(v)
+                                args['r'] = float(vr) * sx
+                            except Exception:
+                                args['r'] = v
+                            continue
+                        # stroke weight: scale by approximate device pixel size
+                        if k == 'stroke_weight':
+                            try:
+                                sw = float(v)
+                                # use average scale to be isotropic when non-square
+                                scale = (sx + sy) / 2.0 if (sx and sy) else sx or sy or 1.0
+                                args['stroke_weight'] = float(sw) * float(scale)
+                            except Exception:
+                                args['stroke_weight'] = v
+                            continue
+                        # text size / generic size keys that represent pixels
+                        if k in ('text_size', 'size'):
+                            try:
+                                ts = float(v)
+                                args[k] = float(ts) * sx
+                            except Exception:
+                                args[k] = v
+                            continue
+                        # vertices lists: scale numeric vertex coordinates
+                        if k == 'vertices' and isinstance(v, (list, tuple)):
+                            try:
+                                verts: list[Any] = []
+                                for item in v:
+                                    if isinstance(item, (list, tuple)) and len(item) >= 2:
+                                        try:
+                                            vx = float(item[0]) * sx
+                                            vy = float(item[1]) * sy
+                                            verts.append([vx, vy] + list(item[2:]))
+                                            continue
+                                        except Exception:
+                                            verts.append(item)
+                                    else:
+                                        verts.append(item)
+                                args['vertices'] = verts
+                            except Exception:
+                                args['vertices'] = v
+                            continue
+                        if k == 'r':
+                            # circle radius: scale by device pixel ratio
+                            try:
+                                vr = float(v)
+                                args['r'] = float(vr) * sx
+                            except Exception:
+                                args['r'] = v
+                            continue
+                        if k == 'h':
+                            try:
+                                vh = float(raw_h) if raw_h is not None else float(v)
+                                args['h'] = float(vh) * sy
+                            except Exception:
+                                args['h'] = v
+                            continue
+                        # default: copy through
+                        args[k] = v
+                    cmds.append({'op': op, 'args': args, 'meta': {'seq': seq}})
+
+                temp_engine.width = int(round(self.width * sx))
+                temp_engine.height = int(round(self.height * sy))
+                temp_engine.graphics = types.SimpleNamespace()
+                temp_engine.graphics.commands = cmds
+                replay_to_image_skia(temp_engine, path)
+                try:
+                    if self._engine is not None:
+                        try:
+                            # Record the save request with the recorded ops so
+                            # presenters that handle offscreen saves have the
+                            # command list available for replay (including
+                            # HiDPI scaling). This is best-effort.
+                            self._engine.graphics.record('save_offscreen', path=path, backend='skia', width=self.width, height=self.height, ops=list(self._recording))
+                        except Exception:
+                            # Fall back to a minimal record if the above fails
+                            try:
+                                self._engine.graphics.record('save_offscreen', path=path, backend='skia')
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                return
+            except Exception:
+                # Fall through to Pillow fallback below
+                pass
+        except Exception:
+            # skia replayer not available
+            pass
+
         try:
             pil = self.to_pillow()
             if pil is not None:
@@ -328,7 +576,7 @@ class PCGraphics:
             elif op == 'image':
                 img_obj = cmd.get('image')
                 try:
-                    if hasattr(img_obj, 'to_pillow'):
+                    if img_obj is not None and hasattr(img_obj, 'to_pillow'):
                         src = img_obj.to_pillow()
                     else:
                         src = img_obj

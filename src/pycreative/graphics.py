@@ -8,20 +8,26 @@ from __future__ import annotations
 
 
 from . import _get_engine
+from typing import Any, Optional
 
+# Expose PCGraphics when available. Annotate as Optional[Any] to keep
+# type-checker happy in environments where core.graphics may not import.
+PCGraphics: Optional[Any] = None
 try:
-    from core.graphics import PCGraphics as PCGraphics
+    from core.graphics import PCGraphics as _PCGraphics
+    PCGraphics = _PCGraphics
 except Exception:
     PCGraphics = None
 
 
 # Registry of loaded PCShader objects so presenters can compile them.
+# Default to a plain set and prefer a weakref.WeakSet when available.
+_REGISTERED_SHADERS: Any = set()
 try:
     import weakref
-
     _REGISTERED_SHADERS = weakref.WeakSet()
 except Exception:
-    _REGISTERED_SHADERS = set()
+    pass
 
 
 # Minimal default passthrough vertex shader used when only a fragment
@@ -98,11 +104,18 @@ class PCShader:
                 from pyglet import gl
                 loc = self._uniform_locs.get(str(name))
                 if loc is None:
-                    loc = gl.glGetUniformLocation(self._program, str(name).encode('utf-8'))
                     try:
-                        self._uniform_locs[str(name)] = int(loc)
+                        prog = getattr(self, '_program', None)
+                        # Narrow `prog` for static analysis and callers of the C-API
+                        # by asserting it's not None (we checked above). This keeps
+                        # mypy from complaining about int|None passed into the
+                        # pyglet.gl functions.
+                        assert prog is not None
+                        raw_loc = gl.glGetUniformLocation(int(prog), str(name).encode('utf-8'))
+                        self._uniform_locs[str(name)] = int(raw_loc)
+                        loc = int(raw_loc)
                     except Exception:
-                        pass
+                        loc = None
                 # Best-effort support for common uniform types:
                 # - single float -> glUniform1f
                 # - vec2/vec3/vec4 floats -> glUniform2f/3f/4f
@@ -110,22 +123,30 @@ class PCShader:
                 try:
                     # Try float path first
                     vals_f = tuple(float(v) for v in values)
-                    gl.glUseProgram(self._program)
-                    if len(vals_f) == 1:
-                        gl.glUniform1f(int(loc), float(vals_f[0]))
-                    elif len(vals_f) == 2:
-                        gl.glUniform2f(int(loc), vals_f[0], vals_f[1])
-                    elif len(vals_f) == 3:
-                        gl.glUniform3f(int(loc), vals_f[0], vals_f[1], vals_f[2])
-                    elif len(vals_f) == 4:
-                        gl.glUniform4f(int(loc), vals_f[0], vals_f[1], vals_f[2], vals_f[3])
-                    gl.glUseProgram(0)
+                    if loc is not None:
+                        # Use the narrowed program id
+                        prog = getattr(self, '_program', None)
+                        assert prog is not None
+                        gl.glUseProgram(int(prog))
+                        try:
+                            if len(vals_f) == 1:
+                                gl.glUniform1f(int(loc), float(vals_f[0]))
+                            elif len(vals_f) == 2:
+                                gl.glUniform2f(int(loc), vals_f[0], vals_f[1])
+                            elif len(vals_f) == 3:
+                                gl.glUniform3f(int(loc), vals_f[0], vals_f[1], vals_f[2])
+                            elif len(vals_f) == 4:
+                                gl.glUniform4f(int(loc), vals_f[0], vals_f[1], vals_f[2], vals_f[3])
+                        finally:
+                            gl.glUseProgram(0)
                 except Exception:
                     # Fallback: try integer/sampler path. This handles texture samplers
                     # (pyglet texture objects often expose an `id` attribute) and integer
                     # uniform values.
                     try:
-                        gl.glUseProgram(self._program)
+                        prog2 = getattr(self, '_program', None)
+                        assert prog2 is not None
+                        gl.glUseProgram(int(prog2))
                         # If a single value and it has an `id` attribute, bind it as a
                         # GL_TEXTURE_2D to texture unit 0 and set the sampler uniform to 0.
                         if len(values) == 1:
@@ -140,14 +161,16 @@ class PCShader:
                                 try:
                                     gl.glActiveTexture(gl.GL_TEXTURE0)
                                     gl.glBindTexture(gl.GL_TEXTURE_2D, int(tex_id))
-                                    gl.glUniform1i(int(loc), 0)
+                                    if loc is not None:
+                                        gl.glUniform1i(int(loc), 0)
                                 except Exception:
                                     pass
                             else:
                                 # try integer uniform
                                 try:
                                     ival = int(values[0])
-                                    gl.glUniform1i(int(loc), ival)
+                                    if loc is not None:
+                                        gl.glUniform1i(int(loc), ival)
                                 except Exception:
                                     pass
                         else:
@@ -155,11 +178,14 @@ class PCShader:
                             try:
                                 ivals = tuple(int(v) for v in values)
                                 if len(ivals) == 2:
-                                    gl.glUniform2i(int(loc), ivals[0], ivals[1])
+                                    if loc is not None:
+                                        gl.glUniform2i(int(loc), ivals[0], ivals[1])
                                 elif len(ivals) == 3:
-                                    gl.glUniform3i(int(loc), ivals[0], ivals[1], ivals[2])
+                                    if loc is not None:
+                                        gl.glUniform3i(int(loc), ivals[0], ivals[1], ivals[2])
                                 elif len(ivals) == 4:
-                                    gl.glUniform4i(int(loc), ivals[0], ivals[1], ivals[2], ivals[3])
+                                    if loc is not None:
+                                        gl.glUniform4i(int(loc), ivals[0], ivals[1], ivals[2], ivals[3])
                             except Exception:
                                 pass
                         gl.glUseProgram(0)

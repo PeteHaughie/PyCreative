@@ -1,68 +1,108 @@
 """Skia-based replayer: render recorded GraphicsBuffer commands into a
 Skia CPU surface and write a PNG. This provides an authoritative Skia
 snapshot for headless debugging when skia-python is available.
+
+This module is defensive: it prefers the modern Skia Python API where
+available and performs robust conversions when bindings differ across
+platforms/versions.
 """
-    # mypy: ignore-errors
 from __future__ import annotations
 
 from typing import Any
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def replay_to_image_skia(engine: Any, path: str) -> None:
+    """Render engine.graphics.commands into a Skia raster surface and write PNG.
+
+    The target image size is taken from engine.width/engine.height.
+    """
     try:
         import skia
     except Exception:
+        logger.debug('replay_to_image_skia: skia not available')
         raise
 
     w = int(getattr(engine, 'width', 200))
     h = int(getattr(engine, 'height', 200))
-    surf = skia.Surface(w, h)
-    c = surf.getCanvas()
+    if w <= 0 or h <= 0:
+        raise RuntimeError('invalid target size for skia replay')
 
-    # Default background
+    # Prefer a raster surface with N32 premultiplied format (portable)
     try:
-        c.clear(skia.Color4f(1.0, 1.0, 1.0, 1.0))
+        surf = skia.Surface.MakeRasterN32Premul(int(w), int(h))
     except Exception:
         try:
-            c.clear(0xFFFFFFFF)
+            # Older bindings may accept ImageInfo style
+            info = skia.ImageInfo.Make(int(w), int(h), skia.ColorType.kRGBA_8888_ColorType, skia.AlphaType.kUnpremul_AlphaType)
+            surf = skia.Surface.MakeRaster(info)
         except Exception:
-            pass
+            # Last resort: try the surface constructor (some builds expose this)
+            surf = None
+            try:
+                surf = skia.Surface(int(w), int(h))
+            except Exception:
+                pass
 
-    # Delegate to the centralized replayer which understands all ops
+    if surf is None:
+        raise RuntimeError('Could not create a Skia raster surface')
+
+    c = surf.getCanvas()
+
+    # Default background: clear to opaque white unless a background op paints over it
     try:
-        from core.io.replay_to_skia import replay_to_skia_canvas
-        replay_to_skia_canvas(getattr(engine.graphics, 'commands', []), c)
+        try:
+            c.clear(skia.Color4f(1.0, 1.0, 1.0, 1.0))
+        except Exception:
+            c.clear(0xFFFFFFFF)
     except Exception:
-        # Fall back to previous conservative behaviour: nothing else to do
+        # non-fatal
         pass
 
+    # Delegate to the centralized defensive replayer implementation
+    try:
+        # prefer the implementation module directly
+        from core.io.replay_to_skia_impl import replay_to_skia_canvas
+        try:
+            replay_to_skia_canvas(getattr(getattr(engine, 'graphics', None), 'commands', []) or [], c)
+        except Exception:
+            logger.exception('replay_to_image_skia: error while replaying commands')
+    except Exception:
+        logger.exception('replay_to_image_skia: failed to import replay_to_skia_impl')
+
+    # Snapshot and encode to PNG bytes
     img = surf.makeImageSnapshot()
-    data = img.encodeToData()
+    if img is None:
+        raise RuntimeError('skia makeImageSnapshot returned None')
+
+    try:
+        data = img.encodeToData()
+    except Exception:
+        data = None
     if data is None:
         raise RuntimeError('skia encodeToData returned None')
 
-    # convert to bytes robustly
+    # extract bytes robustly
     b = None
-    if hasattr(data, 'toBytes'):
-        try:
+    try:
+        if hasattr(data, 'toBytes'):
             b = data.toBytes()
-        except Exception:
-            b = None
-    if b is None and hasattr(data, 'asBytes'):
-        try:
+        elif hasattr(data, 'asBytes'):
             b = data.asBytes()
-        except Exception:
-            b = None
-    if b is None:
-        try:
+        elif hasattr(data, 'tobytes'):
+            b = data.tobytes()
+        else:
             b = bytes(data)
-        except Exception:
-            b = None
-    if b is None:
+    except Exception:
+        b = None
+
+    if not b:
         raise RuntimeError('Could not extract PNG bytes from skia.Data')
 
-    # Ensure parent directory exists so file can be written
+    # Ensure parent directory exists
     try:
         d = os.path.dirname(path)
         if d:
@@ -72,4 +112,4 @@ def replay_to_image_skia(engine: Any, path: str) -> None:
 
     with open(path, 'wb') as f:
         f.write(b)
-    # Ensure file was written
+    logger.debug('replay_to_image_skia: wrote %s (%d bytes)', path, len(b))
