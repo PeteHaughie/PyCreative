@@ -142,6 +142,7 @@ class Engine(EngineProtocol):
                     'shape', 'shape_mode', 'push_matrix', 'pop_matrix',
                     'push', 'pop', 'translate', 'rotate', 'scale',
                     'no_stroke', 'no_fill', 'fill', 'stroke', 'stroke_weight',
+                    'create_graphics',
                     'begin_shape', 'vertex', 'end_shape', 'image', 'load_shape',
                 ):
                     try:
@@ -1407,7 +1408,19 @@ class Engine(EngineProtocol):
                 this = SimpleSketchAPI(self)
                 setup = getattr(self.sketch, 'setup', None)
                 if callable(setup):
-                    self._call_sketch_method(setup, this)
+                    try:
+                        self._call_sketch_method(setup, this)
+                    except Exception:
+                        try:
+                            import logging, traceback
+                            try:
+                                if __import__('os').getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                                    logging.getLogger(__name__).exception('setup() raised an exception in Engine.start:')
+                                    traceback.print_exc()
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
                 recorded = list(self.graphics.commands)
                 setup_bg = None
                 remaining = []

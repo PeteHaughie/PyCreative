@@ -40,7 +40,19 @@ def step_frame(engine: Any) -> None:
             try:
                 engine._call_sketch_method(setup, this)
             except Exception:
-                pass
+                # If lifecycle debug is enabled, surface the exception so
+                # users can see why setup() may have aborted early and
+                # left engine state (e.g., rect_mode) unset.
+                try:
+                    import logging, traceback
+                    try:
+                        if __import__('os').getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                            logging.getLogger(__name__).exception('setup() raised an exception:')
+                            traceback.print_exc()
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
         # (debug prints removed)
         # Capture and remove any background command emitted in setup so
         # it can be applied once only. Store its RGB for the presenter.

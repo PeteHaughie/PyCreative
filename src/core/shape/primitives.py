@@ -18,6 +18,11 @@ def rect(engine: Any, x: float, y: float, w: float, h: float, **kwargs):
         mode = 'CORNER'
 
     try:
+        logger.debug("rect(): engine.rect_mode=%r resolved_mode=%r", getattr(engine, 'rect_mode', None), mode)
+    except Exception:
+        pass
+
+    try:
         if mode == 'CORNER' or mode == 'CORNER':
             x_tl = float(x)
             y_tl = float(y)
@@ -126,6 +131,11 @@ def ellipse(engine: Any, x: float, y: float, w: float, h: Optional[float] = None
         emode = str(getattr(engine, 'ellipse_mode', 'CENTER')).upper()
     except Exception:
         emode = 'CENTER'
+
+    try:
+        logger.debug("ellipse(): engine.ellipse_mode=%r resolved_mode=%r", getattr(engine, 'ellipse_mode', None), emode)
+    except Exception:
+        pass
 
     try:
         if emode == 'CORNER':

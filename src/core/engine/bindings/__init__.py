@@ -32,6 +32,7 @@ SKETCH_CONVENIENCE_METHODS = (
     'push', 'pop',
     'shear_x', 'shear_y', 'reset_matrix', 'apply_matrix',
     'image', 'image_mode',
+    'create_graphics',
 )
 
 __all__ = ['SKETCH_CONVENIENCE_METHODS']

@@ -237,6 +237,179 @@ class SkiaGLPresenter:
             except Exception:
                 pass
             gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, internal, bw, bh, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, None)
+            # After GL resources are available, attempt to compile any
+            # registered PCShader objects so they can be used at runtime.
+            try:
+                try:
+                    import pycreative.graphics as _gfx
+                    shaders = getattr(_gfx, '_REGISTERED_SHADERS', None)
+                    if shaders is not None:
+                        for s in list(shaders):
+                            try:
+                                # only attempt compile for shaders with fragment source
+                                if not getattr(s, 'frag_source', None):
+                                    continue
+
+                                # We'll attempt compilation using the presenter's preferred
+                                # GLSL variant ordering. For each variant we prepend a
+                                # suitable #version directive (and ES precision when
+                                # needed) and try compiling both vertex and fragment
+                                # sources. If the shader originally used the default
+                                # vert_source we substitute a variant-appropriate
+                                # passthrough vertex shader so compilation succeeds.
+                                variants = self._variant_ordering()
+                                compiled_prog = None
+                                last_exc = None
+                                for var in variants:
+                                    # conservative sanitizer to adapt shader text per-variant
+                                    def _sanitize_source(src: str | None, stage: str, variant_tag: str) -> str:
+                                        if src is None:
+                                            return ''
+                                        s = src
+                                        try:
+                                            s = s.lstrip('\ufeff\n\r \t')
+                                        except Exception:
+                                            s = s.lstrip()
+                                        try:
+                                            idx = s.find('#version')
+                                            if idx > 0:
+                                                s = s[idx:]
+                                        except Exception:
+                                            pass
+                                        try:
+                                            if variant_tag in ('150', 'es300'):
+                                                s = s.replace('texture2D(', 'texture(')
+                                                if stage == 'frag' and 'gl_FragColor' in s:
+                                                    s = s.replace('gl_FragColor', 'fragColor')
+                                                    if '#version' in s:
+                                                        parts = s.split('\n', 1)
+                                                        first = parts[0]
+                                                        rest = parts[1] if len(parts) > 1 else ''
+                                                        if 'out vec4 fragColor' not in s:
+                                                            rest = 'out vec4 fragColor;\n' + rest
+                                                        s = first + '\n' + rest
+                                                if stage == 'vert':
+                                                    s = s.replace('attribute ', 'in ')
+                                                    s = s.replace('varying ', 'out ')
+                                                if stage == 'frag':
+                                                    s = s.replace('varying ', 'in ')
+                                        except Exception:
+                                            pass
+                                        try:
+                                            if s.count('#version') > 1:
+                                                first = s.find('#version')
+                                                rest = s[first:]
+                                                lines = rest.split('\n')
+                                                first_line = lines[0]
+                                                others = [ln for ln in lines[1:] if '#version' not in ln]
+                                                s = first_line + '\n' + '\n'.join(others)
+                                        except Exception:
+                                            pass
+                                        return s
+
+                                    try:
+                                        v_prefix = ''
+                                        frag_prefix = ''
+                                        vert_src = getattr(s, 'vert_source', None)
+                                        # Map variant tags to #version lines and defaults
+                                        if var == '150':
+                                            frag_prefix = '#version 150\n'
+                                            vert_prefix = '#version 150\n'
+                                            # modern in/out style
+                                            default_vert = ('#version 150\n'
+                                                            'in vec2 position;\n'
+                                                            'in vec2 texcoord0;\n'
+                                                            'out vec2 v_texcoord;\n'
+                                                            'void main() { v_texcoord = texcoord0; gl_Position = vec4(position, 0.0, 1.0); }')
+                                        elif var == 'es300':
+                                            frag_prefix = '#version 300 es\nprecision mediump float;\n'
+                                            vert_prefix = '#version 300 es\n'
+                                            default_vert = ('#version 300 es\n'
+                                                            'in vec2 position;\n'
+                                                            'in vec2 texcoord0;\n'
+                                                            'out vec2 v_texcoord;\n'
+                                                            'void main() { v_texcoord = texcoord0; gl_Position = vec4(position, 0.0, 1.0); }')
+                                        else:
+                                            # fallback to legacy 120
+                                            frag_prefix = '#version 120\n'
+                                            vert_prefix = '#version 120\n'
+                                            default_vert = ('#version 120\n'
+                                                            'attribute vec2 position;\n'
+                                                            'attribute vec2 texcoord0;\n'
+                                                            'varying vec2 v_texcoord;\n'
+                                                            'void main() { v_texcoord = texcoord0; gl_Position = vec4(position, 0.0, 1.0); }')
+
+                                        # Choose vertex source: if the shader's vert_source is
+                                        # exactly the library default (no version) or is None,
+                                        # use our variant-appropriate default. Otherwise try
+                                        # to compile the provided source with the prefix.
+                                        provided_vert = getattr(s, 'vert_source', None)
+                                        use_vert = None
+                                        try:
+                                            # Heuristic: if provided_vert is None or seems to
+                                            # be the default passthrough (matches our earlier
+                                            # default pattern without a #version), substitute.
+                                            if not provided_vert:
+                                                use_vert = default_vert
+                                            else:
+                                                # Sanitize provided vertex source for variant
+                                                try:
+                                                    provided_vert = _sanitize_source(provided_vert, 'vert', var)
+                                                except Exception:
+                                                    pass
+                                                # If provided_vert already contains a #version,
+                                                # trust it; otherwise prepend the variant prefix.
+                                                if '#version' in provided_vert:
+                                                    use_vert = provided_vert
+                                                else:
+                                                    use_vert = vert_prefix + provided_vert
+                                        except Exception:
+                                            use_vert = default_vert
+
+                                        # Prepare fragment source with appropriate prefix
+                                        frag_src_try = s.frag_source or ''
+                                        try:
+                                            frag_src_try = _sanitize_source(frag_src_try, 'frag', var)
+                                        except Exception:
+                                            pass
+                                        if '#version' not in frag_src_try:
+                                            frag_src_try = frag_prefix + frag_src_try.lstrip()
+
+                                        # Now compile and link
+                                        frag_sh = self._compile_shader(frag_src_try, gl.GL_FRAGMENT_SHADER)
+                                        vert_sh = self._compile_shader(use_vert, gl.GL_VERTEX_SHADER)
+                                        prog = self._link_program(vert_sh, frag_sh)
+                                        compiled_prog = int(prog)
+                                        # success -> attach and break
+                                        try:
+                                            s._program = compiled_prog
+                                            try:
+                                                s._compiled_variant = var
+                                            except Exception:
+                                                pass
+                                            try:
+                                                logging.getLogger(__name__).debug('Compiled PCShader using variant %s prog=%s', var, compiled_prog)
+                                            except Exception:
+                                                pass
+                                        except Exception:
+                                            pass
+                                        break
+                                    except Exception as e:
+                                        last_exc = e
+                                        # try next variant
+                                        continue
+
+                                if compiled_prog is None:
+                                    try:
+                                        logging.getLogger(__name__).exception('Failed to compile/link PCShader')
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+            except Exception:
+                pass
             # If a setup background color is known, initialize the texture
             # contents to that opaque color so alpha isn't left zero. This
             # protects against drivers or Skia surface creation paths that
@@ -1683,6 +1856,13 @@ class SkiaGLPresenter:
     # --- textured-quad (VBO + GLSL 1.20) helpers ---
     def _compile_shader(self, source: str, shader_type):
         from pyglet import gl
+        # Ensure version directive (if present) is at the start by stripping
+        # any leading whitespace or BOM characters. Some drivers are strict
+        # about #version placement.
+        try:
+            source = source.lstrip()
+        except Exception:
+            pass
         src_buf = ctypes.create_string_buffer(source.encode('utf-8'))
         src_ptr = ctypes.cast(ctypes.pointer(ctypes.pointer(src_buf)), ctypes.POINTER(ctypes.POINTER(ctypes.c_char)))
         shader = gl.glCreateShader(shader_type)

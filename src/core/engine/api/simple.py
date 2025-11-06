@@ -110,6 +110,15 @@ class SimpleSketchAPI:
                         return PCVector(0.0, 0.0)
 
             self.pcvector: Any = _PCVectorFactory()
+            # Expose PCGraphics constructor so sketches can reference the
+            # concrete type when needed (e.g., isinstance checks or direct
+            # construction in advanced cases).
+            try:
+                from core.graphics import PCGraphics as _PCGraphics
+
+                setattr(self, 'PCGraphics', _PCGraphics)
+            except Exception:
+                pass
             # Expose Processing-style shape mode constants so sketches can
             # reference `this.CENTER`, `this.CORNER`, etc.
             try:
@@ -294,10 +303,28 @@ class SimpleSketchAPI:
         # fallback: attempt to call core.image directly
         try:
             from core.image import load_image as _li
-
             return _li(path, extension)
         except Exception:
             return None
+
+    def load_shader(self, frag_filename: str, vert_filename: str | None = None):
+        """Load a shader relative to the current sketch and return a PCShader.
+
+        Delegates to the public `pycreative.graphics.load_shader` shim so
+        examples can call `self.load_shader(...)` in setup() and receive
+        a usable PCShader in headless/test environments.
+        """
+        try:
+            import pycreative.graphics as _gfx
+            fn = getattr(_gfx, 'load_shader', None)
+            if callable(fn):
+                try:
+                    return fn(frag_filename, vert_filename)
+                except Exception:
+                    return None
+        except Exception:
+            pass
+        return None
 
     def load_shape(self, path: str):
         """Load a shape (SVG or OBJ). Delegates to a registered API or
@@ -372,6 +399,25 @@ class SimpleSketchAPI:
         except Exception:
             return None
 
+    def create_graphics(self, w: int, h: int):
+        """Create an offscreen PCGraphics surface.
+
+        Delegates to a registered engine API implementation if present,
+        otherwise falls back to the core.graphics.create_graphics factory.
+        """
+        try:
+            fn = self._engine.api.get('create_graphics')
+            if fn:
+                return fn(w, h)
+        except Exception:
+            pass
+        try:
+            from core.graphics import create_graphics as _cg
+
+            return _cg(int(w), int(h))
+        except Exception:
+            return None
+
     def image(self, img, x, y, w=None, h=None, mode='CORNER', **kwargs):
         """Draw or record an image. Accepts a PCImage-like object or a path.
 
@@ -442,6 +488,51 @@ class SimpleSketchAPI:
             pass
         return None
 
+    def rect_mode(self, mode: str):
+        """Set rectangle drawing mode (CORNER, CORNERS, CENTER, RADIUS).
+
+        This updates the engine's `rect_mode` so primitive helpers can
+        compute coordinates consistently whether `rect_mode()` is called
+        on the sketch instance or the SimpleSketchAPI facade.
+        """
+        try:
+            setattr(self._engine, 'rect_mode', str(mode))
+        except Exception:
+            pass
+
+    def ellipse_mode(self, mode: str):
+        """Set ellipse drawing mode (CORNER, CORNERS, CENTER, RADIUS).
+
+        Mirrors `rect_mode` behaviour for ellipses.
+        """
+        try:
+            setattr(self._engine, 'ellipse_mode', str(mode))
+        except Exception:
+            pass
+
+    def shape_mode(self, mode: str):
+        """Set generic shape mode on the engine (e.g., for `shape()` helpers).
+
+        Some sketches call `self.shape_mode(...)` in setup; expose this on the
+        SimpleSketchAPI so the engine attribute is always set regardless of
+        call path.
+        """
+        try:
+            setattr(self._engine, 'shape_mode', str(mode))
+        except Exception:
+            pass
+
+    def image_mode(self, mode: str):
+        """Set image drawing mode (CORNER, CENTER, etc.).
+
+        Mirrors the convenience fallback attached to sketch instances so
+        calling `self.image_mode(...)` updates engine state consistently.
+        """
+        try:
+            setattr(self._engine, 'image_mode', str(mode))
+        except Exception:
+            pass
+
     def image_mode(self, mode: str):
         """Set the image drawing mode (e.g., 'CENTER', 'CORNER', 'CORNERS').
 
@@ -459,6 +550,45 @@ class SimpleSketchAPI:
             if fn:
                 try:
                     return fn(mode)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return None
+
+    def shader(self, shader_obj):
+        """Set the active PCShader for subsequent draw calls.
+
+        Stores the shader on the engine and records a 'shader' op so
+        presenters/replayers can bind the GL program when replaying.
+        Passing None will clear the active shader.
+        """
+        try:
+            try:
+                setattr(self._engine, 'active_shader', shader_obj)
+            except Exception:
+                pass
+            g = getattr(self._engine, 'graphics', None)
+            if g is not None:
+                try:
+                    return g.record('shader', shader=shader_obj)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return None
+
+    def reset_shader(self):
+        """Clear any active shader. Records a 'reset_shader' op."""
+        try:
+            try:
+                setattr(self._engine, 'active_shader', None)
+            except Exception:
+                pass
+            g = getattr(self._engine, 'graphics', None)
+            if g is not None:
+                try:
+                    return g.record('reset_shader')
                 except Exception:
                     pass
         except Exception:

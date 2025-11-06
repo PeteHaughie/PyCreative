@@ -250,12 +250,84 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
             except Exception:
                 pass
 
+        # Track whether a GL shader program is currently bound by the
+        # replayer. Presenters that compile PCShader objects set
+        # `PCShader._program` when compilation succeeds. When a 'shader'
+        # op is recorded we attempt to bind the program and upload any
+        # stored uniforms. A subsequent 'reset_shader' op will unbind.
+        current_gl_shader_bound = None
+
         try:
             if op in ('push_matrix', 'save'):
                 try:
                     canvas.save()
                 except Exception:
                     pass
+                continue
+            if op == 'shader':
+                # Bind a PCShader for subsequent draw ops. `shader` may be
+                # a PCShader instance or None. This is best-effort: failures
+                # must not raise.
+                try:
+                    sh = args.get('shader')
+                    if sh is None:
+                        # unbind
+                        try:
+                            from pyglet import gl
+                            gl.glUseProgram(0)
+                        except Exception:
+                            pass
+                        current_gl_shader_bound = None
+                    else:
+                        try:
+                            prog = getattr(sh, '_program', None)
+                            if prog is not None:
+                                from pyglet import gl
+                                gl.glUseProgram(int(prog))
+                                # upload uniforms stored on shader
+                                try:
+                                    for uname, uvals in getattr(sh, '_uniforms', {}).items():
+                                        try:
+                                            loc = gl.glGetUniformLocation(int(prog), str(uname).encode('utf-8'))
+                                            if not loc:
+                                                continue
+                                            loci = int(loc)
+                                            # try float path
+                                            try:
+                                                valsf = tuple(float(v) for v in uvals)
+                                                if len(valsf) == 1:
+                                                    gl.glUniform1f(loci, valsf[0])
+                                                elif len(valsf) == 2:
+                                                    gl.glUniform2f(loci, valsf[0], valsf[1])
+                                                elif len(valsf) == 3:
+                                                    gl.glUniform3f(loci, valsf[0], valsf[1], valsf[2])
+                                                elif len(valsf) == 4:
+                                                    gl.glUniform4f(loci, valsf[0], valsf[1], valsf[2], valsf[3])
+                                            except Exception:
+                                                try:
+                                                    ivals = tuple(int(v) for v in uvals)
+                                                    if len(ivals) == 1:
+                                                        gl.glUniform1i(loci, ivals[0])
+                                                except Exception:
+                                                    pass
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
+                                current_gl_shader_bound = prog
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                continue
+
+            if op == 'reset_shader':
+                try:
+                    from pyglet import gl
+                    gl.glUseProgram(0)
+                except Exception:
+                    pass
+                current_gl_shader_bound = None
                 continue
             if op in ('pop_matrix', 'restore'):
                 try:
