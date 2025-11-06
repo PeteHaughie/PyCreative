@@ -60,9 +60,57 @@ class PCGraphics:
             try:
                 g = getattr(self._engine, 'graphics', None)
                 if g is not None:
-                    # Record the offscreen buffer contents as an 'offscreen'
-                    # op so presenters can choose how to handle it.
-                    g.record('offscreen', width=self.width, height=self.height, ops=list(self._recording))
+                    # Build engine-shaped commands so presenters and the
+                    # central replayer receive a consistent format. This
+                    # normalizes older top-level keyed ops (the legacy
+                    # PCGraphics recording format) into the expected
+                    # {'op': name, 'args': {...}} shape.
+                    cmds = []
+                    seq = 0
+                    for c in list(self._recording):
+                        seq += 1
+                        op = c.get('op')
+                        args: dict[str, Any] = {}
+
+                        # Background color -> r/g/b/(a)
+                        if op == 'background' and 'color' in c:
+                            col = c.get('color')
+                            try:
+                                if isinstance(col, (list, tuple)):
+                                    if len(col) >= 3:
+                                        args['r'] = int(col[0])
+                                        args['g'] = int(col[1])
+                                        args['b'] = int(col[2])
+                                    if len(col) >= 4:
+                                        args['a'] = int(col[3])
+                            except Exception:
+                                pass
+
+                        # Map common keys through; translate stroke weight
+                        # key for consistency with engine naming.
+                        for k, v in c.items():
+                            if k == 'op':
+                                continue
+                            # skip background color itself (handled above)
+                            if op == 'background' and k == 'color':
+                                continue
+                            if op == 'stroke_weight' and k == 'w':
+                                try:
+                                    args['weight'] = float(v)
+                                except Exception:
+                                    args['weight'] = v
+                                continue
+                            # copy through most primitive params
+                            if k in ('x', 'y', 'w', 'h', 'r', 'fill', 'stroke', 'stroke_weight', 'mode', 'image', 'vertices', 'text_size', 'size'):
+                                args[k] = v
+                                continue
+                            # default passthrough
+                            args[k] = v
+
+                        cmds.append({'op': op, 'args': args, 'meta': {'seq': seq}})
+
+                    # Record the normalized offscreen op
+                    g.record('offscreen', width=self.width, height=self.height, ops=cmds)
             except Exception:
                 pass
 

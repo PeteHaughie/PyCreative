@@ -826,6 +826,18 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                 # determine fill and stroke
                 fill_col = args.get('fill') if args.get('fill') is not None else None
                 stroke_col = args.get('stroke') if args.get('stroke') is not None else None
+                # Debug: when lifecycle debugging is enabled, log circle params
+                if dbg:
+                    try:
+                        logger.debug('replay_to_skia_impl: circle() called — x=%s y=%s r=%s fill=%s stroke=%s sw_candidate=%s current_fill=%s current_stroke=%s',
+                                     x, y, r, fill_col, stroke_col, args.get('stroke_weight'), current_fill, current_stroke)
+                    except Exception:
+                        pass
+                    # Also emit a plain-print trace so it's visible on consoles
+                    try:
+                        print(f"REPLAYER_TRACE: circle called x={x} y={y} r={r} fill={fill_col} stroke={stroke_col} stroke_weight_candidate={args.get('stroke_weight')} current_fill={current_fill} current_stroke={current_stroke}")
+                    except Exception:
+                        pass
                 try:
                     if fill_col is None:
                         fill_col = current_fill
@@ -836,6 +848,11 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                 # draw fill first if present
                 if fill_col is not None:
                     fp = _make_paint_from_color(fill_col, fill=True, alpha=args.get('fill_alpha', None))
+                    if dbg:
+                        try:
+                            logger.debug('replay_to_skia_impl: circle fill paint created: %r', fp)
+                        except Exception:
+                            pass
                     if fp is not None:
                         try:
                             if current_blend_mode is not None:
@@ -865,6 +882,11 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                         stroke_cap=args.get('stroke_cap', None),
                         stroke_join=args.get('stroke_join', None),
                     )
+                    if dbg:
+                        try:
+                            logger.debug('replay_to_skia_impl: circle stroke paint created: %r', sp)
+                        except Exception:
+                            pass
                     if sp is not None:
                         try:
                             if current_blend_mode is not None:
@@ -1417,13 +1439,28 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                             pass
                     except Exception:
                         pass
+                # Quick console trace for the IMAGE op entry (helps when
+                # the logger isn't configured to emit DEBUG to stdout).
+                if dbg:
+                    try:
+                        try:
+                            _tname = type(img_obj)
+                        except Exception:
+                            _tname = None
+                        print(f"REPLAYER_TRACE: IMAGE op at x={ix} y={iy} img_obj_type={_tname}")
+                    except Exception:
+                        pass
                 try:
                     if img_obj is not None:
-                        # Preferred path: PCImage.to_skia exists in the
-                        # repository and will perform conversion correctly.
+                        # Preferred path: PCImage/PCGraphics may expose helpers
+                        # to convert directly to a skia.Image. Try a few
+                        # strategies and record which one succeeded for
+                        # diagnostic purposes.
+                        conv_used = None
                         if hasattr(img_obj, 'to_skia'):
                             try:
                                 skimg = img_obj.to_skia()
+                                conv_used = 'to_skia'
                             except Exception:
                                 skimg = None
                         elif hasattr(img_obj, 'to_pillow'):
@@ -1432,21 +1469,67 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                                 if pil is not None:
                                     if pil.mode != 'RGBA':
                                         pil = pil.convert('RGBA')
+                                    # Diagnostic: save the Pillow image to disk for
+                                    # offline inspection when debugging lifecycle.
+                                    try:
+                                        _probe_path = f"/tmp/pycreative_probe_image_{i}.png"
+                                        pil.save(_probe_path)
+                                    except Exception:
+                                        # best-effort only; never raise
+                                        pass
                                     raw = pil.tobytes()
                                     w, h = pil.size
                                     try:
                                         dims = skia.ISize(w, h)
                                         skimg = skia.Image.frombytes(raw, dims, skia.ColorType.kRGBA_8888_ColorType, skia.AlphaType.kUnpremul_AlphaType)
+                                        conv_used = 'to_pillow.frombytes'
                                     except Exception:
                                         try:
                                             info = skia.ImageInfo.Make(w, h, skia.ColorType.kRGBA_8888_ColorType, skia.AlphaType.kUnpremul_AlphaType)
                                             row_bytes = w * 4
                                             pix = skia.Pixmap(info, raw, row_bytes)
                                             skimg = skia.Image.MakeFromRaster(pix, None)
+                                            conv_used = 'to_pillow.MakeFromRaster'
                                         except Exception:
                                             skimg = None
                             except Exception:
                                 skimg = None
+                        # If img_obj looks like a PCGraphics-like object, try
+                        # to probe dimensions as a fallback (helpful when the
+                        # object is recorded directly and doesn't provide
+                        # explicit conversion helpers).
+                        if skimg is None:
+                            try:
+                                w = getattr(img_obj, 'width', None)
+                                h = getattr(img_obj, 'height', None)
+                                if w and h:
+                                    # attempt to use the object's save/to_pillow path
+                                    if hasattr(img_obj, 'to_pillow'):
+                                        try:
+                                            pil = img_obj.to_pillow()
+                                            if pil.mode != 'RGBA':
+                                                pil = pil.convert('RGBA')
+                                            # Diagnostic: save the probed Pillow image
+                                            try:
+                                                _probe_path2 = f"/tmp/pycreative_probe_image_probe_{i}.png"
+                                                pil.save(_probe_path2)
+                                            except Exception:
+                                                pass
+                                            raw = pil.tobytes()
+                                            dims = skia.ISize(w, h)
+                                            skimg = skia.Image.frombytes(raw, dims, skia.ColorType.kRGBA_8888_ColorType, skia.AlphaType.kUnpremul_AlphaType)
+                                            conv_used = 'probe_to_pillow'
+                                        except Exception:
+                                            skimg = None
+                            except Exception:
+                                pass
+                        # Log which conversion path (if any) we used for easier
+                        # diagnosis when images are missing.
+                        if dbg:
+                            try:
+                                logger.debug('replay_to_skia_impl: image conversion used=%r for obj=%r', conv_used, type(img_obj))
+                            except Exception:
+                                pass
                     else:
                         # Try raw bytes path
                         raw = args.get('image_bytes')
@@ -1461,6 +1544,12 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                                         from PIL import Image as PILImage
                                         img_p = PILImage.frombytes(mode, (w, h), raw)
                                         img_p = img_p.convert('RGBA')
+                                        # Diagnostic: save the reconstructed Pillow image
+                                        try:
+                                            _probe_raw = f"/tmp/pycreative_probe_image_raw_{i}.png"
+                                            img_p.save(_probe_raw)
+                                        except Exception:
+                                            pass
                                         raw2 = img_p.tobytes()
                                         dims = skia.ISize(w, h)
                                         skimg = skia.Image.frombytes(raw2, dims, skia.ColorType.kRGBA_8888_ColorType, skia.AlphaType.kUnpremul_AlphaType)
@@ -1482,6 +1571,22 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                 if skimg is not None:
                     try:
                         # canvas.drawImage expects a skia.Image (or compatible)
+                        if dbg:
+                            try:
+                                # print image info when available
+                                try:
+                                    w = skimg.width()
+                                    h = skimg.height()
+                                except Exception:
+                                    try:
+                                        w = skimg.width
+                                        h = skimg.height
+                                    except Exception:
+                                        w = None
+                                        h = None
+                                print(f"REPLAYER_TRACE: drawing skia image at ({ix},{iy}) size=({w},{h})")
+                            except Exception:
+                                pass
                         canvas.drawImage(skimg, ix, iy)
                     except Exception:
                         try:

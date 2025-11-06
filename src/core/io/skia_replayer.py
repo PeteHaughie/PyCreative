@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 import os
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +63,63 @@ def replay_to_image_skia(engine: Any, path: str) -> None:
         # non-fatal
         pass
 
-    # Delegate to the centralized defensive replayer implementation
+    # Delegate to the centralized defensive replayer implementation. The
+    # engine may record nested 'offscreen' ops whose payload is a list of
+    # inner ops (stored under args['ops']). Some callers (presenters) handle
+    # offscreen by unpacking those nested ops; when running the headless
+    # skia replayer we should flatten any such nested ops so the central
+    # replayer sees a flat list of operations it understands (rect, circle,
+    # etc.). This keeps behavior consistent across presenters and the CLI.
     try:
         # prefer the implementation module directly
         from core.io.replay_to_skia_impl import replay_to_skia_canvas
+
+        recorded = getattr(getattr(engine, 'graphics', None), 'commands', []) or []
+        flat: list[dict] = []
+        for cmd in recorded:
+            # defensive checks and flattening
+            if isinstance(cmd, dict) and cmd.get('op') == 'offscreen':
+                args = cmd.get('args', {}) or {}
+                inner_ops = args.get('ops') or []
+                for inner in list(inner_ops):
+                    if not isinstance(inner, dict):
+                        continue
+                    opn = inner.get('op')
+                    inner_args = {k: v for k, v in inner.items() if k != 'op'}
+                    flat.append({'op': opn, 'args': inner_args, 'meta': cmd.get('meta', {})})
+                continue
+            flat.append(cmd)
+
+        # DEBUG: dump the flattened commands to /tmp for inspection during
+        # headless runs. This is temporary and safe to leave in while
+        # diagnosing missing primitives.
         try:
-            replay_to_skia_canvas(getattr(getattr(engine, 'graphics', None), 'commands', []) or [], c)
+            # Sanitize the flattened command structure so we don't try to
+            # JSON-serialize objects like PCGraphics or engine refs that may
+            # appear in 'meta' or other fields. Replace unknown objects with
+            # their repr() so the dump is still useful for debugging.
+            def _safe(o):
+                if isinstance(o, (str, int, float, bool)) or o is None:
+                    return o
+                if isinstance(o, dict):
+                    return {str(k): _safe(v) for k, v in o.items()}
+                if isinstance(o, (list, tuple)):
+                    return [_safe(x) for x in o]
+                try:
+                    return repr(o)
+                except Exception:
+                    return f"<{type(o).__name__}>"
+
+            safe_flat = _safe(flat)
+            dump_path = '/tmp/pycreative_flat.json'
+            with open(dump_path, 'w', encoding='utf8') as fh:
+                json.dump(safe_flat, fh, indent=2, ensure_ascii=False)
+            logger.debug('replay_to_image_skia: dumped flattened commands to %s', dump_path)
+        except Exception:
+            logger.exception('replay_to_image_skia: failed to dump flattened commands')
+
+        try:
+            replay_to_skia_canvas(flat, c)
         except Exception:
             logger.exception('replay_to_image_skia: error while replaying commands')
     except Exception:
