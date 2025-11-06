@@ -77,6 +77,35 @@ def setup_window_loop(
                                 pass
                     except Exception:
                         pass
+                    # Helper to adjust mouse coords for HiDPI / device-pixel ratio differences.
+                    def _adjust_for_hidpi(mx: int, my: int) -> tuple[int, int]:
+                        try:
+                            if win is None:
+                                return (mx, my)
+                            # Prefer explicit pixel ratio API when available
+                            try:
+                                if hasattr(win, 'get_pixel_ratio'):
+                                    pr = float(win.get_pixel_ratio())
+                                    if pr and pr != 1.0:
+                                        return (int(round(mx / pr)), int(round(my / pr)))
+                            except Exception:
+                                pass
+                            # Fallback: compare framebuffer size to logical engine size
+                            try:
+                                if hasattr(win, 'get_framebuffer_size'):
+                                    fb_w, fb_h = win.get_framebuffer_size()
+                                    ew = int(getattr(engine, 'width', 0)) or 0
+                                    eh = int(getattr(engine, 'height', 0)) or 0
+                                    if ew and eh and fb_w and fb_h:
+                                        # use horizontal ratio (assume square pixels)
+                                        pr = float(fb_w) / float(ew)
+                                        if pr and pr != 1.0:
+                                            return (int(round(mx / pr)), int(round(my / pr)))
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+                        return (mx, my)
                 # Fallback: use pixel ratio when available
                 elif hasattr(win, 'get_pixel_ratio'):
                     try:
@@ -296,11 +325,12 @@ def setup_window_loop(
     try:
         @engine._window.event
         def on_mouse_motion(x, y, dx, dy):
+            sx, sy = _adjust_for_hidpi(x, y)
             try:
                 hy = int(getattr(engine, 'height', 0))
-                engine._apply_mouse_update(x, hy - int(y))
+                engine._apply_mouse_update(sx, hy - int(sy))
             except Exception:
-                engine._apply_mouse_update(x, y)
+                engine._apply_mouse_update(sx, sy)
             moved = getattr(engine.sketch, 'mouse_moved', None)
             if callable(moved):
                 try:
@@ -317,11 +347,12 @@ def setup_window_loop(
 
         @engine._window.event
         def on_mouse_press(x, y, button, modifiers):
+            sx, sy = _adjust_for_hidpi(x, y)
             try:
                 hy = int(getattr(engine, 'height', 0))
-                engine._apply_mouse_update(x, hy - int(y))
+                engine._apply_mouse_update(sx, hy - int(sy))
             except Exception:
-                engine._apply_mouse_update(x, y)
+                engine._apply_mouse_update(sx, sy)
             try:
                 engine.mouse_pressed = True
             except Exception:
@@ -346,11 +377,12 @@ def setup_window_loop(
 
         @engine._window.event
         def on_mouse_release(x, y, button, modifiers):
+            sx, sy = _adjust_for_hidpi(x, y)
             try:
                 hy = int(getattr(engine, 'height', 0))
-                engine._apply_mouse_update(x, hy - int(y))
+                engine._apply_mouse_update(sx, hy - int(sy))
             except Exception:
-                engine._apply_mouse_update(x, y)
+                engine._apply_mouse_update(sx, sy)
             try:
                 engine.mouse_pressed = False
             except Exception:
@@ -386,11 +418,12 @@ def setup_window_loop(
 
         @engine._window.event
         def on_mouse_drag(x, y, dx, dy, buttons, modifiers):
+            sx, sy = _adjust_for_hidpi(x, y)
             try:
                 hy = int(getattr(engine, 'height', 0))
-                engine._apply_mouse_update(x, hy - int(y))
+                engine._apply_mouse_update(sx, hy - int(sy))
             except Exception:
-                engine._apply_mouse_update(x, y)
+                engine._apply_mouse_update(sx, sy)
             try:
                 engine.mouse_pressed = True
             except Exception:
