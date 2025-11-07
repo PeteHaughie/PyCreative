@@ -954,7 +954,7 @@ class Engine(EngineProtocol):
                         except Exception:
                             _typ = None
                     _attached = []
-                    for _name in ('text', 'text_width', 'text_ascent', 'text_descent', 'load_font', 'text_font', 'text_size'):
+                    for _name in ('text', 'text_width', 'text_ascent', 'text_descent', 'load_font', 'text_font', 'text_size', 'text_align'):
                         if hasattr(inst, _name):
                             continue
                         _fn = getattr(_typ, _name, None)
@@ -997,7 +997,7 @@ class Engine(EngineProtocol):
                 try:
                     import pycreative.typography as _ppt
                     _added = []
-                    for _nm in ('text', 'text_width', 'text_ascent', 'text_descent', 'load_font', 'text_font', 'text_size'):
+                    for _nm in ('text', 'text_width', 'text_ascent', 'text_descent', 'load_font', 'text_font', 'text_size', 'text_align'):
                         if hasattr(self.sketch, _nm):
                             continue
                         _fn = getattr(_ppt, _nm, None)

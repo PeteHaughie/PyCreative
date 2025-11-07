@@ -155,9 +155,68 @@ def text(s: str, x: float, y: float, *args, **kwargs) -> None:
         last = getattr(eng, 'last_text_calls', [])
         last.append({'text': s, 'x': x, 'y': y, 'args': args, 'kwargs': kwargs})
         eng.last_text_calls = last
+
+        # Compute alignment-adjusted coordinates for headless recording so
+        # replayers that draw the recorded x/y directly match the sketch's
+        # expected alignment.
+        try:
+            ax, ay = getattr(eng, 'current_text_align', (None, None)) or (None, None)
+            ax = (ax or 'LEFT').upper()
+            ay = (ay or 'BASELINE').upper()
+        except Exception:
+            ax = 'LEFT'
+            ay = 'BASELINE'
+
+        # Best-effort measurements (these may delegate to engine implementations)
+        try:
+            w = float(text_width(s))
+        except Exception:
+            w = None
+        try:
+            a = float(text_ascent())
+        except Exception:
+            a = None
+        try:
+            d = float(text_descent())
+        except Exception:
+            d = None
+
+        adj_x = float(x)
+        adj_y = float(y)
+        # Horizontal
+        try:
+            if w is not None:
+                if ax == 'CENTER':
+                    adj_x = float(x) - (w / 2.0)
+                elif ax == 'RIGHT':
+                    adj_x = float(x) - float(w)
+                else:
+                    adj_x = float(x)
+        except Exception:
+            adj_x = float(x)
+
+        # Vertical: assume ascent/descent measurements where possible.
+        try:
+            if ay == 'TOP':
+                if a is not None:
+                    adj_y = float(y) + float(a)
+            elif ay == 'CENTER':
+                if a is not None and d is not None:
+                    adj_y = float(y) + ((float(a) - float(d)) / 2.0)
+            elif ay == 'BOTTOM':
+                if d is not None:
+                    adj_y = float(y) - float(d)
+            else:
+                # BASELINE or unknown: keep as-is
+                adj_y = float(y)
+        except Exception:
+            adj_y = float(y)
+
         # Also record into the engine graphics buffer when available so
         # headless replayers that read `engine.graphics.commands` see text
-        # operations (this mirrors core.typography.text behaviour).
+        # operations (this mirrors core.typography.text behaviour). Record
+        # the adjusted coordinates but preserve the original as orig_x/orig_y
+        # so test inspection can still see the passed values.
         try:
             g = getattr(eng, 'graphics', None)
             if g is not None:
@@ -166,12 +225,29 @@ def text(s: str, x: float, y: float, *args, **kwargs) -> None:
                     # headless replayers can render text at the expected
                     # scale. Use engine.current_font_size when available.
                     font_size = getattr(eng, 'current_font_size', None)
-                    g_args = dict(text=str(s), x=float(x), y=float(y), args=args, kwargs=kwargs)
+                    g_args = dict(text=str(s), x=float(adj_x), y=float(adj_y), args=args, kwargs=kwargs, orig_x=float(x), orig_y=float(y))
                     if font_size is not None:
                         try:
                             g_args['font_size'] = float(font_size)
                         except Exception:
                             pass
+                    # Also persist measured metrics when available so replayers
+                    # don't need to recompute them.
+                    try:
+                        if w is not None:
+                            g_args['text_width'] = float(w)
+                    except Exception:
+                        pass
+                    try:
+                        if a is not None:
+                            g_args['text_ascent'] = float(a)
+                    except Exception:
+                        pass
+                    try:
+                        if d is not None:
+                            g_args['text_descent'] = float(d)
+                    except Exception:
+                        pass
                     g.record('text', **g_args)
                 except Exception:
                     pass
@@ -221,7 +297,55 @@ def text_descent() -> float:
     return float(0.2 * float(size))
 
 
+def text_align(align_x: str, align_y: Optional[str] = None) -> None:
+    """Set the current horizontal and optional vertical text alignment.
+
+    This prefers to delegate to the engine's high-level API. When no
+    engine implementation is available the function stores the chosen
+    alignment on the engine object so headless tests and replayers can
+    inspect it. Values are normalised to upper-case strings. If the
+    vertical alignment is omitted, "BASELINE" is used per the public
+    API.
+    """
+    handled = _try_delegate('text_align', align_x, align_y)
+    if handled is not None:
+        return handled
+    try:
+        ax = (align_x or '').upper() if align_x is not None else ''
+    except Exception:
+        ax = ''
+    try:
+        ay = (align_y or 'BASELINE').upper() if align_y is not None else 'BASELINE'
+    except Exception:
+        ay = 'BASELINE'
+
+    # Validate common tokens; fall back to defaults when unknown
+    if ax not in ('LEFT', 'CENTER', 'RIGHT'):
+        ax = 'LEFT'
+    if ay not in ('TOP', 'BOTTOM', 'CENTER', 'BASELINE'):
+        ay = 'BASELINE'
+
+    try:
+        eng = _get_engine()
+        setattr(eng, 'current_text_align', (ax, ay))
+        # Also mirror into separate attributes for convenience
+        setattr(eng, 'current_text_align_x', ax)
+        setattr(eng, 'current_text_align_y', ay)
+        # Record into graphics if present so replayers see alignment
+        try:
+            g = getattr(eng, 'graphics', None)
+            if g is not None:
+                try:
+                    g.record('text_align', align_x=ax, align_y=ay)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 __all__ = [
     'PCFont', 'load_font', 'text_font', 'text_size', 'text',
-    'text_width', 'text_ascent', 'text_descent',
+    'text_width', 'text_ascent', 'text_descent', 'text_align',
 ]
