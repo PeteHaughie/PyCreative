@@ -152,8 +152,35 @@ def main(argv: list[str] | None = None) -> int:
 		print(f'Ran sketch for {frames} frame(s); recorded commands: {cmd_count}')
 		if getattr(eng, '_verbose', False):
 			# Print recorded commands once (do not produce a replay per-command)
+			def _sanitize_cmd(c):
+				try:
+					import json as _json
+				except Exception:
+					_json = None
+				out = {'op': c.get('op'), 'args': {}, 'meta': c.get('meta')}
+				args_dict = c.get('args', {}) or {}
+				for k, v in args_dict.items():
+					# redact image-like payloads or raw bytes
+					if k in ('image', 'image_bytes'):
+						out['args'][k] = '<redacted-image>'
+					elif isinstance(v, (bytes, bytearray, memoryview)):
+						out['args'][k] = '<redacted-bytes>'
+					else:
+						# keep small primitives, otherwise fall back to repr()
+						try:
+							if _json is not None:
+								_json.dumps({k: v})
+								out['args'][k] = v
+							else:
+								out['args'][k] = v
+						except Exception:
+							try:
+								out['args'][k] = repr(v)
+							except Exception:
+								out['args'][k] = f'<{type(v).__name__}>'
+				return out
 			for cmd in eng.graphics.commands:
-				print(cmd)
+				print(_sanitize_cmd(cmd))
 			# Optionally produce a single offscreen PNG replay for debugging
 			repr_path = 'render_debug.png'
 			# Skia-first policy: prefer the Skia replayer and fail fast if it's
@@ -180,9 +207,34 @@ def main(argv: list[str] | None = None) -> int:
 		eng.start(max_frames=mf)
 		if getattr(eng, '_verbose', False):
 			# In windowed mode, Engine.start() may have printed frames.
-			# Print final command list.
+			# Print final command list (sanitized to avoid dumping raw bytes).
+			def _sanitize_cmd(c):
+				try:
+					import json as _json
+				except Exception:
+					_json = None
+				out = {'op': c.get('op'), 'args': {}, 'meta': c.get('meta')}
+				args_dict = c.get('args', {}) or {}
+				for k, v in args_dict.items():
+					if k in ('image', 'image_bytes'):
+						out['args'][k] = '<redacted-image>'
+					elif isinstance(v, (bytes, bytearray, memoryview)):
+						out['args'][k] = '<redacted-bytes>'
+					else:
+						try:
+							if _json is not None:
+								_json.dumps({k: v})
+								out['args'][k] = v
+							else:
+								out['args'][k] = v
+						except Exception:
+							try:
+								out['args'][k] = repr(v)
+							except Exception:
+								out['args'][k] = f'<{type(v).__name__}>'
+				return out
 			for cmd in eng.graphics.commands:
-				print(cmd)
+				print(_sanitize_cmd(cmd))
 		print('Windowed run complete')
 	return 0
 

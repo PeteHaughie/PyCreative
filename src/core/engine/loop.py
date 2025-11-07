@@ -841,9 +841,35 @@ def setup_window_loop(
             try:
                 g = getattr(engine, 'graphics', None)
                 if g is not None:
+                    def _sanitize_cmd(c):
+                        try:
+                            import json as _json
+                        except Exception:
+                            _json = None
+                        out = {'op': c.get('op'), 'args': {}, 'meta': c.get('meta')}
+                        args_dict = c.get('args', {}) or {}
+                        for k, v in args_dict.items():
+                            if k in ('image', 'image_bytes'):
+                                out['args'][k] = '<redacted-image>'
+                            elif isinstance(v, (bytes, bytearray, memoryview)):
+                                out['args'][k] = '<redacted-bytes>'
+                            else:
+                                try:
+                                    if _json is not None:
+                                        _json.dumps({k: v})
+                                        out['args'][k] = v
+                                    else:
+                                        out['args'][k] = v
+                                except Exception:
+                                    try:
+                                        out['args'][k] = repr(v)
+                                    except Exception:
+                                        out['args'][k] = f'<{type(v).__name__}>'
+                        return out
+
                     for cmd in getattr(g, 'commands', []):
                         try:
-                            print('VERBOSE CMD:', cmd)
+                            print('VERBOSE CMD:', _sanitize_cmd(cmd))
                         except Exception:
                             pass
             except Exception:

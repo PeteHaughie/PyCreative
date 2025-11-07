@@ -102,7 +102,19 @@ def replay_to_image_skia(engine: Any, path: str) -> None:
                 if isinstance(o, (str, int, float, bool)) or o is None:
                     return o
                 if isinstance(o, dict):
-                    return {str(k): _safe(v) for k, v in o.items()}
+                    out = {}
+                    for k, v in o.items():
+                        try:
+                            if k in ('image', 'image_bytes'):
+                                out[str(k)] = '<redacted-image>'
+                            else:
+                                out[str(k)] = _safe(v)
+                        except Exception:
+                            try:
+                                out[str(k)] = repr(v)
+                            except Exception:
+                                out[str(k)] = f"<{type(v).__name__}>"
+                    return out
                 if isinstance(o, (list, tuple)):
                     return [_safe(x) for x in o]
                 try:

@@ -16,6 +16,23 @@ import json
 import time
 
 
+# Helper: optional file-based debug dumps. These writes are noisy during
+# --verbose runs; gate them behind an explicit env var so callers can
+# enable them when needed.
+def _maybe_debug_dump(path: str, text: str) -> None:
+    try:
+        if os.getenv('PYCREATIVE_DEBUG_DUMPS', '') != '1':
+            return
+        try:
+            with open(path, 'a') as _f:
+                _f.write(str(text))
+        except Exception:
+            # best-effort: don't break rendering when dumps fail
+            pass
+    except Exception:
+        pass
+
+
 class SkiaGLPresenter:
     def __init__(self, width: int, height: int, force_present_mode: Optional[str] = None, force_gles: bool = False, window: Any | None = None):
         self.width = int(width)
@@ -111,50 +128,17 @@ class SkiaGLPresenter:
         """
         try:
             from pyglet import gl
-            s = None
             try:
                 raw = gl.glGetString(gl.GL_SHADING_LANGUAGE_VERSION)
                 if raw:
                     s = raw.decode('utf-8', 'ignore')
-            except Exception:
-                s = None
-            if s and 'ES' in s:
-                return True
-            # Also check GL_VERSION for 'OpenGL ES' substring
-            try:
-                rawv = gl.glGetString(gl.GL_VERSION)
-                if rawv:
-                    sv = rawv.decode('utf-8', 'ignore')
-                    if 'OpenGL ES' in sv or 'GLES' in sv:
+                    if 'ES' in s or 'GLES' in s:
                         return True
             except Exception:
                 pass
         except Exception:
             pass
         return False
-
-    # Test helper: return the ordering of shader variants that would be
-    # attempted. Accepts optional overrides to avoid requiring a GL context
-    # during tests.
-    def _variant_ordering(self, force_gles_override: Optional[bool] = None, sniff_override: Optional[bool] = None):
-        """Return a list of variant tags in preferred order.
-
-        Used by unit tests to assert the order without invoking GL.
-        """
-        try:
-            prefer_es = bool(self.force_gles)
-            if force_gles_override is not None:
-                prefer_es = bool(force_gles_override)
-            elif sniff_override is not None:
-                # sniff_override takes precedence over actual sniffing
-                prefer_es = bool(sniff_override)
-            else:
-                try:
-                    prefer_es = bool(self.force_gles) or self._sniff_gles3_support()
-                except Exception:
-                    prefer_es = bool(self.force_gles)
-        except Exception:
-            prefer_es = bool(self.force_gles)
         if prefer_es:
             return ['es300', '150', '120']
         return ['150', 'es300', '120']
@@ -230,8 +214,7 @@ class SkiaGLPresenter:
                 except Exception:
                     pass
                 try:
-                    with open('/tmp/pycreative_present_allocations.log', 'a') as _af:
-                        _af.write(f'{time.time():.6f} ensure_resources: tex_id={self.tex_id} alloc_w={int(bw)} alloc_h={int(bh)}\n')
+                    _maybe_debug_dump('/tmp/pycreative_present_allocations.log', f'{time.time():.6f} ensure_resources: tex_id={self.tex_id} alloc_w={int(bw)} alloc_h={int(bh)}\n')
                 except Exception:
                     pass
             except Exception:
@@ -259,60 +242,62 @@ class SkiaGLPresenter:
                                 # passthrough vertex shader so compilation succeeds.
                                 variants = self._variant_ordering()
                                 compiled_prog = None
-                                for var in variants:
-                                    # conservative sanitizer to adapt shader text per-variant
-                                    def _sanitize_source(src: str | None, stage: str, variant_tag: str) -> str:
-                                        if src is None:
-                                            return ''
-                                        s = src
-                                        try:
-                                            s = s.lstrip('\ufeff\n\r \t')
-                                        except Exception:
-                                            s = s.lstrip()
-                                        try:
-                                            idx = s.find('#version')
-                                            if idx > 0:
-                                                s = s[idx:]
-                                        except Exception:
-                                            pass
-                                        try:
-                                            if variant_tag in ('150', 'es300'):
-                                                s = s.replace('texture2D(', 'texture(')
-                                                if stage == 'frag' and 'gl_FragColor' in s:
-                                                    s = s.replace('gl_FragColor', 'fragColor')
-                                                    if '#version' in s:
-                                                        parts = s.split('\n', 1)
-                                                        first = parts[0]
-                                                        rest = parts[1] if len(parts) > 1 else ''
-                                                        if 'out vec4 fragColor' not in s:
-                                                            rest = 'out vec4 fragColor;\n' + rest
-                                                        s = first + '\n' + rest
-                                                if stage == 'vert':
-                                                    s = s.replace('attribute ', 'in ')
-                                                    s = s.replace('varying ', 'out ')
-                                                if stage == 'frag':
-                                                    s = s.replace('varying ', 'in ')
-                                        except Exception:
-                                            pass
-                                        try:
-                                            if s.count('#version') > 1:
-                                                first = s.find('#version')
-                                                rest = s[first:]
-                                                lines = rest.split('\n')
-                                                first_line = lines[0]
-                                                others = [ln for ln in lines[1:] if '#version' not in ln]
-                                                s = first_line + '\n' + '\n'.join(others)
-                                        except Exception:
-                                            pass
-                                        return s
+                                last_compile_exc = None
 
+                                # helper to gently adapt shader sources between GLSL
+                                # variants (legacy -> modern differences)
+                                def _sanitize_source(src: str | None, stage: str, variant_tag: str) -> str:
+                                    if src is None:
+                                        return ''
+                                    s = src
+                                    try:
+                                        s = s.lstrip('\ufeff\n\r \t')
+                                    except Exception:
+                                        s = s.lstrip()
+                                    try:
+                                        idx = s.find('#version')
+                                        if idx > 0:
+                                            s = s[idx:]
+                                    except Exception:
+                                        pass
+                                    try:
+                                        if variant_tag in ('150', 'es300'):
+                                            s = s.replace('texture2D(', 'texture(')
+                                            if stage == 'frag' and 'gl_FragColor' in s:
+                                                s = s.replace('gl_FragColor', 'fragColor')
+                                                if '#version' in s:
+                                                    parts = s.split('\n', 1)
+                                                    first = parts[0]
+                                                    rest = parts[1] if len(parts) > 1 else ''
+                                                    if 'out vec4 fragColor' not in s:
+                                                        rest = 'out vec4 fragColor;\n' + rest
+                                                    s = first + '\n' + rest
+                                            if stage == 'vert':
+                                                s = s.replace('attribute ', 'in ')
+                                                s = s.replace('varying ', 'out ')
+                                            if stage == 'frag':
+                                                s = s.replace('varying ', 'in ')
+                                    except Exception:
+                                        pass
+                                    try:
+                                        if s.count('#version') > 1:
+                                            first = s.find('#version')
+                                            rest = s[first:]
+                                            lines = rest.split('\n')
+                                            first_line = lines[0]
+                                            others = [ln for ln in lines[1:] if '#version' not in ln]
+                                            s = first_line + '\n' + '\n'.join(others)
+                                    except Exception:
+                                        pass
+                                    return s
+
+                                # Try each variant until one compiles and links
+                                for var in variants:
                                     try:
                                         frag_prefix = ''
-                                        # Map variant tags to #version lines and defaults
                                         if var == '150':
                                             frag_prefix = '#version 150\n'
                                             vert_prefix = '#version 150\n'
-                                            # modern in/out style
                                             default_vert = ('#version 150\n'
                                                             'in vec2 position;\n'
                                                             'in vec2 texcoord0;\n'
@@ -327,7 +312,6 @@ class SkiaGLPresenter:
                                                             'out vec2 v_texcoord;\n'
                                                             'void main() { v_texcoord = texcoord0; gl_Position = vec4(position, 0.0, 1.0); }')
                                         else:
-                                            # fallback to legacy 120
                                             frag_prefix = '#version 120\n'
                                             vert_prefix = '#version 120\n'
                                             default_vert = ('#version 120\n'
@@ -336,34 +320,19 @@ class SkiaGLPresenter:
                                                             'varying vec2 v_texcoord;\n'
                                                             'void main() { v_texcoord = texcoord0; gl_Position = vec4(position, 0.0, 1.0); }')
 
-                                        # Choose vertex source: if the shader's vert_source is
-                                        # exactly the library default (no version) or is None,
-                                        # use our variant-appropriate default. Otherwise try
-                                        # to compile the provided source with the prefix.
                                         provided_vert = getattr(s, 'vert_source', None)
-                                        use_vert = None
-                                        try:
-                                            # Heuristic: if provided_vert is None or seems to
-                                            # be the default passthrough (matches our earlier
-                                            # default pattern without a #version), substitute.
-                                            if not provided_vert:
-                                                use_vert = default_vert
-                                            else:
-                                                # Sanitize provided vertex source for variant
-                                                try:
-                                                    provided_vert = _sanitize_source(provided_vert, 'vert', var)
-                                                except Exception:
-                                                    pass
-                                                # If provided_vert already contains a #version,
-                                                # trust it; otherwise prepend the variant prefix.
-                                                if '#version' in provided_vert:
-                                                    use_vert = provided_vert
-                                                else:
-                                                    use_vert = vert_prefix + provided_vert
-                                        except Exception:
+                                        if not provided_vert:
                                             use_vert = default_vert
+                                        else:
+                                            try:
+                                                provided_vert = _sanitize_source(provided_vert, 'vert', var)
+                                            except Exception:
+                                                pass
+                                            if '#version' in provided_vert:
+                                                use_vert = provided_vert
+                                            else:
+                                                use_vert = vert_prefix + provided_vert
 
-                                        # Prepare fragment source with appropriate prefix
                                         frag_src_try = s.frag_source or ''
                                         try:
                                             frag_src_try = _sanitize_source(frag_src_try, 'frag', var)
@@ -372,7 +341,7 @@ class SkiaGLPresenter:
                                         if '#version' not in frag_src_try:
                                             frag_src_try = frag_prefix + frag_src_try.lstrip()
 
-                                        # Now compile and link
+                                        # Compile and link
                                         frag_sh = self._compile_shader(frag_src_try, gl.GL_FRAGMENT_SHADER)
                                         vert_sh = self._compile_shader(use_vert, gl.GL_VERTEX_SHADER)
                                         prog = self._link_program(vert_sh, frag_sh)
@@ -392,12 +361,32 @@ class SkiaGLPresenter:
                                             pass
                                         break
                                     except Exception:
+                                        try:
+                                            import traceback as _tb
+                                            last_compile_exc = _tb.format_exc()
+                                        except Exception:
+                                            try:
+                                                last_compile_exc = repr(e)
+                                            except Exception:
+                                                last_compile_exc = None
                                         # try next variant
                                         continue
 
+                                # If compilation failed for every variant, log the last error
                                 if compiled_prog is None:
                                     try:
-                                        logging.getLogger(__name__).exception('Failed to compile/link PCShader')
+                                        if last_compile_exc:
+                                            logging.getLogger(__name__).error('Failed to compile/link PCShader; last error:\n%s', last_compile_exc)
+                                        else:
+                                            logging.getLogger(__name__).exception('Failed to compile/link PCShader')
+                                    except Exception:
+                                        pass
+                                    try:
+                                        if last_compile_exc:
+                                            try:
+                                                logging.getLogger(__name__).error('PCShader compile failed: %s', last_compile_exc)
+                                            except Exception:
+                                                pass
                                     except Exception:
                                         pass
                             except Exception:
@@ -505,7 +494,10 @@ class SkiaGLPresenter:
                 status = gl.glCheckFramebufferStatus(gl.GL_FRAMEBUFFER)
                 if status != gl.GL_FRAMEBUFFER_COMPLETE:
                     # leave bound but note that it may be unusable
-                    print('SkiaGLPresenter: FBO incomplete status=', status)
+                    try:
+                        logging.getLogger(__name__).error('SkiaGLPresenter: FBO incomplete status=%s', status)
+                    except Exception:
+                        pass
             except Exception:
                 pass
             # unbind
@@ -525,6 +517,211 @@ class SkiaGLPresenter:
             import skia
         except Exception:
             return None
+    
+    def _render_shader_to_gl_texture(self, bound_shader_obj, ib: bytes, isize) -> tuple[int, int] | None:
+        """Render the bound shader into a new GL texture attached to a temp FBO.
+
+        Returns (tex_id, fbo_id) on success, or None on failure. The created
+        texture and FBO are owned by the caller and should be deleted when no
+        longer needed.
+        """
+        try:
+            from pyglet import gl
+        except Exception:
+            return None
+
+        tex_out = None
+        fbo_out = None
+        tex_in = None
+        prog = None
+        vsh = None
+        fsh = None
+        temp_prog = None
+        try:
+            # target size
+            _w = int(isize[0])
+            _h = int(isize[1])
+
+            # create output texture
+            t = gl.GLuint()
+            gl.glGenTextures(1, ctypes.byref(t))
+            tex_out = int(t.value)
+            gl.glBindTexture(gl.GL_TEXTURE_2D, tex_out)
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+            # allocate storage
+            try:
+                gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, _w, _h, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, None)
+            except Exception:
+                try:
+                    # some drivers require explicit internal format constant
+                    gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, int(gl.GL_RGBA8), _w, _h, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, None)
+                except Exception:
+                    pass
+
+            # create and bind FBO
+            f = gl.GLuint()
+            gl.glGenFramebuffers(1, ctypes.byref(f))
+            fbo_out = int(f.value)
+            gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, int(fbo_out))
+            try:
+                gl.glFramebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D, int(tex_out), 0)
+            except Exception:
+                pass
+
+            # prepare input texture from bytes
+            tin = gl.GLuint()
+            gl.glGenTextures(1, ctypes.byref(tin))
+            tex_in = int(tin.value)
+            gl.glBindTexture(gl.GL_TEXTURE_2D, tex_in)
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+            try:
+                gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
+            except Exception:
+                pass
+            try:
+                from ctypes import c_ubyte
+                buf = (c_ubyte * (len(ib))).from_buffer_copy(ib)
+                gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, _w, _h, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, buf)
+            except Exception:
+                try:
+                    gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, int(isize[0]), int(isize[1]), 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, ib)
+                except Exception:
+                    pass
+            finally:
+                try:
+                    gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 4)
+                except Exception:
+                    pass
+
+            # compile an attributeless program that uses the user's fragment shader
+            try:
+                frag_src = getattr(bound_shader_obj, 'frag_source', '') or ''
+                if '#version' not in frag_src:
+                    frag_src = '#version 150\n' + frag_src.lstrip()
+                attrless_vert = (
+                    '#version 150\n'
+                    'out vec2 v_texcoord;\n'
+                    'void main() {\n'
+                    '  int id = int(gl_VertexID);\n'
+                    '  if (id == 0) { v_texcoord = vec2(0.0, 0.0); gl_Position = vec4(-1.0, -1.0, 0.0, 1.0); }\n'
+                    '  else if (id == 1) { v_texcoord = vec2(2.0, 0.0); gl_Position = vec4(3.0, -1.0, 0.0, 1.0); }\n'
+                    '  else { v_texcoord = vec2(0.0, 2.0); gl_Position = vec4(-1.0, 3.0, 0.0, 1.0); }\n'
+                    '}'
+                )
+                vsh = self._compile_shader(attrless_vert, gl.GL_VERTEX_SHADER)
+                fsh = self._compile_shader(frag_src, gl.GL_FRAGMENT_SHADER)
+                temp_prog = self._link_program(vsh, fsh)
+                prog = int(temp_prog)
+            except Exception:
+                prog = None
+
+            if not prog:
+                # cannot compile/link program
+                return None
+
+            # save state
+            prev_fbo = gl.GLint()
+            try:
+                gl.glGetIntegerv(gl.GL_FRAMEBUFFER_BINDING, ctypes.byref(prev_fbo))
+            except Exception:
+                prev_fbo = None
+            prev_prog = gl.GLint()
+            try:
+                gl.glGetIntegerv(gl.GL_CURRENT_PROGRAM, ctypes.byref(prev_prog))
+            except Exception:
+                prev_prog = None
+
+            # set viewport to target
+            try:
+                gl.glViewport(0, 0, int(_w), int(_h))
+            except Exception:
+                pass
+
+            # draw
+            try:
+                gl.glUseProgram(int(prog))
+            except Exception:
+                pass
+            try:
+                gl.glActiveTexture(gl.GL_TEXTURE0)
+                gl.glBindTexture(gl.GL_TEXTURE_2D, int(tex_in))
+            except Exception:
+                pass
+            # bind sampler uniform if present
+            try:
+                for uname in ('iChannel0', 'tex', 'u_tex', 'u_texture'):
+                    try:
+                        try:
+                            loc = gl.glGetUniformLocation(int(prog), uname.encode('utf-8'))
+                        except Exception:
+                            loc = gl.glGetUniformLocation(int(prog), uname)
+                        if int(loc) != -1:
+                            try:
+                                gl.glUniform1i(int(loc), 0)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # draw fullscreen triangle
+            try:
+                gl.glDrawArrays(gl.GL_TRIANGLES, 0, 3)
+            except Exception:
+                pass
+
+            # flush
+            try:
+                gl.glFinish()
+            except Exception:
+                pass
+
+            # restore
+            try:
+                if prev_prog is not None:
+                    gl.glUseProgram(int(prev_prog))
+            except Exception:
+                pass
+            try:
+                if prev_fbo is not None:
+                    gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, int(prev_fbo.value if hasattr(prev_fbo, 'value') else prev_fbo))
+            except Exception:
+                pass
+
+            return (tex_out, fbo_out)
+        except Exception:
+            # cleanup on error
+            try:
+                if tex_out:
+                    tdel = gl.GLuint(int(tex_out))
+                    gl.glDeleteTextures(1, ctypes.byref(tdel))
+            except Exception:
+                pass
+            try:
+                if fbo_out:
+                    fdel = gl.GLuint(int(fbo_out))
+                    gl.glDeleteFramebuffers(1, ctypes.byref(fdel))
+            except Exception:
+                pass
+            return None
+        finally:
+            # delete input texture
+            try:
+                if tex_in:
+                    tdel = gl.GLuint(int(tex_in))
+                    gl.glDeleteTextures(1, ctypes.byref(tdel))
+            except Exception:
+                pass
+            # delete temp program and shaders
+            try:
+                if temp_prog:
+                    pdel = gl.GLuint(int(temp_prog))
+                    gl.glDeleteProgram(pdel)
+            except Exception:
+                pass
 
         # Ensure GL objects exist (tex/fbo) so a GPU backend target can be built.
         try:
@@ -597,8 +794,7 @@ class SkiaGLPresenter:
                 except Exception:
                     pass
                 try:
-                    with open('/tmp/pycreative_present_allocations.log', 'a') as _af:
-                        _af.write(f'create_skia_surface: fbo={self.fbo_id} tex={self.tex_id} rt_w={int(bw)} rt_h={int(bh)}\n')
+                    _maybe_debug_dump('/tmp/pycreative_present_allocations.log', f'create_skia_surface: fbo={self.fbo_id} tex={self.tex_id} rt_w={int(bw)} rt_h={int(bh)}\n')
                 except Exception:
                     pass
             except Exception:
@@ -699,21 +895,6 @@ class SkiaGLPresenter:
                     logging.getLogger(__name__).debug('render_commands: GL viewport=%s', (int(vp[2]), int(vp[3])))
             except Exception:
                 pass
-
-        # Get canvas and replay commands
-        try:
-            canvas = surf.getCanvas()
-        except Exception:
-            # Older skia bindings / unexpected surface types
-            canvas = None
-
-        if canvas is None:
-            try:
-                if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
-                    try:
-                        logging.getLogger(__name__).debug('render_commands: surface.getCanvas() returned None')
-                    except Exception:
-                        pass
             except Exception:
                 pass
             raise RuntimeError('Skia surface does not provide a canvas')
@@ -723,6 +904,46 @@ class SkiaGLPresenter:
         # intact when no background is provided implements the Processing
         # semantics where drawings persist across frames unless explicitly
         # cleared by `background()`.
+
+        # Quick top-level diagnostic hook: if any caller recorded a
+        # `test_gl_upload` command we handle it here immediately so we can
+        # exercise the GL upload/draw/readback path even when scaling or
+        # other pre-processing is skipped.
+        try:
+            for tc in list(commands):
+                try:
+                    if tc.get('op') != 'test_gl_upload':
+                        continue
+                    args = tc.get('args', {}) or {}
+                    try:
+                        ib = args.get('image_bytes')
+                        isize = args.get('image_size')
+                        if ib and isize:
+                            try:
+                                rb = self._test_texture_upload_and_readback(ib, int(isize[0]), int(isize[1]))
+                                try:
+                                    # sanitize large binary-like payloads before logging
+                                    lg = logging.getLogger(__name__)
+                                    try:
+                                        if isinstance(rb, (bytes, bytearray, memoryview)):
+                                            lg.debug('PRESENTER TEST UPLOAD READBACK: <redacted-bytes len=%d>', len(rb))
+                                        else:
+                                            lg.debug('PRESENTER TEST UPLOAD READBACK: %r', rb)
+                                    except Exception:
+                                        lg.debug('PRESENTER TEST UPLOAD READBACK: %r', repr(rb))
+                                except Exception:
+                                    pass
+                            except Exception as e:
+                                try:
+                                    logging.getLogger(__name__).error('PRESENTER TEST UPLOAD ERROR: %r', e)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # Call the replay function provided by the engine to draw recorded ops
         try:
@@ -913,6 +1134,11 @@ class SkiaGLPresenter:
                         from pyglet import gl
                         bound_shader_obj = None
                         processed_cmds = []
+                        try:
+                            seq = [c.get('op') for c in list(commands)]
+                            logging.getLogger(__name__).debug('render_commands: pre-process ops sequence=%r', seq)
+                        except Exception:
+                            pass
                         for cmd in list(commands):
                             try:
                                 op = cmd.get('op')
@@ -920,7 +1146,11 @@ class SkiaGLPresenter:
                                 if op == 'shader':
                                     # shader obj stored in args
                                     try:
-                                        bound_shader_obj = args.get('shader')
+                                            bound_shader_obj = args.get('shader')
+                                            try:
+                                                logging.getLogger(__name__).debug('preprocess: found shader arg=%r', bound_shader_obj)
+                                            except Exception:
+                                                pass
                                     except Exception:
                                         bound_shader_obj = None
                                     # keep shader op so replayer can also see it if needed
@@ -931,175 +1161,496 @@ class SkiaGLPresenter:
                                     processed_cmds.append(cmd)
                                     continue
 
-                                if op == 'image' and bound_shader_obj is not None:
-                                    # Best-effort: if image bytes + size are present, upload
-                                    # to a temporary GL texture and draw a quad with the
-                                    # bound shader program. Otherwise fall back to skia.
+                                if op == 'image':
                                     try:
-                                        ib = args.get('image_bytes')
-                                        isize = args.get('image_size')
-                                        if ib and isize:
-                                            iw, ih = int(isize[0]), int(isize[1])
-                                            # create GL texture
-                                            tex = gl.GLuint()
-                                            gl.glGenTextures(1, ctypes.byref(tex))
-                                            tex_id = int(tex.value)
-                                            gl.glBindTexture(gl.GL_TEXTURE_2D, tex_id)
+                                        import os as _os
+                                        use_shader = (_os.getenv('PYCREATIVE_DEBUG_ENABLE_SHADER_IMAGE', '') == '1')
+                                    except Exception:
+                                        use_shader = False
+                                    # prefer raw bytes if available
+                                    ib = args.get('image_bytes')
+                                    isize = args.get('image_size')
+                                    try:
+                                        logging.getLogger(__name__).debug('image op: use_shader=%r bound_shader_repr=%r bound_shader_compiled=%r has_image_bytes=%r image_size=%r', use_shader, repr(bound_shader_obj), getattr(bound_shader_obj, '_compiled_variant', None) if bound_shader_obj else None, bool(ib), isize)
+                                    except Exception:
+                                        pass
+                                    if not ib and args.get('image') is not None:
+                                        try:
+                                            from PIL import Image as _PILImage
+                                            _img = args.get('image')
+                                            if isinstance(_img, _PILImage):
+                                                if _img.mode != 'RGBA':
+                                                    _img = _img.convert('RGBA')
+                                                ib = _img.tobytes()
+                                                isize = (_img.width, _img.height)
+                                        except Exception:
+                                            ib = None
+                                    if bound_shader_obj is not None and use_shader and ib and isize:
+                                        try:
+                                            prog = getattr(bound_shader_obj, '_program', None)
+                                        except Exception:
+                                            prog = None
+                                        if not prog:
                                             try:
+                                                try:
+                                                    variants = self._variant_ordering()
+                                                except Exception:
+                                                    variants = ('150', 'es300', '120')
+                                                for var in variants:
+                                                    try:
+                                                        if var == '150':
+                                                            frag_prefix = '#version 150\n'
+                                                            vert_prefix = '#version 150\n'
+                                                            default_vert = ('#version 150\n'
+                                                                            'in vec2 position;\n'
+                                                                            'in vec2 texcoord0;\n'
+                                                                            'out vec2 v_texcoord;\n'
+                                                                            'void main() { v_texcoord = texcoord0; gl_Position = vec4(position, 0.0, 1.0); }')
+                                                        elif var == 'es300':
+                                                            frag_prefix = '#version 300 es\nprecision mediump float;\n'
+                                                            vert_prefix = '#version 300 es\n'
+                                                            default_vert = ('#version 300 es\n'
+                                                                            'in vec2 position;\n'
+                                                                            'in vec2 texcoord0;\n'
+                                                                            'out vec2 v_texcoord;\n'
+                                                                            'void main() { v_texcoord = texcoord0; gl_Position = vec4(position, 0.0, 1.0); }')
+                                                        else:
+                                                            frag_prefix = '#version 120\n'
+                                                            vert_prefix = '#version 120\n'
+                                                            default_vert = ('#version 120\n'
+                                                                            'attribute vec2 position;\n'
+                                                                            'attribute vec2 texcoord0;\n'
+                                                                            'varying vec2 v_texcoord;\n'
+                                                                            'void main() { v_texcoord = texcoord0; gl_Position = vec4(position, 0.0, 1.0); }')
+
+                                                        provided_vert = getattr(bound_shader_obj, 'vert_source', None)
+                                                        if provided_vert:
+                                                            if '#version' not in provided_vert:
+                                                                use_vert = vert_prefix + provided_vert
+                                                            else:
+                                                                use_vert = provided_vert
+                                                        else:
+                                                            use_vert = default_vert
+
+                                                        frag_src_try = getattr(bound_shader_obj, 'frag_source', '') or ''
+                                                        if '#version' not in frag_src_try:
+                                                            frag_src_try = frag_prefix + frag_src_try.lstrip()
+
+                                                        vert_sh = self._compile_shader(use_vert, gl.GL_VERTEX_SHADER)
+                                                        frag_sh = self._compile_shader(frag_src_try, gl.GL_FRAGMENT_SHADER)
+                                                        # Bind common attribute names to fixed locations so the
+                                                        # presenter's VBO layout (pos -> 0, uv -> 1) maps
+                                                        # correctly into the user's program.
+                                                        prog_obj = self._link_program(vert_sh, frag_sh, bind_attribs=('position', 'texcoord0'))
+                                                        prog = int(prog_obj)
+                                                        try:
+                                                            setattr(bound_shader_obj, '_program', prog)
+                                                            setattr(bound_shader_obj, '_compiled_variant', var)
+                                                        except Exception:
+                                                            pass
+                                                        try:
+                                                            logging.getLogger(__name__).debug('Compiled bound PCShader on-the-fly using variant %s prog=%s', var, prog)
+                                                        except Exception:
+                                                            pass
+                                                        break
+                                                    except Exception:
+                                                        try:
+                                                            logging.getLogger(__name__).debug('on-the-fly PCShader variant %s compile failed', var)
+                                                        except Exception:
+                                                            pass
+                                                        continue
+                                            except Exception:
+                                                try:
+                                                    logging.getLogger(__name__).debug('image-through-shader: on-the-fly compile failed overall')
+                                                except Exception:
+                                                    pass
+                                        else:
+                                            try:
+                                                res = self._render_shader_to_gl_texture(bound_shader_obj, ib, isize)
+                                            except Exception:
+                                                res = None
+                                            if res:
+                                                try:
+                                                    from pyglet import gl as _gl
+                                                    tex_tmp, fbo_tmp = res
+                                                    prev_fb = None
+                                                    try:
+                                                        prev_fb = _gl.GLint()
+                                                        _gl.glGetIntegerv(_gl.GL_FRAMEBUFFER_BINDING, ctypes.byref(prev_fb))
+                                                    except Exception:
+                                                        prev_fb = None
+
+                                                    # Attempt to blit temp FBO to presenter's FBO
+                                                    try:
+                                                        try:
+                                                            _gl.glBindFramebuffer(_gl.GL_READ_FRAMEBUFFER, int(fbo_tmp))
+                                                        except Exception:
+                                                            try:
+                                                                _gl.glBindFramebuffer(_gl.GL_FRAMEBUFFER, int(fbo_tmp))
+                                                            except Exception:
+                                                                pass
+                                                        try:
+                                                            _gl.glBindFramebuffer(_gl.GL_DRAW_FRAMEBUFFER, int(self.fbo_id))
+                                                        except Exception:
+                                                            try:
+                                                                _gl.glBindFramebuffer(_gl.GL_FRAMEBUFFER, int(self.fbo_id))
+                                                            except Exception:
+                                                                pass
+
+                                                        try:
+                                                            dst_w = int(getattr(self, '_backing_size', (int(self.width), int(self.height)))[0])
+                                                            dst_h = int(getattr(self, '_backing_size', (int(self.width), int(self.height)))[1])
+                                                            _gl.glBlitFramebuffer(0, 0, int(isize[0]), int(isize[1]), 0, 0, dst_w, dst_h, _gl.GL_COLOR_BUFFER_BIT, _gl.GL_NEAREST)
+                                                        except Exception:
+                                                            # fallback: draw textured quad into presenter's FBO
+                                                            try:
+                                                                _gl.glBindFramebuffer(_gl.GL_FRAMEBUFFER, int(self.fbo_id))
+                                                                try:
+                                                                    self._ensure_textured_quad_resources()
+                                                                    _gl.glActiveTexture(_gl.GL_TEXTURE0)
+                                                                    _gl.glBindTexture(_gl.GL_TEXTURE_2D, int(tex_tmp))
+                                                                    try:
+                                                                        if self._fs_prog_u_tex is not None:
+                                                                            _gl.glUseProgram(int(self._fs_prog))
+                                                                            _gl.glUniform1i(self._fs_prog_u_tex, 0)
+                                                                    except Exception:
+                                                                        pass
+                                                                    try:
+                                                                        self._draw_textured_quad_vbo(int(tex_tmp), flip_y=True)
+                                                                    except Exception:
+                                                                        pass
+                                                                except Exception:
+                                                                    pass
+                                                            except Exception:
+                                                                pass
+
+                                                    finally:
+                                                        try:
+                                                            if prev_fb is not None:
+                                                                _gl.glBindFramebuffer(_gl.GL_FRAMEBUFFER, int(prev_fb.value if hasattr(prev_fb, 'value') else prev_fb))
+                                                        except Exception:
+                                                            pass
+                                                        # cleanup temp resources
+                                                        try:
+                                                            tdel = _gl.GLuint(int(tex_tmp))
+                                                            _gl.glDeleteTextures(1, ctypes.byref(tdel))
+                                                        except Exception:
+                                                            pass
+                                                        try:
+                                                            fdel = _gl.GLuint(int(fbo_tmp))
+                                                            _gl.glDeleteFramebuffers(1, ctypes.byref(fdel))
+                                                        except Exception:
+                                                            pass
+
+                                                except Exception:
+                                                    # on any failure fall through to original path
+                                                    pass
+                                                else:
+                                                    processed_cmds.append(cmd)
+                                                    continue
+                                            tid = None
+                                            try:
+                                                # upload texture and draw quad using user's program
+                                                tex = gl.GLuint()
+                                                gl.glGenTextures(1, ctypes.byref(tex))
+                                                tid = int(tex.value)
+                                                gl.glBindTexture(gl.GL_TEXTURE_2D, tid)
                                                 gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
                                                 gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
-                                            except Exception:
-                                                pass
-                                            # upload data
-                                            try:
-                                                arr = (gl.GLubyte * len(ib)).from_buffer_copy(ib)
-                                                gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
-                                                gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, iw, ih, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, ctypes.byref(arr))
-                                            finally:
                                                 try:
-                                                    gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 4)
+                                                    gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
+                                                except Exception:
+                                                    pass
+                                                try:
+                                                    _w = int(isize[0]); _h = int(isize[1])
+                                                    from ctypes import c_ubyte
+                                                    buf = (c_ubyte * (len(ib))).from_buffer_copy(ib)
+                                                    gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, _w, _h, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, buf)
+                                                except Exception:
+                                                    try:
+                                                        gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, int(isize[0]), int(isize[1]), 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, ib)
+                                                    except Exception:
+                                                        pass
+                                                finally:
+                                                    try:
+                                                        gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 4)
+                                                    except Exception:
+                                                        pass
+
+                                                # Bind and use the user's program
+                                                try:
+                                                    gl.glUseProgram(int(prog))
                                                 except Exception:
                                                     pass
 
-                                            # draw with user's shader program if compiled
-                                            prog = getattr(bound_shader_obj, '_program', None)
-                                            if prog is not None:
+                                                # Bind texture unit 0 and set common sampler uniforms
                                                 try:
-                                                    prog = int(prog)
-                                                    prev_prog = gl.GLint()
-                                                    try:
-                                                        gl.glGetIntegerv(gl.GL_CURRENT_PROGRAM, ctypes.byref(prev_prog))
-                                                    except Exception:
-                                                        prev_prog = None
-                                                    gl.glUseProgram(prog)
-                                                    # bind texture unit 0
                                                     gl.glActiveTexture(gl.GL_TEXTURE0)
-                                                    gl.glBindTexture(gl.GL_TEXTURE_2D, tex_id)
-                                                    # set common sampler uniform (try common names)
-                                                    for uname in ('iChannel0', 'u_tex', 'tex', 'uTexture'):
+                                                    gl.glBindTexture(gl.GL_TEXTURE_2D, tid)
+                                                except Exception:
+                                                    pass
+                                                try:
+                                                    found_unif = []
+                                                    for uname in ('iChannel0', 'tex', 'u_tex', 'u_texture'):
                                                         try:
-                                                            loc = gl.glGetUniformLocation(prog, uname.encode('utf-8'))
-                                                            if loc and int(loc) >= 0:
+                                                            try:
+                                                                loc = gl.glGetUniformLocation(int(prog), uname.encode('utf-8'))
+                                                            except Exception:
+                                                                loc = gl.glGetUniformLocation(int(prog), uname)
+                                                            if int(loc) != -1:
                                                                 try:
                                                                     gl.glUniform1i(int(loc), 0)
+                                                                    found_unif.append(uname)
                                                                 except Exception:
                                                                     pass
                                                         except Exception:
                                                             pass
-                                                    # upload any stored uniforms on the shader object
                                                     try:
-                                                        for uname, uvals in getattr(bound_shader_obj, '_uniforms', {}).items():
+                                                        logging.getLogger(__name__).debug('image-through-shader: bound sampler uniforms=%r', found_unif)
+                                                    except Exception:
+                                                        pass
+                                                except Exception:
+                                                    pass
+
+                                                # Ensure the presenter's VBO/VAO is bound then try to set attribute pointers
+                                                try:
+                                                    try:
+                                                        if getattr(self, '_fs_vao', None):
+                                                            gl.glBindVertexArray(int(self._fs_vao))
+                                                    except Exception:
+                                                        pass
+                                                    try:
+                                                        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, int(self._fs_vbo))
+                                                    except Exception:
+                                                        pass
+                                                    try:
+                                                        stride = ctypes.sizeof(ctypes.c_float) * 4
+                                                        pos_names = (b'position', b'a_pos', b'pos', b'vertex')
+                                                        uv_names = (b'texcoord0', b'a_uv', b'uv', b'texcoord')
+                                                        bound_pos = False
+                                                        bound_uv = False
+                                                        for pname in pos_names:
                                                             try:
-                                                                loc = gl.glGetUniformLocation(prog, str(uname).encode('utf-8'))
-                                                                if not loc:
-                                                                    continue
-                                                                loci = int(loc)
-                                                                try:
-                                                                    valsf = tuple(float(v) for v in uvals)
-                                                                    if len(valsf) == 1:
-                                                                        gl.glUniform1f(loci, valsf[0])
-                                                                    elif len(valsf) == 2:
-                                                                        gl.glUniform2f(loci, valsf[0], valsf[1])
-                                                                    elif len(valsf) == 3:
-                                                                        gl.glUniform3f(loci, valsf[0], valsf[1], valsf[2])
-                                                                    elif len(valsf) == 4:
-                                                                        gl.glUniform4f(loci, valsf[0], valsf[1], valsf[2], valsf[3])
-                                                                except Exception:
+                                                                loc = gl.glGetAttribLocation(int(prog), pname)
+                                                                if int(loc) >= 0:
                                                                     try:
-                                                                        ivals = tuple(int(v) for v in uvals)
-                                                                        if len(ivals) == 1:
-                                                                            gl.glUniform1i(loci, ivals[0])
+                                                                        gl.glEnableVertexAttribArray(int(loc))
+                                                                        gl.glVertexAttribPointer(int(loc), 2, gl.GL_FLOAT, False, stride, ctypes.c_void_p(0))
+                                                                        bound_pos = True
+                                                                        break
                                                                     except Exception:
                                                                         pass
                                                             except Exception:
                                                                 pass
-                                                    except Exception:
-                                                        pass
-
-                                                    # Ensure quad resources exist
-                                                    try:
-                                                        self._ensure_textured_quad_resources()
-                                                    except Exception:
-                                                        pass
-
-                                                    # Bind VBO and set attribute pointers for this program
-                                                    try:
-                                                        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, int(self._fs_vbo))
-                                                        stride = ctypes.sizeof(ctypes.c_float) * 4
-                                                        # attribute candidates
-                                                        pos_candidates = ('position', 'a_pos', 'aPosition')
-                                                        uv_candidates = ('texcoord0', 'a_uv', 'uv', 'aUV')
-                                                        enabled_attribs = []
-                                                        for name in pos_candidates:
+                                                        for uname in uv_names:
                                                             try:
-                                                                loc = gl.glGetAttribLocation(prog, name.encode('utf-8'))
-                                                                if loc is not None and int(loc) >= 0:
-                                                                    gl.glEnableVertexAttribArray(int(loc))
-                                                                    gl.glVertexAttribPointer(int(loc), 2, gl.GL_FLOAT, False, stride, ctypes.c_void_p(0))
-                                                                    enabled_attribs.append(int(loc))
-                                                                    break
-                                                            except Exception:
-                                                                continue
-                                                        for name in uv_candidates:
-                                                            try:
-                                                                loc = gl.glGetAttribLocation(prog, name.encode('utf-8'))
-                                                                if loc is not None and int(loc) >= 0:
-                                                                    gl.glEnableVertexAttribArray(int(loc))
-                                                                    gl.glVertexAttribPointer(int(loc), 2, gl.GL_FLOAT, False, stride, ctypes.c_void_p(ctypes.sizeof(ctypes.c_float) * 2))
-                                                                    enabled_attribs.append(int(loc))
-                                                                    break
-                                                            except Exception:
-                                                                continue
-
-                                                    except Exception:
-                                                        pass
-
-                                                    # Draw quad
-                                                    try:
-                                                        gl.glEnable(gl.GL_BLEND)
-                                                        gl.glBlendFuncSeparate(gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA, gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA)
-                                                    except Exception:
-                                                        pass
-                                                    try:
-                                                        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6)
-                                                    except Exception:
-                                                        pass
-
-                                                    # cleanup attribute state
-                                                    try:
-                                                        for a in enabled_attribs:
-                                                            try:
-                                                                gl.glDisableVertexAttribArray(int(a))
+                                                                loc = gl.glGetAttribLocation(int(prog), uname)
+                                                                if int(loc) >= 0:
+                                                                    try:
+                                                                        uv_off = ctypes.sizeof(ctypes.c_float) * 2
+                                                                        gl.glEnableVertexAttribArray(int(loc))
+                                                                        gl.glVertexAttribPointer(int(loc), 2, gl.GL_FLOAT, False, stride, ctypes.c_void_p(uv_off))
+                                                                        bound_uv = True
+                                                                        break
+                                                                    except Exception:
+                                                                        pass
                                                             except Exception:
                                                                 pass
-                                                    except Exception:
-                                                        pass
+                                                        try:
+                                                            logging.getLogger(__name__).debug('image-through-shader: attribute bind results pos=%r uv=%r', bool(bound_pos), bool(bound_uv))
+                                                        except Exception:
+                                                            pass
+                                                        # Fallback: if attribute locations were not found by name,
+                                                        # bind generic attribute indices 0 and 1 which many
+                                                        # drivers map to the first vertex attributes. This is a
+                                                        # best-effort attempt to make simple passthrough
+                                                        # vertex/fragment pairs render even when the attribute
+                                                        # names are inactive or optimized out.
+                                                        if not bound_pos:
+                                                            try:
+                                                                gl.glEnableVertexAttribArray(0)
+                                                                gl.glVertexAttribPointer(0, 2, gl.GL_FLOAT, False, stride, ctypes.c_void_p(0))
+                                                                bound_pos = True
+                                                            except Exception:
+                                                                pass
+                                                        if not bound_uv:
+                                                            try:
+                                                                uv_off = ctypes.sizeof(ctypes.c_float) * 2
+                                                                gl.glEnableVertexAttribArray(1)
+                                                                gl.glVertexAttribPointer(1, 2, gl.GL_FLOAT, False, stride, ctypes.c_void_p(uv_off))
+                                                                bound_uv = True
+                                                            except Exception:
+                                                                pass
+                                                        try:
+                                                            logging.getLogger(__name__).debug('image-through-shader: post-fallback attribute bind pos=%r uv=%r', bool(bound_pos), bool(bound_uv))
+                                                        except Exception:
+                                                            pass
+                                                        # If attributes still aren't bound, try an attributeless
+                                                        # fullscreen-triangle fallback: link the user's fragment
+                                                        # shader with a small vertex shader that uses
+                                                        # gl_VertexID to produce positions and texcoords.
+                                                        temp_prog = None
+                                                        if not bound_pos or not bound_uv:
+                                                            try:
+                                                                try:
+                                                                    frag_src = getattr(bound_shader_obj, 'frag_source', '') or ''
+                                                                    # ensure a #version directive is present for the temp link
+                                                                    if '#version' not in frag_src:
+                                                                        frag_src_try2 = '#version 150\n' + frag_src.lstrip()
+                                                                    else:
+                                                                        frag_src_try2 = frag_src
+                                                                except Exception:
+                                                                    frag_src_try2 = getattr(bound_shader_obj, 'frag_source', '') or ''
 
-                                                    # restore previous program
-                                                    try:
-                                                        if prev_prog is not None:
-                                                            gl.glUseProgram(int(prev_prog))
-                                                        else:
-                                                            gl.glUseProgram(0)
+                                                                # simple attributeless vertex shader (GLSL 150)
+                                                                attrless_vert = (
+                                                                    '#version 150\n'
+                                                                    'out vec2 v_texcoord;\n'
+                                                                    'void main() {\n'
+                                                                    '    int id = int(gl_VertexID);\n'
+                                                                    '    if (id == 0) {\n'
+                                                                    '        v_texcoord = vec2(0.0, 0.0);\n'
+                                                                    '        gl_Position = vec4(-1.0, -1.0, 0.0, 1.0);\n'
+                                                                    '    } else if (id == 1) {\n'
+                                                                    '        v_texcoord = vec2(2.0, 0.0);\n'
+                                                                    '        gl_Position = vec4(3.0, -1.0, 0.0, 1.0);\n'
+                                                                    '    } else {\n'
+                                                                    '        v_texcoord = vec2(0.0, 2.0);\n'
+                                                                    '        gl_Position = vec4(-1.0, 3.0, 0.0, 1.0);\n'
+                                                                    '    }\n'
+                                                                    '}'
+                                                                )
+                                                                try:
+                                                                    try:
+                                                                        logging.getLogger(__name__).debug('image-through-shader: attempting attributeless link')
+                                                                    except Exception:
+                                                                        pass
+                                                                    vsh = self._compile_shader(attrless_vert, gl.GL_VERTEX_SHADER)
+                                                                    fsh = self._compile_shader(frag_src_try2, gl.GL_FRAGMENT_SHADER)
+                                                                    temp_prog_obj = self._link_program(vsh, fsh)
+                                                                    temp_prog = int(temp_prog_obj)
+                                                                except Exception:
+                                                                    try:
+                                                                        logging.getLogger(__name__).debug('image-through-shader: attributeless link failed')
+                                                                    except Exception:
+                                                                        pass
+                                                                    temp_prog = None
+                                                            except Exception:
+                                                                temp_prog = None
+                                                            # If we have a temp program, use it for the draw instead
+                                                            if temp_prog:
+                                                                try:
+                                                                    try:
+                                                                        gl.glUseProgram(int(temp_prog))
+                                                                    except Exception:
+                                                                        pass
+                                                                    # bind texture unit 0 to sampler 'iChannel0' if present
+                                                                    try:
+                                                                        gl.glActiveTexture(gl.GL_TEXTURE0)
+                                                                        gl.glBindTexture(gl.GL_TEXTURE_2D, tid)
+                                                                    except Exception:
+                                                                        pass
+                                                                    try:
+                                                                        for uname in ('iChannel0', 'tex', 'u_tex', 'u_texture'):
+                                                                            try:
+                                                                                loc = gl.glGetUniformLocation(int(temp_prog), uname.encode('utf-8'))
+                                                                            except Exception:
+                                                                                try:
+                                                                                    loc = gl.glGetUniformLocation(int(temp_prog), uname)
+                                                                                except Exception:
+                                                                                    loc = -1
+                                                                            try:
+                                                                                if int(loc) != -1:
+                                                                                    gl.glUniform1i(int(loc), 0)
+                                                                            except Exception:
+                                                                                pass
+                                                                    except Exception:
+                                                                        pass
+
+                                                                    # draw a single fullscreen triangle (3 verts)
+                                                                    try:
+                                                                        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 3)
+                                                                    except Exception:
+                                                                        pass
+                                                                finally:
+                                                                    try:
+                                                                        gl.glUseProgram(0)
+                                                                    except Exception:
+                                                                        pass
+                                                                    try:
+                                                                        # delete temp program and shaders (best-effort)
+                                                                        if temp_prog:
+                                                                            pdel = gl.GLuint(int(temp_prog))
+                                                                            gl.glDeleteProgram(pdel)
+                                                                    except Exception:
+                                                                        pass
+                                                                    try:
+                                                                        # mark command processed so we don't fall back to Skia
+                                                                        processed_cmds.append(cmd)
+                                                                    except Exception:
+                                                                        pass
+                                                                    # skip remaining VBO-based draw for this command
+                                                                    continue
                                                     except Exception:
                                                         pass
-                                                # close draw-with-program try
                                                 except Exception:
-                                                    # best-effort: ignore program-draw errors and fall back
                                                     pass
-                                                # delete temp texture
+
+                                                # Draw the fullscreen quad
                                                 try:
-                                                    tdel = gl.GLuint(int(tex_id))
-                                                    gl.glDeleteTextures(1, ctypes.byref(tdel))
+                                                    gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6)
                                                 except Exception:
                                                     pass
-                                                # we handled drawing this image, skip passing to skia
+
+                                                # Optional diagnostic: read back center pixel from current FBO
+                                                try:
+                                                    from pyglet import gl as _gl
+                                                    try:
+                                                        try:
+                                                            rw, rh = getattr(self, '_surface_size') or getattr(self, '_backing_size')
+                                                        except Exception:
+                                                            rw, rh = int(self.width), int(self.height)
+                                                        cx = int(max(0, int(rw) // 2))
+                                                        cy = int(max(0, int(rh) // 2))
+                                                        buf = (ctypes.c_ubyte * 4)()
+                                                        try:
+                                                            _gl.glReadPixels(cx, cy, 1, 1, _gl.GL_RGBA, _gl.GL_UNSIGNED_BYTE, ctypes.byref(buf))
+                                                            rb = bytes(buf)
+                                                            try:
+                                                                logging.getLogger(__name__).debug('image-through-shader: readback center rgba=%r', tuple(rb))
+                                                            except Exception:
+                                                                pass
+                                                        except Exception:
+                                                            pass
+                                                    except Exception:
+                                                        pass
+                                                except Exception:
+                                                    pass
+
+                                                # Unbind program and clean up
+                                                try:
+                                                    gl.glUseProgram(0)
+                                                except Exception:
+                                                    pass
+                                                try:
+                                                    if tid:
+                                                        tdel = gl.GLuint(tid)
+                                                        gl.glDeleteTextures(1, ctypes.byref(tdel))
+                                                except Exception:
+                                                    pass
+
+                                                processed_cmds.append(cmd)
                                                 continue
-                                        # else fall through to processed_cmds to let Skia draw
-                                    except Exception:
-                                        # on any failure, fall back to Skia replay
-                                        pass
-                                # default: keep the command for Skia replay
+                                            except Exception:
+                                                try:
+                                                    if tid:
+                                                        tdel = gl.GLuint(tid)
+                                                        gl.glDeleteTextures(1, ctypes.byref(tdel))
+                                                except Exception:
+                                                    pass
+                                    # leave drawing to Skia (safe path)
+                                    processed_cmds.append(cmd)
+                                    continue
                                 processed_cmds.append(cmd)
                             except Exception:
                                 # if anything goes wrong per-command, keep it so replayer can try
@@ -1131,10 +1682,7 @@ class SkiaGLPresenter:
         except Exception:
             goto_skip = False
 
-        except Exception:
-            # Defensive fallback for the outer replay pre-processing try
-            # (ensures we always have matching except/finally blocks).
-            pass
+        
 
         if not (locals().get('goto_skip', False)):
             replay_fn(commands, canvas)
@@ -1215,8 +1763,7 @@ class SkiaGLPresenter:
                         logger.debug('SAVE_FRAME sizes presenter.width=%s presenter.height=%s _surface_size=%s fbo=%s', getattr(self, 'width', None), getattr(self, 'height', None), surf_size, getattr(self, 'fbo_id', None))
                         # Also write a small debug record to /tmp so CLI runs can inspect
                         try:
-                            with open('/tmp/pycreative_saveframe_debug.txt', 'a') as _df:
-                                _df.write(f'SAVE_FRAME sizes presenter.width={getattr(self, "width", None)} presenter.height={getattr(self, "height", None)} _surface_size={surf_size} fbo={getattr(self, "fbo_id", None)}\n')
+                            _maybe_debug_dump('/tmp/pycreative_saveframe_debug.txt', f'SAVE_FRAME sizes presenter.width={getattr(self, "width", None)} presenter.height={getattr(self, "height", None)} _surface_size={surf_size} fbo={getattr(self, "fbo_id", None)}\n')
                         except Exception:
                             pass
                     except Exception:
@@ -1264,8 +1811,7 @@ class SkiaGLPresenter:
                                     logging.getLogger(__name__).debug('save_frame glReadPixels using w=%d h=%d fbo=%s', w, h, getattr(self, 'fbo_id', None))
                                     try:
                                         # Mirror this diagnostic to /tmp for easier inspection in headless runs
-                                        with open('/tmp/pycreative_saveframe_debug.txt', 'a') as _df:
-                                            _df.write(f'save_frame glReadPixels using w={w} h={h} fbo={getattr(self, "fbo_id", None)}\n')
+                                        _maybe_debug_dump('/tmp/pycreative_saveframe_debug.txt', f'save_frame glReadPixels using w={w} h={h} fbo={getattr(self, "fbo_id", None)}\n')
                                     except Exception:
                                         pass
                                 except Exception:
@@ -1290,8 +1836,7 @@ class SkiaGLPresenter:
                                     rb_len = len(raw)
                                     expect = int(w) * int(h) * 4
                                     try:
-                                        with open('/tmp/pycreative_present_readbacks.log', 'a') as _rf:
-                                            _rf.write(f'{time.time():.6f} save_frame glReadPixels raw_bytes={rb_len} expected={expect} w={w} h={h} fbo={getattr(self, "fbo_id", None)}\n')
+                                        _maybe_debug_dump('/tmp/pycreative_present_readbacks.log', f'{time.time():.6f} save_frame glReadPixels raw_bytes={rb_len} expected={expect} w={w} h={h} fbo={getattr(self, "fbo_id", None)}\n')
                                     except Exception:
                                         pass
                                     try:
@@ -1315,11 +1860,10 @@ class SkiaGLPresenter:
                                         logging.getLogger(__name__).debug(msg)
                                     except Exception:
                                         pass
-                                    try:
-                                        with open('/tmp/pycreative_frombytes_debug.log', 'a') as _fb:
-                                            _fb.write(msg + '\n')
-                                    except Exception:
-                                        pass
+                                        try:
+                                            _maybe_debug_dump('/tmp/pycreative_frombytes_debug.log', msg + '\n')
+                                        except Exception:
+                                            pass
                                 except Exception:
                                     pass
 
@@ -1373,8 +1917,7 @@ class SkiaGLPresenter:
                                                 except Exception:
                                                     pass
                                                 try:
-                                                    with open('/tmp/pycreative_frombytes_debug.log', 'a') as _fb:
-                                                        _fb.write(f'INFERRED_SAVE_FRAME w={inferred_w} h={inferred_h} rb_len={rb_len}\n')
+                                                    _maybe_debug_dump('/tmp/pycreative_frombytes_debug.log', f'INFERRED_SAVE_FRAME w={inferred_w} h={inferred_h} rb_len={rb_len}\n')
                                                 except Exception:
                                                     pass
                                                 break
@@ -1661,8 +2204,39 @@ class SkiaGLPresenter:
                             import os as _os
                             _dbg = '/tmp/pycreative_save_offscreen_cmds.json'
                             try:
+                                # Redact large binary/image bytes from the dumped
+                                # command list so verbose/debug dumps remain useful
+                                # without overwhelming log files. Replace image_bytes
+                                # with a short placeholder.
+                                sanitized = []
+                                for c in converted:
+                                    try:
+                                        cc = {'op': c.get('op'), 'args': {}, 'meta': c.get('meta')}
+                                        carg = c.get('args', {}) or {}
+                                        # Redact any large image-like payloads to keep
+                                        # verbose/debug dumps useful and compact.
+                                        # Keep small metadata (coords, sizes, modes).
+                                        for k, v in carg.items():
+                                            if k in ('image_bytes', 'image'):
+                                                # Raw bytes or image objects can be huge.
+                                                cc['args'][k] = '<redacted-image>'
+                                            else:
+                                                # Keep other small metadata; avoid serializing
+                                                # non-JSON-friendly objects by using repr()
+                                                try:
+                                                    _json.dumps({k: v})
+                                                    cc['args'][k] = v
+                                                except Exception:
+                                                    cc['args'][k] = repr(v)
+                                        sanitized.append(cc)
+                                    except Exception:
+                                        # on any failure, fall back to a minimal record
+                                        try:
+                                            sanitized.append({'op': c.get('op'), 'meta': c.get('meta')})
+                                        except Exception:
+                                            pass
                                 with open(_dbg, 'w') as _df:
-                                    _df.write(_json.dumps(converted, indent=2))
+                                    _df.write(_json.dumps(sanitized, indent=2))
                             except Exception:
                                 pass
                         except Exception:
@@ -1810,8 +2384,7 @@ class SkiaGLPresenter:
                                         rb_len = len(raw)
                                         expect = int(w) * int(h) * 4
                                         try:
-                                            with open('/tmp/pycreative_present_readbacks.log', 'a') as _rf:
-                                                _rf.write(f'debug_frame glReadPixels raw_bytes={rb_len} expected={expect} w={w} h={h} fbo={getattr(self, "fbo_id", None)}\n')
+                                            _maybe_debug_dump('/tmp/pycreative_present_readbacks.log', f'debug_frame glReadPixels raw_bytes={rb_len} expected={expect} w={w} h={h} fbo={getattr(self, "fbo_id", None)}\n')
                                         except Exception:
                                             pass
                                         try:
@@ -1836,8 +2409,7 @@ class SkiaGLPresenter:
                                         except Exception:
                                             pass
                                         try:
-                                            with open('/tmp/pycreative_frombytes_debug.log', 'a') as _fb:
-                                                _fb.write(msg + '\n')
+                                            _maybe_debug_dump('/tmp/pycreative_frombytes_debug.log', msg + '\n')
                                         except Exception:
                                             pass
                                     except Exception:
@@ -1887,8 +2459,7 @@ class SkiaGLPresenter:
                                                     except Exception:
                                                         pass
                                                     try:
-                                                        with open('/tmp/pycreative_frombytes_debug.log', 'a') as _fb:
-                                                            _fb.write(f'INFERRED_DEBUG_FRAME w={inferred_w} h={inferred_h} rb_len={rb_len}\n')
+                                                        _maybe_debug_dump('/tmp/pycreative_frombytes_debug.log', f'INFERRED_DEBUG_FRAME w={inferred_w} h={inferred_h} rb_len={rb_len}\n')
                                                     except Exception:
                                                         pass
                                                     break
@@ -2051,12 +2622,14 @@ class SkiaGLPresenter:
                 except Exception:
                     _err = None
                 try:
-                    print(f'PRESENTER DEBUG: mode={getattr(self, "_last_present_mode", None)} glError={_err}')
+                    try:
+                        logging.getLogger(__name__).debug('PRESENTER DEBUG: mode=%r glError=%r', getattr(self, '_last_present_mode', None), _err)
+                    except Exception:
+                        pass
                 except Exception:
                     pass
                 try:
-                    with open('/tmp/pycreative_present_log.txt', 'a') as _f:
-                        _f.write(f'mode={getattr(self, "_last_present_mode", None)} glError={_err}\n')
+                    _maybe_debug_dump('/tmp/pycreative_present_log.txt', f'mode={getattr(self, "_last_present_mode", None)} glError={_err}\n')
                 except Exception:
                     pass
                 try:
@@ -2073,8 +2646,7 @@ class SkiaGLPresenter:
                         'fbo_id': int(getattr(self, 'fbo_id', None)) if getattr(self, 'fbo_id', None) is not None else None,
                     }
                     try:
-                        with open('/tmp/pycreative_present_full_diagnostics.log', 'a') as _f:
-                            _f.write(json.dumps(full) + '\n')
+                        _maybe_debug_dump('/tmp/pycreative_present_full_diagnostics.log', json.dumps(full) + '\n')
                     except Exception:
                         pass
                 except Exception:
@@ -2110,8 +2682,7 @@ class SkiaGLPresenter:
                         except Exception:
                             pass
                         try:
-                            with open('/tmp/pycreative_frombytes_debug.log', 'a') as _fb:
-                                _fb.write(msg + '\n')
+                            _maybe_debug_dump('/tmp/pycreative_frombytes_debug.log', msg + '\n')
                         except Exception:
                             pass
                     except Exception:
@@ -2159,8 +2730,7 @@ class SkiaGLPresenter:
                                     except Exception:
                                         pass
                                     try:
-                                        with open('/tmp/pycreative_frombytes_debug.log', 'a') as _fb:
-                                            _fb.write(f'INFERRED_POST_PRESENT w={inferred_w} h={inferred_h} rb_len={rb_len}\n')
+                                        _maybe_debug_dump('/tmp/pycreative_frombytes_debug.log', f'INFERRED_POST_PRESENT w={inferred_w} h={inferred_h} rb_len={rb_len}\n')
                                     except Exception:
                                         pass
                                     break
@@ -2768,4 +3338,184 @@ void main() {
                 gl.glUseProgram(0)
         except Exception:
             pass
+
+    def _test_texture_upload_and_readback(self, ib: bytes, iw: int, ih: int):
+        """Placeholder diagnostic helper. Returns None unless a
+        more complete implementation is present. Kept lightweight to
+        avoid introducing parsing/indentation errors during debugging.
+        """
+        from pyglet import gl
+        tex_id = None
+        rgba = None
+        try:
+            # create texture
+            tex = gl.GLuint()
+            gl.glGenTextures(1, ctypes.byref(tex))
+            tex_id = int(tex.value)
+            gl.glBindTexture(gl.GL_TEXTURE_2D, tex_id)
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+
+            # upload bytes (assume RGBA8)
+            arr = (gl.GLubyte * len(ib)).from_buffer_copy(ib)
+            gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
+            gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, int(iw), int(ih), 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, ctypes.byref(arr))
+            gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 4)
+
+            # draw via presenter's textured-quad program
+            try:
+                self._ensure_textured_quad_resources()
+            except Exception:
+                pass
+            try:
+                self._draw_textured_quad_vbo(int(tex_id), flip_y=True)
+            except Exception:
+                pass
+
+            # read back center pixel using logical presenter size
+            try:
+                w = int(getattr(self, 'width', 0) or 0)
+                h = int(getattr(self, 'height', 0) or 0)
+                if w > 0 and h > 0:
+                    cx = int(w // 2)
+                    cy = int(h // 2)
+                    rb = (gl.GLubyte * 4)()
+                    gl.glPixelStorei(gl.GL_PACK_ALIGNMENT, 1)
+                    gl.glReadPixels(cx, cy, 1, 1, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, ctypes.byref(rb))
+                    gl.glPixelStorei(gl.GL_PACK_ALIGNMENT, 4)
+                    rgba = (int(rb[0]), int(rb[1]), int(rb[2]), int(rb[3]))
+            except Exception:
+                rgba = None
+        finally:
+            try:
+                if tex_id is not None:
+                    tdel = gl.GLuint(int(tex_id))
+                    gl.glDeleteTextures(1, ctypes.byref(tdel))
+            except Exception:
+                pass
+        return rgba
+
+
+    def _wrap_gl_texture_in_skia(self, tex_id: int, w: int, h: int):
+        """Attempt to wrap a GL texture id into a Skia Image.
+
+        Returns a Skia Image on success, or None on failure. This helper
+        is intentionally best-effort and tolerates multiple skia-python
+        API shapes across versions. It is used as the preferred fast-path
+        for presenting shader-rendered textures without a CPU round-trip.
+        """
+        try:
+            import skia
+        except Exception:
+            try:
+                logging.getLogger(__name__).debug('wrap_gl_texture_in_skia: skia not available')
+            except Exception:
+                pass
+            return None
+
+        try:
+            from pyglet import gl
+        except Exception:
+            try:
+                logging.getLogger(__name__).debug('wrap_gl_texture_in_skia: pyglet.gl not available')
+            except Exception:
+                pass
+            return None
+
+        # Ensure we have a GrDirectContext; prefer the presenter's cached
+        # context when available.
+        ctx = getattr(self, 'gr_context', None)
+        try:
+            if ctx is None:
+                ctx = skia.GrDirectContext.MakeGL()
+        except Exception:
+            ctx = getattr(self, 'gr_context', None)
+
+        if ctx is None:
+            try:
+                logging.getLogger(__name__).debug('wrap_gl_texture_in_skia: no GrDirectContext')
+            except Exception:
+                pass
+            return None
+
+        # Determine mipmapped enum in a version-tolerant way
+        try:
+            mip = skia.GrMipmapped.kNo
+        except Exception:
+            try:
+                mip = skia.GrMip_Mapped.kNo
+            except Exception:
+                try:
+                    mip = skia.GrMipMapped.kNo
+                except Exception:
+                    mip = 0
+
+        # Try a few constructor signatures for GrGLTextureInfo because
+        # skia-python bindings vary across versions/platforms.
+        tex_info = None
+        tried = []
+        try:
+            try:
+                tex_info = skia.GrGLTextureInfo(int(tex_id), int(gl.GL_RGBA8))
+                tried.append('texid,format')
+            except Exception:
+                try:
+                    tex_info = skia.GrGLTextureInfo(int(gl.GL_RGBA8), int(tex_id))
+                    tried.append('format,texid')
+                except Exception:
+                    try:
+                        tex_info = skia.GrGLTextureInfo(int(tex_id))
+                        tried.append('texid-only')
+                    except Exception:
+                        tex_info = None
+        except Exception:
+            tex_info = None
+
+        if tex_info is None:
+            try:
+                logging.getLogger(__name__).debug('wrap_gl_texture_in_skia: GrGLTextureInfo constructors tried=%r failed', tried)
+            except Exception:
+                pass
+            return None
+
+        # Construct backend texture
+        try:
+            backend = skia.GrBackendTexture(int(w), int(h), mip, tex_info)
+        except Exception as e:
+            try:
+                logging.getLogger(__name__).debug('wrap_gl_texture_in_skia: GrBackendTexture ctor failed: %r', e)
+            except Exception:
+                pass
+            return None
+
+        # Attempt to make a Skia Surface from the backend texture and take
+        # a snapshot image. If this succeeds return the Image so callers
+        # can draw it into the presenter's Skia canvas.
+        try:
+            # Some skia versions accept an options dict as a final arg
+            try:
+                surf = skia.Surface.MakeFromBackendTexture(ctx, backend, skia.kTopLeft_GrSurfaceOrigin, skia.kRGBA_8888_ColorType, skia.ColorSpace.MakeSRGB(), {})
+            except Exception:
+                try:
+                    surf = skia.Surface.MakeFromBackendTexture(ctx, backend, skia.kTopLeft_GrSurfaceOrigin, skia.kRGBA_8888_ColorType, skia.ColorSpace.MakeSRGB())
+                except Exception:
+                    surf = None
+            if surf is None:
+                try:
+                    logging.getLogger(__name__).debug('wrap_gl_texture_in_skia: MakeFromBackendTexture returned None')
+                except Exception:
+                    pass
+                return None
+
+            try:
+                img = surf.makeImageSnapshot()
+                return img
+            except Exception:
+                return None
+        except Exception:
+            try:
+                logging.getLogger(__name__).debug('wrap_gl_texture_in_skia: unexpected failure wrapping backend texture')
+            except Exception:
+                pass
+            return None
 

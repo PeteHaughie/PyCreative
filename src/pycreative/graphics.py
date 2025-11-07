@@ -31,12 +31,13 @@ except Exception:
 
 
 # Minimal default passthrough vertex shader used when only a fragment
-# shader is supplied. This keeps fragment-only sketches working without
-# requiring authors to always provide a vertex shader.
+# shader is supplied. Use a modern GLSL baseline (150) and `in`/`out`
+# qualifiers so presenters that compile GLSL core profiles succeed.
 DEFAULT_VERTEX_SHADER = """
-attribute vec2 position;
-attribute vec2 texcoord0;
-varying vec2 v_texcoord;
+#version 150
+in vec2 position;
+in vec2 texcoord0;
+out vec2 v_texcoord;
 void main() {
     v_texcoord = texcoord0;
     gl_Position = vec4(position, 0.0, 1.0);

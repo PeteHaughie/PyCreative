@@ -94,9 +94,32 @@ def step_frame(engine: Any) -> None:
             pass
         try:
             import logging as _logging
-            _logging.getLogger(__name__).debug(
-                'Playing setup commands: %r', engine._setup_commands
-            )
+            try:
+                sanitized = []
+                for c in (engine._setup_commands or []):
+                    try:
+                        sc = {'op': c.get('op'), 'args': {}, 'meta': c.get('meta')}
+                        carg = c.get('args', {}) or {}
+                        for k, v in carg.items():
+                            # redact image-like payloads and raw bytes
+                            if k in ('image_bytes', 'image'):
+                                sc['args'][k] = '<redacted-image>'
+                            else:
+                                try:
+                                    import json as _json
+                                    _json.dumps({k: v})
+                                    sc['args'][k] = v
+                                except Exception:
+                                    sc['args'][k] = repr(v)
+                        sanitized.append(sc)
+                    except Exception:
+                        try:
+                            sanitized.append({'op': c.get('op'), 'meta': c.get('meta')})
+                        except Exception:
+                            pass
+            except Exception:
+                sanitized = repr(engine._setup_commands)
+            _logging.getLogger(__name__).debug('Playing setup commands: %r', sanitized)
         except Exception:
             pass
         try:

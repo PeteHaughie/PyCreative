@@ -1100,9 +1100,33 @@ class Engine(EngineProtocol):
             self._setup_done = True
             import logging as _logging
             try:
-                _logging.getLogger(__name__).debug(
-                    'Playing setup commands: %r', self._setup_commands
-                )
+                # Sanitize setup commands for logging: redact image bytes
+                try:
+                    import json as _json
+                    sanitized = []
+                    for c in (self._setup_commands or []):
+                        try:
+                            sc = {'op': c.get('op'), 'args': {}, 'meta': c.get('meta')}
+                            carg = c.get('args', {}) or {}
+                            for k, v in carg.items():
+                                # redact image-like payloads and raw bytes
+                                if k in ('image_bytes', 'image'):
+                                    sc['args'][k] = '<redacted-image>'
+                                else:
+                                    try:
+                                        _json.dumps({k: v})
+                                        sc['args'][k] = v
+                                    except Exception:
+                                        sc['args'][k] = repr(v)
+                            sanitized.append(sc)
+                        except Exception:
+                            try:
+                                sanitized.append({'op': c.get('op'), 'meta': c.get('meta')})
+                            except Exception:
+                                pass
+                except Exception:
+                    sanitized = repr(self._setup_commands)
+                _logging.getLogger(__name__).debug('Playing setup commands: %r', sanitized)
             except Exception:
                 pass
             try:
@@ -1354,9 +1378,35 @@ class Engine(EngineProtocol):
             self.step_frame()
             # verbose output: print recorded commands after each frame
             if getattr(self, '_verbose', False):
+                def _sanitize_cmd(c):
+                    try:
+                        import json as _json
+                    except Exception:
+                        _json = None
+                    out = {'op': c.get('op'), 'args': {}, 'meta': c.get('meta')}
+                    args_dict = c.get('args', {}) or {}
+                    for k, v in args_dict.items():
+                        if k in ('image', 'image_bytes'):
+                            out['args'][k] = '<redacted-image>'
+                        elif isinstance(v, (bytes, bytearray, memoryview)):
+                            out['args'][k] = '<redacted-bytes>'
+                        else:
+                            try:
+                                if _json is not None:
+                                    _json.dumps({k: v})
+                                    out['args'][k] = v
+                                else:
+                                    out['args'][k] = v
+                            except Exception:
+                                try:
+                                    out['args'][k] = repr(v)
+                                except Exception:
+                                    out['args'][k] = f'<{type(v).__name__}>'
+                    return out
+
                 for cmd in self.graphics.commands:
                     try:
-                        print('VERBOSE CMD:', cmd)
+                        print('VERBOSE CMD:', _sanitize_cmd(cmd))
                     except Exception:
                         pass
             # enforce frame rate if requested and running in non-headless mode
@@ -1560,8 +1610,25 @@ class Engine(EngineProtocol):
         except Exception:
             pass
 
+        # Allow selecting a presenter implementation via env var:
+        # - PYCREATIVE_PRESENTER=pyglet will use the pyglet-based presenter
+        # - default remains SkiaGLPresenter
+        try:
+            pres_choice = os.getenv('PYCREATIVE_PRESENTER', '').strip().lower()
+        except Exception:
+            pres_choice = ''
+        if pres_choice == 'pyglet':
+            try:
+                from core.adapters.pyglet_presenter import PygletPresenter
+
+                presenter_cls = PygletPresenter
+            except Exception:
+                presenter_cls = SkiaGLPresenter
+        else:
+            presenter_cls = SkiaGLPresenter
+
         presenter: _Any = create_presenter(
-            SkiaGLPresenter,
+            presenter_cls,
             init_w,
             init_h,
             present_mode=self.present_mode,
@@ -1603,8 +1670,12 @@ class Engine(EngineProtocol):
                 except Exception:
                     pass
                 try:
-                    with open('/tmp/pycreative_present_class.txt', 'a') as _f:
-                        _f.write(f'{presenter.__class__.__name__}\n')
+                    if os.getenv('PYCREATIVE_DEBUG_DUMPS', '') == '1':
+                        try:
+                            with open('/tmp/pycreative_present_class.txt', 'a') as _f:
+                                _f.write(f'{presenter.__class__.__name__}\n')
+                        except Exception:
+                            pass
                 except Exception:
                     pass
         except Exception:
@@ -1657,9 +1728,35 @@ class Engine(EngineProtocol):
             self.step_frame()
             # verbose: echo recorded commands to stdout for debugging
             if getattr(self, '_verbose', False):
+                def _sanitize_cmd(c):
+                    try:
+                        import json as _json
+                    except Exception:
+                        _json = None
+                    out = {'op': c.get('op'), 'args': {}, 'meta': c.get('meta')}
+                    args_dict = c.get('args', {}) or {}
+                    for k, v in args_dict.items():
+                        if k in ('image', 'image_bytes'):
+                            out['args'][k] = '<redacted-image>'
+                        elif isinstance(v, (bytes, bytearray, memoryview)):
+                            out['args'][k] = '<redacted-bytes>'
+                        else:
+                            try:
+                                if _json is not None:
+                                    _json.dumps({k: v})
+                                    out['args'][k] = v
+                                else:
+                                    out['args'][k] = v
+                            except Exception:
+                                try:
+                                    out['args'][k] = repr(v)
+                                except Exception:
+                                    out['args'][k] = f'<{type(v).__name__}>'
+                    return out
+
                 for cmd in self.graphics.commands:
                     try:
-                        print('VERBOSE CMD:', cmd)
+                        print('VERBOSE CMD:', _sanitize_cmd(cmd))
                     except Exception:
                         pass
             # request a redraw

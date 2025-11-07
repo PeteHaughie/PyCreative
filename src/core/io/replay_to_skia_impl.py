@@ -276,7 +276,25 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
         args = cmd.get('args', {}) or {}
         if dbg and i < 16:
             try:
-                logger.debug('replay_to_skia_impl op=%s args=%s', op, args)
+                # Sanitize args to avoid logging large binary/image payloads
+                try:
+                    s_args = {}
+                    for k, v in (args or {}).items():
+                        try:
+                            if k in ('image', 'image_bytes'):
+                                s_args[k] = '<redacted-image>'
+                            elif isinstance(v, (bytes, bytearray, memoryview)):
+                                try:
+                                    s_args[k] = f'<redacted-bytes len={len(v)}>'
+                                except Exception:
+                                    s_args[k] = '<redacted-bytes>'
+                            else:
+                                s_args[k] = v
+                        except Exception:
+                            s_args[k] = repr(v)
+                except Exception:
+                    s_args = '<unavailable>'
+                logger.debug('replay_to_skia_impl op=%s args=%s', op, s_args)
             except Exception:
                 pass
 
@@ -1473,7 +1491,10 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                                     # offline inspection when debugging lifecycle.
                                     try:
                                         _probe_path = f"/tmp/pycreative_probe_image_{i}.png"
-                                        pil.save(_probe_path)
+                                        # Only write probe files when explicitly requested
+                                        # via environment so normal verbose runs stay clean.
+                                        if os.getenv('PYCREATIVE_DEBUG_DUMPS', '') == '1':
+                                            pil.save(_probe_path)
                                     except Exception:
                                         # best-effort only; never raise
                                         pass
@@ -1512,7 +1533,8 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                                             # Diagnostic: save the probed Pillow image
                                             try:
                                                 _probe_path2 = f"/tmp/pycreative_probe_image_probe_{i}.png"
-                                                pil.save(_probe_path2)
+                                                if os.getenv('PYCREATIVE_DEBUG_DUMPS', '') == '1':
+                                                    pil.save(_probe_path2)
                                             except Exception:
                                                 pass
                                             raw = pil.tobytes()
@@ -1547,7 +1569,8 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                                         # Diagnostic: save the reconstructed Pillow image
                                         try:
                                             _probe_raw = f"/tmp/pycreative_probe_image_raw_{i}.png"
-                                            img_p.save(_probe_raw)
+                                            if os.getenv('PYCREATIVE_DEBUG_DUMPS', '') == '1':
+                                                img_p.save(_probe_raw)
                                         except Exception:
                                             pass
                                         raw2 = img_p.tobytes()
