@@ -33,7 +33,7 @@ Processing is lightweight and fast to launch, but it isn’t well-suited for bui
 
 After years of building projects with both frameworks, I wanted a middle ground: something with Processing’s simplicity, openFrameworks’ hardware potential, and Python’s flexibility. Pyglet provides a fast, battle-tested engine for moving pixels around, but its quirks (like blitting) make it cumbersome for quick creative prototyping.
 
-PyCreative hides those complexities behind a Processing-style API, while leveraging Python’s huge ecosystem. It runs out of the box on macOS, Windows, Linux, and even low-power devices like the Raspberry Pi—no complicated toolchain required. Add MIDI, OSC, GPIO, or whatever else you need through Python’s libraries, and you’ve got a powerful, extensible framework for creative coding and rapid prototyping.
+PyCreative hides those complexities behind a Processing-style idiomatic API, while leveraging Python’s huge ecosystem. It runs out of the box on macOS, Windows, Linux, and even low-power devices like the Raspberry Pi—no complicated toolchain required. Add MIDI, OSC, GPIO, or whatever else you need through Python’s libraries, and you’ve got a powerful, extensible framework for creative coding and rapid prototyping.
 
 More information is in the [docs/README.md](docs/README.md)
 
@@ -54,6 +54,11 @@ More information is in the [docs/README.md](docs/README.md)
 	non-trivial integration with portability and dependency trade-offs; it
 	is currently deferred until core features are complete. See `TODOs`
 	or the project task list for more details if you want to prototype this.
+	Current research notes are in `docs/adr/0004-gpu-math-offload.md`.
+- PyCreative to P5 conversion tool (deferred): A tool to convert PyCreative
+	sketches to P5.js sketches, similar to the openFrameworks
+	`ofxP5` addon. This would help users migrate existing PyCreative
+	sketches to P5.js. Deferred until core features are complete.
 
 ## Local pre-commit hook
 
