@@ -8,17 +8,14 @@ PyCreative is a batteries-included creative-coding framework that makes it trivi
 ## Features
 - Modular architecture for easy extension
 - 2D/3D graphics, OpenGL, audio, video, MIDI, user input
-- Asset management, hot-reload, and live-coding support
 - Simple, discoverable, and chainable APIs
 
 ## Examples
-The `examples/` directory includes runnable sketches that demonstrate the APIs. In particular:
-
-- `examples/offscreen_example.py` — shows creating an offscreen buffer with `create_graphics`, drawing into it, using the `pixels()` context manager, and blitting the result back to the main surface.
+The `examples/` directory includes runnable sketches that demonstrate the APIs.
 
 Run examples with the CLI:
 ```bash
-pycreative examples/offscreen_example.py
+pycreative examples/sketch_example.py
 ```
 
 For more in-depth docs, see `docs/README.md` and the module-level docs under `src/pycreative/`.
@@ -44,6 +41,15 @@ More information is in the [docs/README.md](docs/README.md)
 - [sketches/](sketches/): User sketches
 - [tests/](tests/): Test suite
 
+## TODOs / Roadmap
+- Custom fonts
+- Audio input/output
+- Video input/output
+- OSC support
+- MIDI input/output
+- 3D graphics
+- Shader support
+
 ## Future work / deferred research
 
 - GPU math offload (deferred): PyCreative is a GPU-first application and we
@@ -54,6 +60,10 @@ More information is in the [docs/README.md](docs/README.md)
 	non-trivial integration with portability and dependency trade-offs; it
 	is currently deferred until core features are complete. See `TODOs`
 	or the project task list for more details if you want to prototype this.
+- Implpement fullscreen() restore previous window geometry (deferred):
+	Currently, when exiting fullscreen mode, the window does not restore
+	to its previous size and position. Implementing this feature would
+	improve user experience. Deferred until core features are complete.
 
 ## Local pre-commit hook
 
