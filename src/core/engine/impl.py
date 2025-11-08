@@ -1452,9 +1452,39 @@ class Engine(EngineProtocol):
                 from typing import Any as _Any
                 from typing import cast
                 # create window with explicit keyword args broken across lines
-                _win = pyglet.window.Window(
-                    width=self.width, height=self.height, vsync=True
-                )  # type: ignore[abstract]
+                # If a pending fullscreen request was registered (via
+                # SimpleSketchAPI.fullscreen called in settings()), honour it
+                # and create the window in fullscreen on the selected screen.
+                pending_fs = getattr(self, '_pending_fullscreen', None)
+                if pending_fs is not None:
+                    try:
+                        # Resolve screen object when index provided
+                        screen_obj = None
+                        try:
+                            import pyglet
+                            disp = pyglet.canvas.get_display()
+                            scrs = disp.get_screens()
+                            if isinstance(pending_fs, int) and 0 <= pending_fs < len(scrs):
+                                screen_obj = scrs[pending_fs]
+                        except Exception:
+                            screen_obj = None
+                        if screen_obj is not None:
+                            _win = pyglet.window.Window(fullscreen=True, screen=screen_obj)  # type: ignore[abstract]
+                        else:
+                            _win = pyglet.window.Window(fullscreen=True, width=self.width, height=self.height, vsync=True)  # type: ignore[abstract]
+                        try:
+                            setattr(self, '_is_fullscreen', True)
+                        except Exception:
+                            pass
+                    except Exception:
+                        # Fall back to normal window creation when fullscreen fails
+                        _win = pyglet.window.Window(
+                            width=self.width, height=self.height, vsync=True
+                        )  # type: ignore[abstract]
+                else:
+                    _win = pyglet.window.Window(
+                        width=self.width, height=self.height, vsync=True
+                    )  # type: ignore[abstract]
                 # cast to Any to avoid mypy attempting to validate pyglet's
                 # abstract base classes in this context.
                 self._window = cast(_Any, _win)

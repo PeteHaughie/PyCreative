@@ -7,7 +7,7 @@ assert class-based sketches expose the expected API.
 """
 
 SKETCH_CONVENIENCE_METHODS = (
-    'size', 'background', 'window_title', 'no_loop', 'loop', 'redraw', 'save_frame',
+    'size', 'background', 'window_title', 'fullscreen', 'no_loop', 'loop', 'redraw', 'save_frame',
     'rect', 'line', 'circle', 'square', 'frame_rate',
     'ellipse',
     'fill', 'stroke', 'stroke_weight',
