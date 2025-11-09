@@ -53,12 +53,28 @@ def replay_to_image_skia(engine: Any, path: str) -> None:
 
     c = surf.getCanvas()
 
-    # Default background: clear to opaque white unless a background op paints over it
+    # Default background: clear to the engine's background_color when
+    # available (engine.background_color defaults to rgb(200)). Fall back
+    # to rgb(200) when the engine doesn't provide a value.
     try:
+        bg_col = getattr(engine, 'background_color', None) or (200, 200, 200)
         try:
-            c.clear(skia.Color4f(1.0, 1.0, 1.0, 1.0))
+            r_f = float(bg_col[0]) / 255.0
+            g_f = float(bg_col[1]) / 255.0
+            b_f = float(bg_col[2]) / 255.0
+            try:
+                c.clear(skia.Color4f(r_f, g_f, b_f, 1.0))
+            except Exception:
+                ival = (0xFF << 24) | (int(bg_col[0]) << 16) | (int(bg_col[1]) << 8) | int(bg_col[2])
+                c.clear(ival)
         except Exception:
-            c.clear(0xFFFFFFFF)
+            try:
+                c.clear(skia.Color4f(200.0 / 255.0, 200.0 / 255.0, 200.0 / 255.0, 1.0))
+            except Exception:
+                try:
+                    c.clear(0xFFC8C8C8)
+                except Exception:
+                    pass
     except Exception:
         # non-fatal
         pass
@@ -85,8 +101,12 @@ def replay_to_image_skia(engine: Any, path: str) -> None:
                     if not isinstance(inner, dict):
                         continue
                     opn = inner.get('op')
-                    inner_args = {k: v for k, v in inner.items() if k != 'op'}
-                    flat.append({'op': opn, 'args': inner_args, 'meta': cmd.get('meta', {})})
+                    # Inner ops were recorded in the canonical {'op':..., 'args':..., 'meta':...}
+                    # shape. Preserve the inner 'args' map rather than copying
+                    # the whole dict (which would nest an 'args' key).
+                    inner_args = inner.get('args', {}) or {}
+                    inner_meta = inner.get('meta', {}) or cmd.get('meta', {})
+                    flat.append({'op': opn, 'args': inner_args, 'meta': inner_meta})
                 continue
             flat.append(cmd)
 

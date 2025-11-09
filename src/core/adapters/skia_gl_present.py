@@ -189,6 +189,16 @@ class SkiaGLPresenter:
         from ._skia_gl_present_render import render_commands as _render_commands
         return _render_commands(self, commands, replay_fn)
 
+    def present(self) -> bool:
+        """Present the presenter's backing texture to the default framebuffer.
+
+        Delegate to the extracted implementation in `_skia_gl_present_render`.
+        Returning True indicates the presenter resized itself and the caller
+        should re-render at the new size.
+        """
+        from ._skia_gl_present_render import present as _present
+        return _present(self)
+
     def replay_fn(self, commands, canvas):
         # Delegate to the centralized replayer implementation in the
         # extracted render module. This keeps the presenter file thin and

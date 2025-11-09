@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.color import hsb_to_rgb
+from core.color import hsb_to_rgb, red as _red, green as _green, blue as _blue, alpha as _alpha
 
 
 def set_fill(engine: Any, *args):
@@ -56,6 +56,21 @@ def set_fill(engine: Any, *args):
         return float(f)
     if len(args) == 1:
         v = args[0]
+        # Accept an ARGB integer produced by core.color.color() and
+        # decompose it into r,g,b,(alpha) so sketches can call
+        # fill(self.color(...)) like Processing.
+        try:
+            if isinstance(v, int):
+                r = int(_red(v))
+                g = int(_green(v))
+                b = int(_blue(v))
+                a_byte = int(_alpha(v))
+                engine.fill_color = (r, g, b)
+                engine.fill_alpha = None if a_byte == 255 else float(a_byte) / 255.0
+                return
+        except Exception:
+            # fall through to existing logic on error
+            pass
         if isinstance(v, (tuple, list)) and len(v) == 3:
             engine.fill_color = tuple(int(x) for x in _norm(v))
             engine.fill_alpha = None

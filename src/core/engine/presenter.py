@@ -122,6 +122,26 @@ def render_and_present(
         # device-pixel size and then present again. Limit to one extra
         # re-render to avoid infinite loops.
         try:
+            # Debug: report what `presenter.present` attribute is bound to
+            if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                try:
+                    import logging
+                    pres_attr = getattr(presenter, 'present', None)
+                    try:
+                        qual = getattr(pres_attr, '__qualname__', None)
+                    except Exception:
+                        qual = None
+                    try:
+                        mod = getattr(pres_attr, '__module__', None)
+                    except Exception:
+                        mod = None
+                    logging.getLogger(__name__).debug('render_and_present: presenter.present attr=%r module=%r qualname=%r', pres_attr, mod, qual)
+                    try:
+                        print(f'RENDER_AND_PRESENT: presenter.present={pres_attr} module={mod} qualname={qual}')
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
             did_resize = presenter.present()
         except Exception:
             did_resize = False

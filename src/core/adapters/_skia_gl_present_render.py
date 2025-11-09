@@ -56,8 +56,78 @@ def render_commands(presenter: Any, commands: Sequence[dict], replay_fn) -> Any:
 
     try:
         from pyglet import gl
+        logging.getLogger(__name__).debug('render_commands: presenter=%r logical=%r', getattr(presenter, '_window', None), getattr(presenter, '_logical_size', None))
         bound_shader_obj = None
+        # track enabled attribs across shader drawing helper blocks; initialize
+        # at function scope so cleanup code can always refer to it.
+        enabled_attribs = []
         processed_cmds = []
+        # If there is no explicit background op in the recorded commands
+        # (including nested offscreen ops), clear the Skia surface to the
+        # presenter's setup background color (or default) so the texture
+        # will be fully opaque. This avoids showing stale or partially
+        # transparent pixels in the window when the sketch did not call
+        # background().
+        try:
+            has_bg = False
+            for c in list(commands):
+                try:
+                    if c.get('op') == 'background':
+                        has_bg = True
+                        break
+                    if c.get('op') == 'offscreen':
+                        args = c.get('args', {}) or {}
+                        inner = args.get('ops') or []
+                        for ic in inner:
+                            try:
+                                if isinstance(ic, dict) and ic.get('op') == 'background':
+                                    has_bg = True
+                                    break
+                            except Exception:
+                                pass
+                        if has_bg:
+                            break
+                except Exception:
+                    pass
+            # Only clear the offscreen Skia surface when there is no background
+            # op in the current commands AND no setup/default background has
+            # previously been recorded on the presenter. If a setup() call
+            # inserted a background once, we want Processing-style persistence
+            # (subsequent draw() frames without background should accumulate).
+            try:
+                had_setup_bg = getattr(presenter, '_setup_background_color', None) is not None
+            except Exception:
+                had_setup_bg = False
+
+            if not has_bg and not had_setup_bg:
+                try:
+                    # No prior background anywhere; clear to engine default so
+                    # the presenter's texture becomes fully opaque.
+                    bg = (200, 200, 200)
+                    logging.getLogger(__name__).debug('render_commands: no background op ever detected, clearing offscreen to %r', bg)
+                    if os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1' or os.getenv('PYCREATIVE_DEBUG_PRESENT', '') == '1':
+                        try:
+                            print(f"RENDER_COMMANDS: clearing offscreen to background {bg}")
+                        except Exception:
+                            pass
+                    ival = ((0xFF << 24) | (int(bg[0]) << 16) | (int(bg[1]) << 8) | int(bg[2]))
+                    try:
+                        canvas.clear(ival)
+                    except Exception:
+                        # some canvases accept Color4f; attempt defensive path
+                        try:
+                            import skia as _sk
+                            _col = _sk.Color4f(float(bg[0]) / 255.0, float(bg[1]) / 255.0, float(bg[2]) / 255.0, 1.0)
+                            canvas.clear(_col)
+                        except Exception:
+                            logging.getLogger(__name__).debug('render_commands: offscreen clear fallbacks failed')
+                            pass
+                except Exception:
+                    logging.getLogger(__name__).debug('render_commands: error while attempting offscreen clear', exc_info=True)
+                    pass
+        except Exception:
+            pass
+
         for cmd in list(commands):
             try:
                 op = cmd.get('op')
@@ -192,11 +262,13 @@ def render_commands(presenter: Any, commands: Sequence[dict], replay_fn) -> Any:
                                         pass
 
                                     try:
-                                        for a in enabled_attribs:
-                                            try:
-                                                gl.glDisableVertexAttribArray(int(a))
-                                            except Exception:
-                                                pass
+                                        # Safely disable any previously enabled attribs
+                                        if 'enabled_attribs' in locals() and enabled_attribs:
+                                            for a in enabled_attribs:
+                                                try:
+                                                    gl.glDisableVertexAttribArray(int(a))
+                                                except Exception:
+                                                    pass
                                     except Exception:
                                         pass
 
@@ -222,6 +294,7 @@ def render_commands(presenter: Any, commands: Sequence[dict], replay_fn) -> Any:
                 processed_cmds.append(cmd)
 
         try:
+            logging.getLogger(__name__).debug('render_commands: calling replay_fn with %d processed_cmds', len(processed_cmds))
             replay_fn(processed_cmds, canvas)
         finally:
             try:
@@ -293,6 +366,17 @@ def present(presenter: Any) -> bool:
         vw = None
         vh = None
 
+    try:
+        # Early trace to confirm present() is entered and to show key values
+        logging.getLogger(__name__).debug('present: entry vw=%r vh=%r fbo_id=%r', vw, vh, getattr(presenter, 'fbo_id', None))
+        if os.getenv('PYCREATIVE_DEBUG_PRESENT', '') == '1':
+            try:
+                print(f'PRESENT: entry vw={vw} vh={vh} fbo_id={getattr(presenter, "fbo_id", None)}')
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     if vw and vh and (int(getattr(presenter, 'width', 0)) != vw or int(getattr(presenter, 'height', 0)) != vh):
         try:
             presenter.resize(int(vw), int(vh))
@@ -309,28 +393,64 @@ def present(presenter: Any) -> bool:
         except Exception:
             pass
     finally:
+        # 1) Clear default framebuffer to presenter's background (safe defaults)
+        try:
+            bg = getattr(presenter, '_setup_background_color', None) or (200, 200, 200)
+            logging.getLogger(__name__).debug('present: clearing default framebuffer to %r', bg)
+            if os.getenv('PYCREATIVE_DEBUG_PRESENT', '') == '1' or os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                try:
+                    print(f"PRESENT: clearing default framebuffer to {bg}")
+                except Exception:
+                    pass
+            r = float(bg[0]) / 255.0
+            g = float(bg[1]) / 255.0
+            b = float(bg[2]) / 255.0
+            try:
+                gl.glClearColor(r, g, b, 1.0)
+                gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+            except Exception:
+                try:
+                    gl.glClearColor(r, g, b, 1.0)
+                    gl.glClear(int(gl.GL_COLOR_BUFFER_BIT))
+                except Exception:
+                    logging.getLogger(__name__).debug('present: default-FB clear fallback failed')
+                    pass
+        except Exception:
+            logging.getLogger(__name__).debug('present: error while attempting default-FB clear', exc_info=True)
+
+        # 2) Blit (or fallback) the presenter's FBO into the default framebuffer
         try:
             if hasattr(gl, 'glBlitFramebuffer'):
+                # Compute source/destination sizes with safe fallbacks
+                src_w = int(getattr(presenter, 'width', 0) or 0)
+                src_h = int(getattr(presenter, 'height', 0) or 0)
                 try:
-                    try:
-                        src_w, src_h = getattr(presenter, '_surface_size') or getattr(presenter, '_backing_size')
-                    except Exception:
-                        try:
-                            src_w, src_h = getattr(presenter, '_backing_size')
-                        except Exception:
-                            src_w, src_h = int(presenter.width), int(presenter.height)
-                    dst_w = int(vw) if vw is not None else int(presenter.width)
-                    dst_h = int(vh) if vh is not None else int(presenter.height)
+                    tv = getattr(presenter, '_surface_size') or getattr(presenter, '_backing_size')
+                    if tv:
+                        src_w, src_h = int(tv[0]), int(tv[1])
+                except Exception:
+                    pass
+                dst_w = int(vw) if vw is not None else int(getattr(presenter, 'width', 0) or 0)
+                dst_h = int(vh) if vh is not None else int(getattr(presenter, 'height', 0) or 0)
+
+                try:
                     gl.glBlitFramebuffer(0, 0, int(src_w), int(src_h), 0, 0, dst_w, dst_h, gl.GL_COLOR_BUFFER_BIT, gl.GL_NEAREST)
                     try:
                         presenter._last_present_mode = 'blit'
                     except Exception:
                         pass
                 except Exception:
+                    logging.getLogger(__name__).debug('present: glBlitFramebuffer raised')
+                finally:
                     try:
-                        logging.getLogger(__name__).debug('present: glBlitFramebuffer raised')
+                        if os.getenv('PYCREATIVE_DEBUG_PRESENT', '') == '1' or os.getenv('PYCREATIVE_DEBUG_LIFECYCLE', '') == '1':
+                            try:
+                                print(f"PRESENT: used blit mode src=({src_w},{src_h}) dst=({dst_w},{dst_h})")
+                            except Exception:
+                                pass
+                        logging.getLogger(__name__).debug('present: used blit mode src=(%s,%s) dst=(%s,%s)', src_w, src_h, dst_w, dst_h)
                     except Exception:
-                        pass
+                        logging.getLogger(__name__).debug('present: used blit mode (sizes unknown)')
             else:
                 try:
                     gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0)

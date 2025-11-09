@@ -366,7 +366,17 @@ class SimpleSketchAPI:
         self._engine._redraw()
 
     def save_frame(self, path: str):
-        self._engine._save_frame(path)
+        # Prefer the engine-registered API implementation so any wrappers
+        # (for debugging or alternative backends) run when sketches call
+        # `self.save_frame(...)`. Fall back to the direct engine helper
+        # when no registry entry exists.
+        try:
+            fn = self._engine.api.get('save_frame')
+            if callable(fn):
+                return fn(path)
+        except Exception:
+            pass
+        return self._engine._save_frame(path)
 
     # Image helpers
     def load_image(self, path: str, extension: Optional[str] = None):

@@ -196,6 +196,124 @@ def register_state_apis(engine: 'Engine'):
                 pass
         except Exception:
             pass
+        # Expose save_frame to sketches (delegates to engine snapshot orchestration)
+        try:
+            from core.engine.snapshot import save_frame as _save_fn
+
+            def _save_wrapper(*a, **k):
+                # requested path (positional or keyword)
+                p = a[0] if a else k.get('path', None)
+                try:
+                    import sys as _sys
+                    print(f"[Engine.save_frame] sketch requested save_frame path={p} headless={getattr(engine,'headless',None)}")
+                    try:
+                        print(f"[Engine.save_frame] sketch requested save_frame path={p} headless={getattr(engine,'headless',None)}", file=_sys.stderr)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+                try:
+                    setattr(engine, '_last_save_frame_debug', {'requested': p})
+                except Exception:
+                    pass
+
+                # Call the core snapshot orchestration
+                res = None
+                try:
+                    res = _save_fn(engine, *a, **k)
+                except Exception:
+                    try:
+                        res = _save_fn(engine, *a, **k)
+                    except Exception:
+                        res = None
+
+                # If the snapshot orchestration queued the request for the
+                # presenter, it will live in engine._pending_save_frames.
+                # Detect that and print a helpful message so callers know the
+                # write is deferred until the presenter processes pending ops.
+                try:
+                    pending_list = getattr(engine, '_pending_save_frames', None)
+                    if pending_list:
+                        try:
+                            import sys as _sys
+                            print(f"[Engine.save_frame] save_frame queued for presenter (pending count={len(pending_list)}) path={p}")
+                            try:
+                                print(f"[Engine.save_frame] save_frame queued for presenter (pending count={len(pending_list)}) path={p}", file=_sys.stderr)
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+                # Inspect recorded graphics commands for resolved path/backend
+                try:
+                    g = getattr(engine, 'graphics', None)
+                    if g is not None:
+                        cmds = getattr(g, 'commands', None) or []
+                        for cmd in reversed(cmds):
+                            if cmd.get('op') == 'save_frame':
+                                args = cmd.get('args') or {}
+                                rp = args.get('path')
+                                backend = args.get('backend')
+                                try:
+                                    import sys as _sys
+                                    print(f"[Engine.save_frame] resolved path={rp} backend={backend}")
+                                    try:
+                                        print(f"[Engine.save_frame] resolved path={rp} backend={backend}", file=_sys.stderr)
+                                    except Exception:
+                                        pass
+                                except Exception:
+                                    pass
+                                try:
+                                    import logging as _logging
+                                    _logging.getLogger('pycreative.engine.save_frame').info('resolved save_frame path=%s backend=%s', rp, backend)
+                                except Exception:
+                                    pass
+                                try:
+                                    prev = getattr(engine, '_last_save_frame_debug', {}) or {}
+                                    prev.update({'resolved': rp, 'backend': backend})
+                                    setattr(engine, '_last_save_frame_debug', prev)
+                                except Exception:
+                                    pass
+                                break
+                except Exception:
+                    pass
+
+                return res
+
+            engine.api.register('save_frame', _save_wrapper)
+        except Exception:
+            pass
+        # Expose color_mode so sketches can switch between RGB/HSB and
+        # provide optional maxima (e.g., color_mode('HSB', 360, 100, 100)).
+        try:
+            def _set_color_mode(mode, *maxs):
+                try:
+                    mstr = str(mode).upper()
+                except Exception:
+                    mstr = 'RGB'
+                try:
+                    setattr(engine, 'color_mode', mstr)
+                except Exception:
+                    pass
+                # store optional maxima for HSB conversions
+                try:
+                    if maxs:
+                        setattr(engine, 'color_mode_max', tuple(maxs))
+                    else:
+                        setattr(engine, 'color_mode_max', None)
+                except Exception:
+                    try:
+                        setattr(engine, 'color_mode_max', None)
+                    except Exception:
+                        pass
+                return None
+
+            engine.api.register('color_mode', _set_color_mode)
+        except Exception:
+            pass
     except Exception:
         # Best-effort only
         pass

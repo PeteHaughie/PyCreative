@@ -1034,6 +1034,32 @@ class Engine(EngineProtocol):
                             pass
                 except Exception:
                     pass
+                # Expose common core.color helpers to sketch instances so
+                # examples can call `self.color(...)`, `self.lerp_color(...)`,
+                # and color component helpers without importing them.
+                try:
+                    from core import color as _color_mod
+                    _names = (
+                        'color', 'lerp_color', 'red', 'green', 'blue', 'alpha',
+                        'hsb_to_rgb', 'rgb_to_hsb',
+                    )
+                    for _n in _names:
+                        try:
+                            if not hasattr(self.sketch, _n):
+                                _fn = getattr(_color_mod, _n, None)
+                                if _fn is not None and callable(_fn):
+                                    try:
+                                        setattr(self.sketch, _n, _fn)
+                                    except Exception:
+                                        # Last-resort: wrap to avoid descriptor binding
+                                        try:
+                                            setattr(self.sketch, _n, (lambda f: (lambda *a, **k: f(*a, **k)))(_fn))
+                                        except Exception:
+                                            pass
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             except Exception:
                 # fall back to leaving as-is
                 pass
