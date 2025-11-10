@@ -14,21 +14,19 @@ dependencies = [
     "numpy",
 ]
 
-[project.optional-dependencies]
+[optional-dependencies]
 audio = ["sounddevice"]
 video = ["gstreamer"]
 
 # Development and optional / heavy runtime extras have been moved out of the
-# main dependency list to keep installs minimal for end-users. Use the
-# `dev` extra for development tooling, and `extras` for heavy optional
-# runtime packages (e.g., OpenGL helpers, computer-vision integrations).
-# Pin minimal compatible ranges for common developer tooling so installs are
-# reproducible while remaining permissive for CI environments.
+# main dependency list to keep installs minimal for end-users. Use the `dev`
+# extra for development tooling, and `extras` for heavy optional runtime
+# packages (e.g., OpenGL helpers, computer-vision integrations).
 dev = [
-    "pytest>=7.4,<8",
-    "pytest-timeout>=2.0,<3",
-    "ruff>=0.16,<1",
-    "mypy>=1.10,<2",
+    "pytest",
+    "pytest-timeout",
+    "ruff",
+    "mypy",
 ]
 
 extras = [

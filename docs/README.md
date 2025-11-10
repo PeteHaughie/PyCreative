@@ -8,7 +8,7 @@ PyCreative is a creative coding framework for Python 3.11+ built atop Pyglet. It
 
 1. **Create a virtual environment:**
    ```sh
-   python3 -m venv venv
+   python3 -m venv .venv
    source venv/bin/activate
    ```
 2. **Install dependencies:**
@@ -46,7 +46,7 @@ pytest tests/ && ruff check . && mypy src
 
 ### Conventions
 - Use Python 3.11+
-- Always use a `venv` virtual environment
+- Always use a `.venv` virtual environment
 - Type hints and docstrings required for public APIs
 - PEP8, Ruff
 
@@ -67,22 +67,15 @@ We value community feedback and collaboration to improve PyCreative.
 
 Below is a minimal sketch that follows best practices and the format expected by `app.py`:
 
-```python
-from pycreative.app import Sketch
-
-class MySketch(Sketch):
+```py
+class Sketch:
    def setup(self):
       self.size(800, 600)
-      self.bg = 0
 
    def update(self, dt):
       pass  # Update state here
 
    def draw(self):
-      self.clear(self.bg)
+      self.background(0)
       self.ellipse(self.width/2, self.height/2, 200, 200)
-
-# optional if you intend to run the app through PyCreative
-if __name__ == '__main__':
-   MySketch().run()
 ```

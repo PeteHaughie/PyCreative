@@ -262,6 +262,84 @@ class SimpleSketchAPI:
             # Non-fatal: if pyglet isn't available or call fails, continue
             pass
 
+    def fullscreen(self, display: Optional[int] = None):
+        """Toggle fullscreen mode. If the window doesn't exist yet, persist
+        the choice on the engine so the window will be created fullscreen
+        when constructed. `display` selects the screen index (0 = primary).
+        Calling fullscreen() again will restore windowed mode.
+        """
+        try:
+            # Normalize integer input when provided
+            try:
+                idx = int(display) if display is not None else None
+            except Exception:
+                idx = None
+
+            # If a window exists, toggle fullscreen immediately
+            win = getattr(self._engine, '_window', None)
+            if win is not None:
+                try:
+                    # Use engine-tracked state when available
+                    cur = bool(getattr(self._engine, '_is_fullscreen', False))
+                except Exception:
+                    cur = False
+                # If currently fullscreen, turn it off; otherwise enable on selected screen
+                if cur:
+                    try:
+                        win.set_fullscreen(False)
+                    except Exception:
+                        pass
+                    try:
+                        setattr(self._engine, '_is_fullscreen', False)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        # Resolve screen object when an index was provided
+                        screen_obj = None
+                        if idx is not None:
+                            try:
+                                import pyglet
+                                disp_mod = getattr(pyglet, 'canvas', None)
+                                if disp_mod is not None:
+                                    disp_obj = disp_mod.get_display()
+                                    scrs = disp_obj.get_screens()
+                                    if 0 <= idx < len(scrs):
+                                        screen_obj = scrs[idx]
+                            except Exception:
+                                screen_obj = None
+                        # Call pyglet's set_fullscreen with optional screen
+                        try:
+                            if screen_obj is not None:
+                                win.set_fullscreen(True, screen=screen_obj)
+                            else:
+                                win.set_fullscreen(True)
+                        except Exception:
+                            # Some window implementations accept (True, screen)
+                            try:
+                                win.set_fullscreen(True, screen_obj)
+                            except Exception:
+                                try:
+                                    win.set_fullscreen(True)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+                    try:
+                        setattr(self._engine, '_is_fullscreen', True)
+                    except Exception:
+                        pass
+                return
+
+            # No window yet: persist the pending fullscreen request on engine
+            try:
+                # Store pending fullscreen as an integer index or None
+                setattr(self._engine, '_pending_fullscreen', idx)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def frame_rate(self, n: int):
         """Set frame rate. Use -1 for unrestricted."""
         try:
@@ -290,7 +368,17 @@ class SimpleSketchAPI:
         self._engine._redraw()
 
     def save_frame(self, path: str):
-        self._engine._save_frame(path)
+        # Prefer the engine-registered API implementation so any wrappers
+        # (for debugging or alternative backends) run when sketches call
+        # `self.save_frame(...)`. Fall back to the direct engine helper
+        # when no registry entry exists.
+        try:
+            fn = self._engine.api.get('save_frame')
+            if callable(fn):
+                return fn(path)
+        except Exception:
+            pass
+        return self._engine._save_frame(path)
 
     # Image helpers
     def load_image(self, path: str, extension: Optional[str] = None):

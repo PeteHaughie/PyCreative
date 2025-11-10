@@ -316,6 +316,77 @@ def setup_window_loop(
                 except Exception:
                     pass
             render_and_present(presenter, cmds, replay_fn)
+
+            # After rendering and presenting, handle any queued save_frame
+            # commands that were recorded in `cmds`. Previously these were
+            # intended to be processed by the presenter; in some adapter
+            # paths that handling was missing which left queued saves
+            # unfulfilled. Use the Skia replayer as a robust fallback that
+            # can render the recorded commands into a PNG on the main
+            # thread without relying on GPU surfaces.
+            try:
+                # Import locally and defensively
+                from core.io.skia_replayer import replay_to_image_skia
+                import types as _types
+                # Build combined command list (setup + current) similar to the
+                # replayer used elsewhere so snapshots match the displayed frame.
+                try:
+                    setup_cmds = list(getattr(engine, '_setup_commands', []) or [])
+                except Exception:
+                    setup_cmds = []
+                try:
+                    current_cmds = list(getattr(engine.graphics, 'commands', []) or [])
+                except Exception:
+                    current_cmds = []
+                combined = setup_cmds + current_cmds
+
+                # Iterate over save_frame ops in the cmds snapshot we just presented
+                for c in list(cmds):
+                    try:
+                        if c.get('op') != 'save_frame':
+                            continue
+                        args = c.get('args') or {}
+                        path = args.get('path')
+                        if not path:
+                            continue
+                        # Create a minimal temp engine expected by the replayer
+                        try:
+                            from typing import Any as _Any
+                            temp_engine: _Any = _types.SimpleNamespace()
+                            temp_engine.width = getattr(engine, 'width', 200)
+                            temp_engine.height = getattr(engine, 'height', 200)
+                            temp_engine.graphics = _types.SimpleNamespace()
+                            temp_engine.graphics.commands = combined
+                        except Exception:
+                            temp_engine = engine
+
+                            try:
+                                replay_to_image_skia(temp_engine, path)
+                                try:
+                                    g = getattr(engine, 'graphics', None)
+                                    if g is not None:
+                                        try:
+                                            g.record('save_frame', path=path, backend='presenter_replayer')
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
+                            except Exception:
+                                # Best-effort only: swallow failures so present() stays stable
+                                try:
+                                    g = getattr(engine, 'graphics', None)
+                                    if g is not None:
+                                        try:
+                                            g.record('save_frame', path=path, backend='none')
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+            except Exception:
+                # If the replayer import or write fails, don't interrupt present
+                pass
         except Exception:
             # swallow non-fatal present errors to match previous behaviour
             try:

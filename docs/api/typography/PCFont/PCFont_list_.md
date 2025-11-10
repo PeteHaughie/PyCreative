@@ -13,7 +13,7 @@ Gets a list of the fonts installed on the system. The data is returned as a `Str
 ```py
 def setup(self):
     self.size(200, 200)
-    font_list = self.PFont.list()
+    font_list = self.PCFont.list()
     self.print_array(font_list)
 ```
 

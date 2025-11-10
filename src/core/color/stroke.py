@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.color import hsb_to_rgb
+from core.color import hsb_to_rgb, red as _red, green as _green, blue as _blue, alpha as _alpha
 
 
 def set_stroke(engine: Any, *args):
@@ -49,6 +49,27 @@ def set_stroke(engine: Any, *args):
         return float(f)
     if len(args) == 1:
         v = args[0]
+        # Accept ARGB integer color values created by core.color.color()
+        try:
+            if isinstance(v, int):
+                # Heuristic: treat small ints (0-255) as grayscale values
+                # rather than packed ARGB. Packed ARGB ints are usually
+                # larger; interpreting 255 as ARGB yields alpha=0 which
+                # surprises callers using stroke(255) for white.
+                if 0 <= int(v) <= 255:
+                    iv = int(v)
+                    engine.stroke_color = (iv, iv, iv)
+                    engine.stroke_alpha = None
+                    return
+                r = int(_red(v))
+                g = int(_green(v))
+                b = int(_blue(v))
+                a_byte = int(_alpha(v))
+                engine.stroke_color = (r, g, b)
+                engine.stroke_alpha = None if a_byte == 255 else float(a_byte) / 255.0
+                return
+        except Exception:
+            pass
         if isinstance(v, (tuple, list)) and len(v) == 3:
             engine.stroke_color = tuple(int(x) for x in _norm(v))
             engine.stroke_alpha = None

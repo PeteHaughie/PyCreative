@@ -121,6 +121,17 @@ class Engine(EngineProtocol):
                 register_transforms(self)
             except Exception:
                 pass
+            # Register state/color APIs early so convenience methods like
+            # `self.hue` are available when the Engine binds sketch helpers
+            # (SimpleSketchAPI / SKETCH_CONVENIENCE_METHODS) below.
+            try:
+                from core.engine.registrations import register_state_apis
+                try:
+                    register_state_apis(self)
+                except Exception:
+                    pass
+            except Exception:
+                pass
         except Exception:
             # best-effort only; continue if registrations can't be imported
             pass
@@ -943,21 +954,18 @@ class Engine(EngineProtocol):
                     # package or in environments where `core.typography` isn't
                     # available on sys.path.
                     try:
-                        # Pre-declare _typ with a permissive Any type so static
-                        # checkers don't complain about the differing runtime
-                        # assignment shapes below (module or None).
-                        _typ: Any = None
-                        import core.typography as _typ
+                        # Try core.typography first, fall back to pycreative.typography
+                        import core.typography as _typ_mod
                     except Exception:
                         try:
-                            import pycreative.typography as _typ
+                            import pycreative.typography as _typ_mod
                         except Exception:
-                            _typ = None
+                            _typ_mod = None
                     _attached = []
                     for _name in ('text', 'text_width', 'text_ascent', 'text_descent', 'load_font', 'text_font', 'text_size', 'text_align'):
                         if hasattr(inst, _name):
                             continue
-                        _fn = getattr(_typ, _name, None)
+                        _fn = getattr(_typ_mod, _name, None)
                         if _fn is None:
                             continue
                         try:
@@ -974,7 +982,7 @@ class Engine(EngineProtocol):
                                     return lambda *a, **k: _f(*a, **k)
                                 return lambda *a, **k: _f(self, *a, **k)
 
-                            setattr(inst, _name, _make_wrapper(_fn, _typ))
+                            setattr(inst, _name, _make_wrapper(_fn, _typ_mod))
                             _attached.append(_name)
                         except Exception:
                             pass
@@ -1030,6 +1038,32 @@ class Engine(EngineProtocol):
                     ):
                         try:
                             setattr(self.sketch, 'color_mode', api.color_mode)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                # Expose common core.color helpers to sketch instances so
+                # examples can call `self.color(...)`, `self.lerp_color(...)`,
+                # and color component helpers without importing them.
+                try:
+                    from core import color as _color_mod
+                    _names = (
+                        'color', 'lerp_color', 'red', 'green', 'blue', 'alpha',
+                        'hsb_to_rgb', 'rgb_to_hsb',
+                    )
+                    for _n in _names:
+                        try:
+                            if not hasattr(self.sketch, _n):
+                                _fn = getattr(_color_mod, _n, None)
+                                if _fn is not None and callable(_fn):
+                                    try:
+                                        setattr(self.sketch, _n, _fn)
+                                    except Exception:
+                                        # Last-resort: wrap to avoid descriptor binding
+                                        try:
+                                            setattr(self.sketch, _n, (lambda f: (lambda *a, **k: f(*a, **k)))(_fn))
+                                        except Exception:
+                                            pass
                         except Exception:
                             pass
                 except Exception:
@@ -1452,9 +1486,41 @@ class Engine(EngineProtocol):
                 from typing import Any as _Any
                 from typing import cast
                 # create window with explicit keyword args broken across lines
-                _win = pyglet.window.Window(
-                    width=self.width, height=self.height, vsync=True
-                )  # type: ignore[abstract]
+                # If a pending fullscreen request was registered (via
+                # SimpleSketchAPI.fullscreen called in settings()), honour it
+                # and create the window in fullscreen on the selected screen.
+                pending_fs = getattr(self, '_pending_fullscreen', None)
+                if pending_fs is not None:
+                    try:
+                        # Resolve screen object when index provided
+                        screen_obj = None
+                        try:
+                            import pyglet
+                            disp_mod = getattr(pyglet, 'canvas', None)
+                            if disp_mod is not None:
+                                disp_obj = disp_mod.get_display()
+                                scrs = disp_obj.get_screens()
+                                if isinstance(pending_fs, int) and 0 <= pending_fs < len(scrs):
+                                    screen_obj = scrs[pending_fs]
+                        except Exception:
+                            screen_obj = None
+                        if screen_obj is not None:
+                            _win = pyglet.window.Window(fullscreen=True, screen=screen_obj)  # type: ignore[abstract]
+                        else:
+                            _win = pyglet.window.Window(fullscreen=True, width=self.width, height=self.height, vsync=True)  # type: ignore[abstract]
+                        try:
+                            setattr(self, '_is_fullscreen', True)
+                        except Exception:
+                            pass
+                    except Exception:
+                        # Fall back to normal window creation when fullscreen fails
+                        _win = pyglet.window.Window(
+                            width=self.width, height=self.height, vsync=True
+                        )  # type: ignore[abstract]
+                else:
+                    _win = pyglet.window.Window(
+                        width=self.width, height=self.height, vsync=True
+                    )  # type: ignore[abstract]
                 # cast to Any to avoid mypy attempting to validate pyglet's
                 # abstract base classes in this context.
                 self._window = cast(_Any, _win)

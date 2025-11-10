@@ -7,7 +7,8 @@ assert class-based sketches expose the expected API.
 """
 
 SKETCH_CONVENIENCE_METHODS = (
-    'size', 'background', 'window_title', 'no_loop', 'loop', 'redraw', 'save_frame',
+    'size', 'background', 'window_title', 'fullscreen', 'no_loop', 'loop', 'redraw', 'save_frame',
+    'color_mode',
     'rect', 'line', 'circle', 'square', 'frame_rate',
     'ellipse',
     'fill', 'stroke', 'stroke_weight',
@@ -25,6 +26,12 @@ SKETCH_CONVENIENCE_METHODS = (
     'pcvector',
     'noise', 'noise_seed', 'noise_detail',
     'no_fill', 'no_stroke',
+
+    # Color helper accessors (exposed via core.color and registered on the
+    # engine). Adding them here ensures Engine binds them onto sketch
+    # instances so examples can call self.hue(self_color) etc.
+    'red', 'green', 'blue', 'alpha', 'color', 'lerp_color',
+    'hue', 'saturation', 'brightness',
     # Shape recording helpers
     'begin_shape', 'vertex', 'end_shape',
     # Transform helpers (2D)
