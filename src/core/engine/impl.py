@@ -954,21 +954,18 @@ class Engine(EngineProtocol):
                     # package or in environments where `core.typography` isn't
                     # available on sys.path.
                     try:
-                        # Pre-declare _typ with a permissive Any type so static
-                        # checkers don't complain about the differing runtime
-                        # assignment shapes below (module or None).
-                        _typ: Any = None
-                        import core.typography as _typ
+                        # Try core.typography first, fall back to pycreative.typography
+                        import core.typography as _typ_mod
                     except Exception:
                         try:
-                            import pycreative.typography as _typ
+                            import pycreative.typography as _typ_mod
                         except Exception:
-                            _typ = None
+                            _typ_mod = None
                     _attached = []
                     for _name in ('text', 'text_width', 'text_ascent', 'text_descent', 'load_font', 'text_font', 'text_size', 'text_align'):
                         if hasattr(inst, _name):
                             continue
-                        _fn = getattr(_typ, _name, None)
+                        _fn = getattr(_typ_mod, _name, None)
                         if _fn is None:
                             continue
                         try:
@@ -985,7 +982,7 @@ class Engine(EngineProtocol):
                                     return lambda *a, **k: _f(*a, **k)
                                 return lambda *a, **k: _f(self, *a, **k)
 
-                            setattr(inst, _name, _make_wrapper(_fn, _typ))
+                            setattr(inst, _name, _make_wrapper(_fn, _typ_mod))
                             _attached.append(_name)
                         except Exception:
                             pass
@@ -1499,10 +1496,12 @@ class Engine(EngineProtocol):
                         screen_obj = None
                         try:
                             import pyglet
-                            disp = pyglet.canvas.get_display()
-                            scrs = disp.get_screens()
-                            if isinstance(pending_fs, int) and 0 <= pending_fs < len(scrs):
-                                screen_obj = scrs[pending_fs]
+                            disp_mod = getattr(pyglet, 'canvas', None)
+                            if disp_mod is not None:
+                                disp_obj = disp_mod.get_display()
+                                scrs = disp_obj.get_screens()
+                                if isinstance(pending_fs, int) and 0 <= pending_fs < len(scrs):
+                                    screen_obj = scrs[pending_fs]
                         except Exception:
                             screen_obj = None
                         if screen_obj is not None:

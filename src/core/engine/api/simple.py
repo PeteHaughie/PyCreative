@@ -300,10 +300,12 @@ class SimpleSketchAPI:
                         if idx is not None:
                             try:
                                 import pyglet
-                                disp = pyglet.canvas.get_display()
-                                scrs = disp.get_screens()
-                                if 0 <= idx < len(scrs):
-                                    screen_obj = scrs[idx]
+                                disp_mod = getattr(pyglet, 'canvas', None)
+                                if disp_mod is not None:
+                                    disp_obj = disp_mod.get_display()
+                                    scrs = disp_obj.get_screens()
+                                    if 0 <= idx < len(scrs):
+                                        screen_obj = scrs[idx]
                             except Exception:
                                 screen_obj = None
                         # Call pyglet's set_fullscreen with optional screen

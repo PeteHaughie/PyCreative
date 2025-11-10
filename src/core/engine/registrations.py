@@ -3,7 +3,7 @@
 This module centralizes third-party or optional API registrations so the
 main Engine implementation stays compact and easier to review.
 """
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from core._types import EngineProtocol as Engine
@@ -200,7 +200,7 @@ def register_state_apis(engine: 'Engine'):
         try:
             from core.engine.snapshot import save_frame as _save_fn
 
-            def _save_wrapper(*a, **k):
+            def _save_wrapper(*a, **k) -> None:
                 # requested path (positional or keyword)
                 p = a[0] if a else k.get('path', None)
                 try:
@@ -219,12 +219,13 @@ def register_state_apis(engine: 'Engine'):
                     pass
 
                 # Call the core snapshot orchestration
-                res = None
+                from typing import Any
+                res: Any = None
                 try:
-                    res = _save_fn(engine, *a, **k)
+                    _save_fn(engine, *a, **k)
                 except Exception:
                     try:
-                        res = _save_fn(engine, *a, **k)
+                        _save_fn(engine, *a, **k)
                     except Exception:
                         res = None
 
@@ -321,10 +322,12 @@ def register_state_apis(engine: 'Engine'):
         try:
             from core.color import red as _red, green as _green, blue as _blue, alpha as _alpha, rgb_to_hsb as _rgb_to_hsb, color as _color_fn, lerp_color as _lerp_color
             # hsb->rgb helper for color-mode-aware color() wrapper
+            from typing import Optional, Callable
+            _hsb_to_rgb_fn: Optional[Callable[[float, float, float], tuple[int, int, int]]] = None
             try:
-                from core.color import hsb_to_rgb as _hsb_to_rgb
+                from core.color import hsb_to_rgb as _hsb_to_rgb_fn
             except Exception:
-                _hsb_to_rgb = None
+                pass
 
             # Support color inputs as either a packed ARGB int (legacy
             # core.color.ops API) or an (r,g,b) or (r,g,b,a) tuple/list
@@ -415,7 +418,7 @@ def register_state_apis(engine: 'Engine'):
                 maxs = getattr(engine, 'color_mode_max', None)
                 # If in HSB mode and we have the hsb->rgb helper,
                 # convert h,s,b(,a) -> r,g,b(,a) using the configured maxima.
-                if str(mode).upper() == 'HSB' and _hsb_to_rgb is not None:
+                if str(mode).upper() == 'HSB' and _hsb_to_rgb_fn is not None:
                     try:
                         if len(args) >= 3:
                             h_in, s_in, b_in = args[0], args[1], args[2]
@@ -438,7 +441,7 @@ def register_state_apis(engine: 'Engine'):
                                 s = _norm_val(s_in, 100.0)
                                 v = _norm_val(b_in, 100.0)
 
-                            r, g, b = _hsb_to_rgb(h, s, v)
+                            r, g, b = _hsb_to_rgb_fn(h, s, v)
                             # Handle alpha if present
                             if len(args) >= 4:
                                 a_in = args[3]

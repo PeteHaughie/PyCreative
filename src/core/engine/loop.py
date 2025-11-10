@@ -351,7 +351,8 @@ def setup_window_loop(
                             continue
                         # Create a minimal temp engine expected by the replayer
                         try:
-                            temp_engine = _types.SimpleNamespace()
+                            from typing import Any as _Any
+                            temp_engine: _Any = _types.SimpleNamespace()
                             temp_engine.width = getattr(engine, 'width', 200)
                             temp_engine.height = getattr(engine, 'height', 200)
                             temp_engine.graphics = _types.SimpleNamespace()
@@ -359,18 +360,28 @@ def setup_window_loop(
                         except Exception:
                             temp_engine = engine
 
-                        try:
-                            replay_to_image_skia(temp_engine, path)
                             try:
-                                engine.graphics.record('save_frame', path=path, backend='presenter_replayer')
+                                replay_to_image_skia(temp_engine, path)
+                                try:
+                                    g = getattr(engine, 'graphics', None)
+                                    if g is not None:
+                                        try:
+                                            g.record('save_frame', path=path, backend='presenter_replayer')
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
                             except Exception:
-                                pass
-                        except Exception:
-                            # Best-effort only: swallow failures so present() stays stable
-                            try:
-                                engine.graphics.record('save_frame', path=path, backend='none')
-                            except Exception:
-                                pass
+                                # Best-effort only: swallow failures so present() stays stable
+                                try:
+                                    g = getattr(engine, 'graphics', None)
+                                    if g is not None:
+                                        try:
+                                            g.record('save_frame', path=path, backend='none')
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
                     except Exception:
                         pass
             except Exception:
