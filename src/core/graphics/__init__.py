@@ -30,23 +30,7 @@ def create_graphics(w: int, h: int):
 
     Returns a new PCGraphics(width, height) (Skia-backed when possible).
     """
-    # Try the Skia-backed implementation first (best-effort). If the
-    # import or construction fails, fall back to the plain Python
-    # `PCGraphics` implementation which uses Pillow/recording.
-    try:
-        from .pcgraphics_skia import PCGraphicsSkia
-
-        try:
-            # Create a Skia-backed PCGraphics but prefer the CPU Skia
-            # surface in headless/test environments to avoid attempting
-            # a GL context (which can hang). This keeps behavior Skia-
-            # first while remaining safe in CI/headless runs.
-            return PCGraphicsSkia(int(w), int(h), force_cpu=True)
-        except Exception:
-            # If construction fails, continue to fallback
-            pass
-    except Exception:
-        # pcgraphics_skia not available — fall back silently
-        pass
-
+    # Return the Skia-backed PCGraphics implementation as the canonical
+    # offscreen surface. If Skia is unavailable the import will raise and
+    # callers must handle that (the project is Skia-first by design).
     return PCGraphics(int(w), int(h))

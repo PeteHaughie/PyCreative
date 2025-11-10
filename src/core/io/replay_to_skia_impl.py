@@ -394,6 +394,21 @@ def replay_to_skia_canvas(commands: Sequence[Mapping[str, Any]], canvas) -> None
                         pass
                 continue
 
+            if op == 'scale':
+                # Accept keys 'sx' and 'sy' as recorded by transforms.scale
+                sx = _safe_float(args.get('sx', 1.0))
+                sy = _safe_float(args.get('sy', sx))
+                try:
+                    canvas.scale(sx, sy)
+                except Exception:
+                    try:
+                        m = skia.Matrix()
+                        m.setScale(sx, sy)
+                        canvas.concat(m)
+                    except Exception:
+                        pass
+                continue
+
             if op == 'background':
                 br = int(args.get('r', 200))
                 bg = int(args.get('g', 200))
