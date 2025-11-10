@@ -45,9 +45,24 @@ def set_fill(engine: Any, *args):
             f = float(val)
         except Exception:
             raise TypeError('alpha must be numeric')
-        # If user provided 0..255-style alpha (greater than 1), convert.
-        if f > 1.0:
-            f = f / 255.0
+        # If engine has a color_mode_max with an explicit alpha maximum,
+        # prefer that scaling (e.g., color_mode('HSB',360,100,100,100) ->
+        # alpha max is 100). If the user provided a fractional alpha <=1,
+        # keep it as-is.
+        maxs = getattr(engine, 'color_mode_max', None)
+        if maxs is not None and len(maxs) >= 4:
+            # If the caller provided a fraction, accept it; otherwise
+            # scale by the provided alpha maximum.
+            if f > 1.0:
+                try:
+                    f = f / float(maxs[3])
+                except Exception:
+                    # fallback to 255-style division if something goes wrong
+                    f = f / 255.0
+        else:
+            # If user provided 0..255-style alpha (greater than 1), convert.
+            if f > 1.0:
+                f = f / 255.0
         # clamp
         if f < 0.0:
             f = 0.0
@@ -72,12 +87,39 @@ def set_fill(engine: Any, *args):
             # fall through to existing logic on error
             pass
         if isinstance(v, (tuple, list)) and len(v) == 3:
+            # Heuristic: if tuple components look like 0..255 RGB values
+            # (any component > 1), treat as raw RGB and don't reinterpret
+            # under the current color_mode (which might be HSB). This
+            # prevents image.get() RGB tuples from being mistaken for HSB
+            # when the sketch has set color_mode('HSB').
+            try:
+                any_gt_one = any(float(x) > 1.0 for x in v)
+            except Exception:
+                any_gt_one = False
+
+            if any_gt_one:
+                engine.fill_color = tuple(int(x) for x in v)
+                engine.fill_alpha = None
+                return
+
+            # Fallback: treat as color-mode components (HSB or RGB depending
+            # on engine.color_mode) by normalizing through _norm.
             engine.fill_color = tuple(int(x) for x in _norm(v))
             engine.fill_alpha = None
             return
         if isinstance(v, (tuple, list)) and len(v) == 4:
             # accept a single 4-tuple (r,g,b,alpha)
-            r, g, b = _norm(v[:3])
+            # Heuristic: if components look like 0..255 RGB values (any > 1)
+            # treat as raw RGB; otherwise interpret via current color_mode.
+            try:
+                any_gt_one = any(float(x) > 1.0 for x in v[:3])
+            except Exception:
+                any_gt_one = False
+
+            if any_gt_one:
+                r, g, b = (int(v[0]), int(v[1]), int(v[2]))
+            else:
+                r, g, b = _norm(v[:3])
             try:
                 a = _norm_alpha(v[3])
             except Exception:
@@ -99,6 +141,23 @@ def set_fill(engine: Any, *args):
     elif len(args) == 2:
         # Support two-arg forms: (gray, alpha) OR (rgb_tuple, alpha)
         first, second = args[0], args[1]
+        # packed-int color + alpha (Processing allows fill(color, alpha))
+        try:
+            if isinstance(first, int):
+                # decompose packed ARGB int and apply alpha
+                r = int(_red(first))
+                g = int(_green(first))
+                b = int(_blue(first))
+                try:
+                    a = _norm_alpha(second)
+                except Exception:
+                    raise TypeError('fill(color, alpha) expects numeric alpha')
+                engine.fill_color = (r, g, b)
+                engine.fill_alpha = float(a)
+                return
+        except Exception:
+            # fall through to existing logic on error
+            pass
         # rgb tuple + alpha
         if isinstance(first, (tuple, list)) and len(first) == 3:
             r, g, b = _norm(first)

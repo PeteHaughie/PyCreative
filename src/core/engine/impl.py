@@ -121,6 +121,17 @@ class Engine(EngineProtocol):
                 register_transforms(self)
             except Exception:
                 pass
+            # Register state/color APIs early so convenience methods like
+            # `self.hue` are available when the Engine binds sketch helpers
+            # (SimpleSketchAPI / SKETCH_CONVENIENCE_METHODS) below.
+            try:
+                from core.engine.registrations import register_state_apis
+                try:
+                    register_state_apis(self)
+                except Exception:
+                    pass
+            except Exception:
+                pass
         except Exception:
             # best-effort only; continue if registrations can't be imported
             pass

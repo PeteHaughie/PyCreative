@@ -93,6 +93,15 @@ def line(engine: Any, x1: float, y1: float, x2: float, y2: float, **kwargs):
         kwargs['stroke_cap'] = getattr(engine, 'stroke_cap', None)
     if 'stroke_join' not in kwargs:
         kwargs['stroke_join'] = getattr(engine, 'stroke_join', None)
+    # Temporary debug: print the first few recorded line stroke params to help
+    # diagnose why strokes are not visible in some sketches.
+    try:
+        cnt = getattr(engine, '_dbg_line_count', 0)
+        if cnt < 6:
+            print(f"[DBG line #{cnt}] stroke={kwargs.get('stroke')} stroke_alpha={kwargs.get('stroke_alpha')} stroke_weight={kwargs.get('stroke_weight')} stroke_cap={kwargs.get('stroke_cap')}")
+            setattr(engine, '_dbg_line_count', cnt + 1)
+    except Exception:
+        pass
     return engine.graphics.record('line', x1=x1, y1=y1, x2=x2, y2=y2, **kwargs)
 
 

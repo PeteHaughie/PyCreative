@@ -52,6 +52,15 @@ def set_stroke(engine: Any, *args):
         # Accept ARGB integer color values created by core.color.color()
         try:
             if isinstance(v, int):
+                # Heuristic: treat small ints (0-255) as grayscale values
+                # rather than packed ARGB. Packed ARGB ints are usually
+                # larger; interpreting 255 as ARGB yields alpha=0 which
+                # surprises callers using stroke(255) for white.
+                if 0 <= int(v) <= 255:
+                    iv = int(v)
+                    engine.stroke_color = (iv, iv, iv)
+                    engine.stroke_alpha = None
+                    return
                 r = int(_red(v))
                 g = int(_green(v))
                 b = int(_blue(v))

@@ -60,11 +60,8 @@ class PCGraphics:
             try:
                 g = getattr(self._engine, 'graphics', None)
                 if g is not None:
-                    # Build engine-shaped commands so presenters and the
-                    # central replayer receive a consistent format. This
-                    # normalizes older top-level keyed ops (the legacy
-                    # PCGraphics recording format) into the expected
-                    # {'op': name, 'args': {...}} shape.
+                    # Normalize the PCGraphics recording format into the
+                    # engine's expected {'op': name, 'args': {...}} shape.
                     cmds = []
                     seq = 0
                     for c in list(self._recording):
@@ -86,12 +83,9 @@ class PCGraphics:
                             except Exception:
                                 pass
 
-                        # Map common keys through; translate stroke weight
-                        # key for consistency with engine naming.
                         for k, v in c.items():
                             if k == 'op':
                                 continue
-                            # skip background color itself (handled above)
                             if op == 'background' and k == 'color':
                                 continue
                             if op == 'stroke_weight' and k == 'w':
@@ -100,115 +94,18 @@ class PCGraphics:
                                 except Exception:
                                     args['weight'] = v
                                 continue
-                            # copy through most primitive params
+                            # common passthrough keys
                             if k in ('x', 'y', 'w', 'h', 'r', 'fill', 'stroke', 'stroke_weight', 'mode', 'image', 'vertices', 'text_size', 'size'):
                                 args[k] = v
                                 continue
-                            # default passthrough
                             args[k] = v
 
                         cmds.append({'op': op, 'args': args, 'meta': {'seq': seq}})
 
-                    # Record the normalized offscreen op
-                    g.record('offscreen', width=self.width, height=self.height, ops=cmds)
-            except Exception:
-                pass
-
-    # Simple drawing helpers that record operations
-    def background(self, *args):
-        # normalize color args like Processing: background(gray) or background(r,g,b)
-        col = None
-        try:
-            if len(args) == 1:
-                v = args[0]
-                col = (int(v), int(v), int(v))
-            elif len(args) >= 3:
-                col = (int(args[0]), int(args[1]), int(args[2]))
-        except Exception:
-            col = (0, 0, 0)
-        self._recording.append({'op': 'background', 'color': col})
-
-    def fill(self, r, g=None, b=None):
-        if g is None or b is None:
-            # grayscale
-            self._fill = (int(r), int(r), int(r))
-        else:
-            self._fill = (int(r), int(g), int(b))
-        self._recording.append({'op': 'fill', 'color': self._fill})
-
-    def stroke(self, r, g=None, b=None):
-        if g is None or b is None:
-            self._stroke = (int(r), int(r), int(r))
-        else:
-            self._stroke = (int(r), int(g), int(b))
-        self._recording.append({'op': 'stroke', 'color': self._stroke})
-
-    def stroke_weight(self, w: float):
-        self._stroke_weight = float(w)
-        self._recording.append({'op': 'stroke_weight', 'w': float(w)})
-
-    def rect(self, x, y, w, h):
-        self._recording.append({'op': 'rect', 'x': float(x), 'y': float(y), 'w': float(w), 'h': float(h), 'fill': self._fill, 'stroke': self._stroke, 'stroke_weight': self._stroke_weight, 'mode': self._rect_mode})
-
-    def ellipse(self, x, y, w, h):
-        self._recording.append({'op': 'ellipse', 'x': float(x), 'y': float(y), 'w': float(w), 'h': float(h), 'fill': self._fill, 'stroke': self._stroke, 'stroke_weight': self._stroke_weight, 'mode': self._ellipse_mode})
-
-    def square(self, x, y, s):
-        """Draw a square of size `s` at (x, y).
-
-        Respects the current rect mode (CORNER or CENTER).
-        """
-        try:
-            self.rect(x, y, s, s)
-        except Exception:
-            # best-effort: record the op directly if rect fails
-            self._recording.append({'op': 'rect', 'x': float(x), 'y': float(y), 'w': float(s), 'h': float(s), 'fill': self._fill, 'stroke': self._stroke, 'stroke_weight': self._stroke_weight, 'mode': self._rect_mode})
-
-    def circle(self, x, y, d):
-        """Draw a circle at (x, y).
-
-        Note: the engine-level `circle()` primitive expects the third
-        argument to be a radius (r). To keep PCGraphics consistent with
-        the engine API, this records a `circle` op with `r` (radius).
-
-        Respects the current ellipse mode for legacy callers: when the
-        mode is 'CENTER' the (x,y) are treated as the center; when the
-        mode is 'CORNER' the (x,y) are treated as the top-left corner of
-        the bounding box and are converted to a center before recording.
-        """
-        try:
-            # Diameter -> radius conversion for callers that passed a
-            # diameter value. If callers were already using radius this
-            # will effectively halve/double accordingly; the engine
-            # primitive expects radius so record `r` here.
-            try:
-                dd = float(d)
-            except Exception:
-                dd = d
-
-            mode = (self._ellipse_mode or 'CENTER').upper()
-            if mode == 'CENTER':
-                cx = float(x)
-                cy = float(y)
-            else:
-                # CORNER-like semantics: convert top-left to center
-                try:
-                    cx = float(x) + (dd / 2.0)
-                    cy = float(y) + (dd / 2.0)
-                except Exception:
-                    cx = float(x)
-                    cy = float(y)
-
-            # Treat the provided value as a radius to match the engine API
-            # (engine.circle takes radius). This makes PCGraphics and the
-            # main canvas consistent when callers pass the same number.
-            # Convert diameter -> radius to record engine-style `circle(r)`
-            r = float(dd) / 2.0
-            self._recording.append({'op': 'circle', 'x': cx, 'y': cy, 'r': r, 'fill': self._fill, 'stroke': self._stroke, 'stroke_weight': self._stroke_weight})
-        except Exception:
-            # Fallback to recording an ellipse (legacy path)
-            try:
-                self._recording.append({'op': 'ellipse', 'x': float(x), 'y': float(y), 'w': float(d), 'h': float(d), 'fill': self._fill, 'stroke': self._stroke, 'stroke_weight': self._stroke_weight, 'mode': self._ellipse_mode})
+                    try:
+                        g.record('offscreen', width=self.width, height=self.height, ops=cmds)
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -242,6 +139,89 @@ class PCGraphics:
 
     def image(self, img, x, y, w=None, h=None):
         self._recording.append({'op': 'image', 'image': img, 'x': float(x), 'y': float(y), 'w': (float(w) if w is not None else None), 'h': (float(h) if h is not None else None)})
+
+    # Convenience drawing helpers that mirror the sketch API but record
+    # simple ops into the PCGraphics recording so tests and examples can
+    # use the surface directly.
+    def background(self, *args):
+        # Accept grayscale or RGB
+        if len(args) == 0:
+            col = (0, 0, 0)
+        elif len(args) == 1:
+            v = args[0]
+            try:
+                iv = int(v)
+                col = (iv, iv, iv)
+            except Exception:
+                col = v
+        else:
+            col = tuple(int(a) for a in args[:4])
+        self._recording.append({'op': 'background', 'color': col})
+
+    def fill(self, *args):
+        if len(args) == 0:
+            self._recording.append({'op': 'fill', 'fill': None})
+            return
+        if len(args) == 1:
+            v = args[0]
+            try:
+                iv = int(v)
+                col = (iv, iv, iv)
+            except Exception:
+                col = v
+        else:
+            col = tuple(int(a) for a in args[:4])
+        self._recording.append({'op': 'fill', 'fill': col})
+
+    def no_fill(self):
+        self._recording.append({'op': 'fill', 'fill': None})
+
+    def stroke(self, *args):
+        if len(args) == 0:
+            self._recording.append({'op': 'stroke', 'stroke': None})
+            return
+        if len(args) == 1:
+            v = args[0]
+            try:
+                iv = int(v)
+                col = (iv, iv, iv)
+            except Exception:
+                col = v
+        else:
+            col = tuple(int(a) for a in args[:4])
+        self._recording.append({'op': 'stroke', 'stroke': col})
+
+    def no_stroke(self):
+        self._recording.append({'op': 'stroke', 'stroke': None})
+
+    def stroke_weight(self, w):
+        try:
+            fw = float(w)
+        except Exception:
+            fw = w
+        self._recording.append({'op': 'stroke_weight', 'w': fw})
+
+    def rect(self, x, y, w, h, mode: Optional[str] = None):
+        entry = {'op': 'rect', 'x': float(x), 'y': float(y), 'w': float(w), 'h': float(h)}
+        if mode is not None:
+            entry['mode'] = str(mode)
+        # copy current fill/stroke/weight hints
+        self._recording.append(entry)
+
+    def square(self, x, y, size, mode: Optional[str] = None):
+        self.rect(x, y, size, size, mode=mode)
+
+    def ellipse(self, x, y, w, h, mode: Optional[str] = None):
+        entry = {'op': 'ellipse', 'x': float(x), 'y': float(y), 'w': float(w), 'h': float(h)}
+        if mode is not None:
+            entry['mode'] = str(mode)
+        self._recording.append(entry)
+
+    def circle(self, x, y, r):
+        self._recording.append({'op': 'circle', 'x': float(x), 'y': float(y), 'r': float(r)})
+
+    def line(self, x1, y1, x2, y2):
+        self._recording.append({'op': 'line', 'x1': float(x1), 'y1': float(y1), 'x2': float(x2), 'y2': float(y2)})
 
     def save(self, path: str):
         # Follow the same filename/template and path resolution conventions
@@ -555,22 +535,140 @@ class PCGraphics:
         except Exception:
             return None
 
+        # Import matrix helpers to apply recorded transforms
+        try:
+            from core.engine.transforms import identity_matrix, mul_mat
+        except Exception:
+            # Fallback simple implementations
+            def identity_matrix():
+                return [1.0, 0.0, 0.0,
+                        0.0, 1.0, 0.0,
+                        0.0, 0.0, 1.0]
+
+            def mul_mat(a, b):
+                return [
+                    a[0]*b[0] + a[1]*b[3] + a[2]*b[6],
+                    a[0]*b[1] + a[1]*b[4] + a[2]*b[7],
+                    a[0]*b[2] + a[1]*b[5] + a[2]*b[8],
+
+                    a[3]*b[0] + a[4]*b[3] + a[5]*b[6],
+                    a[3]*b[1] + a[4]*b[4] + a[5]*b[7],
+                    a[3]*b[2] + a[4]*b[5] + a[5]*b[8],
+
+                    a[6]*b[0] + a[7]*b[3] + a[8]*b[6],
+                    a[6]*b[1] + a[7]*b[4] + a[8]*b[7],
+                    a[6]*b[2] + a[7]*b[5] + a[8]*b[8],
+                ]
+
+        def apply_mat_to_point(mat, x, y):
+            try:
+                vx = float(x)
+                vy = float(y)
+            except Exception:
+                return x, y
+            nx = mat[0] * vx + mat[1] * vy + mat[2]
+            ny = mat[3] * vx + mat[4] * vy + mat[5]
+            return nx, ny
+
+        def mat_translate(tx, ty):
+            return [1.0, 0.0, float(tx),
+                    0.0, 1.0, float(ty),
+                    0.0, 0.0, 1.0]
+
+        import math
+
+        def mat_rotate(a):
+            c = math.cos(a)
+            s = math.sin(a)
+            return [c, -s, 0.0,
+                    s,  c, 0.0,
+                    0.0,0.0,1.0]
+
+        def mat_scale(sx, sy):
+            return [float(sx), 0.0, 0.0,
+                    0.0, float(sy), 0.0,
+                    0.0, 0.0, 1.0]
+
+        def mat_shear_x(a):
+            return [1.0, math.tan(a), 0.0,
+                    0.0, 1.0,        0.0,
+                    0.0, 0.0,        1.0]
+
+        def mat_shear_y(a):
+            return [1.0, 0.0,        0.0,
+                    math.tan(a), 1.0, 0.0,
+                    0.0, 0.0,        1.0]
+
         img = Image.new('RGBA', (int(self.width), int(self.height)), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
+        # maintain a local matrix stack for recorded transforms
+        matrix_stack = [identity_matrix()]
+
         for cmd in self._recording:
             op = cmd.get('op')
+
+            # Handle transform ops by updating matrix_stack
+            if op == 'push_matrix':
+                matrix_stack.append(list(matrix_stack[-1]))
+                continue
+            if op == 'pop_matrix':
+                if len(matrix_stack) > 1:
+                    matrix_stack.pop()
+                else:
+                    matrix_stack[-1] = identity_matrix()
+                continue
+            if op == 'reset_matrix':
+                matrix_stack[-1] = identity_matrix()
+                continue
+            if op == 'translate':
+                tx = float(cmd.get('x', 0))
+                ty = float(cmd.get('y', 0))
+                matrix_stack[-1] = mul_mat(matrix_stack[-1], mat_translate(tx, ty))
+                continue
+            if op == 'rotate':
+                ang = float(cmd.get('angle', 0))
+                matrix_stack[-1] = mul_mat(matrix_stack[-1], mat_rotate(ang))
+                continue
+            if op == 'scale':
+                sx = float(cmd.get('sx', 1.0))
+                sy = float(cmd.get('sy', sx))
+                matrix_stack[-1] = mul_mat(matrix_stack[-1], mat_scale(sx, sy))
+                continue
+            if op == 'shear_x':
+                ang = float(cmd.get('angle', 0))
+                matrix_stack[-1] = mul_mat(matrix_stack[-1], mat_shear_x(ang))
+                continue
+            if op == 'shear_y':
+                ang = float(cmd.get('angle', 0))
+                matrix_stack[-1] = mul_mat(matrix_stack[-1], mat_shear_y(ang))
+                continue
+            if op == 'apply_matrix':
+                m = cmd.get('matrix')
+                if isinstance(m, (list, tuple)) and len(m) >= 9:
+                    try:
+                        mat = [float(v) for v in m[:9]]
+                        matrix_stack[-1] = mul_mat(matrix_stack[-1], mat)
+                    except Exception:
+                        pass
+                continue
+
+            # For drawing ops, transform coordinates using current matrix
+            top = matrix_stack[-1]
+
             if op == 'background':
                 c = cmd.get('color', (0, 0, 0))
                 try:
                     draw.rectangle([(0, 0), (self.width, self.height)], fill=(c[0], c[1], c[2], 255))
                 except Exception:
                     pass
-            elif op == 'rect':
-                x = cmd.get('x', 0)
-                y = cmd.get('y', 0)
-                w = cmd.get('w', 0)
-                h = cmd.get('h', 0)
+                continue
+
+            if op == 'rect':
+                x = float(cmd.get('x', 0))
+                y = float(cmd.get('y', 0))
+                w = float(cmd.get('w', 0))
+                h = float(cmd.get('h', 0))
                 mode = cmd.get('mode', 'CORNER')
                 if mode == 'CENTER':
                     left = x - w / 2.0
@@ -582,46 +680,93 @@ class PCGraphics:
                     top = y
                     right = x + w
                     bottom = y + h
+
+                # transform four corners
+                p1 = apply_mat_to_point(top, left, top)
+                p2 = apply_mat_to_point(top, right, top)
+                p3 = apply_mat_to_point(top, right, bottom)
+                p4 = apply_mat_to_point(top, left, bottom)
+                poly = [p1, p2, p3, p4]
                 fill = cmd.get('fill')
                 stroke = cmd.get('stroke')
                 sw = max(1, int(cmd.get('stroke_weight', 1)))
                 try:
                     if fill is not None:
-                        draw.rectangle([left, top, right, bottom], fill=(fill[0], fill[1], fill[2], 255))
+                        draw.polygon(poly, fill=(int(fill[0]), int(fill[1]), int(fill[2]), 255))
                     if stroke is not None and sw > 0:
-                        # draw outline separately if stroke present
-                        for i in range(sw):
-                            draw.rectangle([left - i, top - i, right + i, bottom + i], outline=(stroke[0], stroke[1], stroke[2], 255))
+                        # closed poly outline
+                        pts = poly + [poly[0]]
+                        draw.line(pts, fill=(int(stroke[0]), int(stroke[1]), int(stroke[2]), 255), width=sw)
                 except Exception:
                     pass
-            elif op == 'ellipse':
-                x = cmd.get('x', 0)
-                y = cmd.get('y', 0)
-                w = cmd.get('w', 0)
-                h = cmd.get('h', 0)
-                mode = cmd.get('mode', 'CENTER')
-                if mode == 'CENTER':
-                    left = x - w / 2.0
-                    top = y - h / 2.0
-                    right = x + w / 2.0
-                    bottom = y + h / 2.0
+                continue
+
+            if op in ('ellipse', 'circle'):
+                # For circle, 'r' is radius; for ellipse, w/h are provided
+                cx = float(cmd.get('x', 0))
+                cy = float(cmd.get('y', 0))
+                if op == 'circle':
+                    r = float(cmd.get('r', 0))
+                    rw = rh = r * 2.0
                 else:
-                    left = x
-                    top = y
-                    right = x + w
-                    bottom = y + h
+                    rw = float(cmd.get('w', 0))
+                    rh = float(cmd.get('h', 0))
+
+                # sample ellipse boundary as polygon
+                steps = 36
+                pts = []
+                for i in range(steps):
+                    a = (i / float(steps)) * (2.0 * math.pi)
+                    px = cx + math.cos(a) * (rw / 2.0)
+                    py = cy + math.sin(a) * (rh / 2.0)
+                    tx, ty = apply_mat_to_point(top, px, py)
+                    pts.append((tx, ty))
+
                 fill = cmd.get('fill')
                 stroke = cmd.get('stroke')
                 sw = max(1, int(cmd.get('stroke_weight', 1)))
                 try:
                     if fill is not None:
-                        draw.ellipse([left, top, right, bottom], fill=(fill[0], fill[1], fill[2], 255))
+                        draw.polygon(pts, fill=(int(fill[0]), int(fill[1]), int(fill[2]), 255))
                     if stroke is not None and sw > 0:
-                        for i in range(sw):
-                            draw.ellipse([left - i, top - i, right + i, bottom + i], outline=(stroke[0], stroke[1], stroke[2], 255))
+                        draw.line(pts + [pts[0]], fill=(int(stroke[0]), int(stroke[1]), int(stroke[2]), 255), width=sw)
                 except Exception:
                     pass
-            elif op == 'image':
+                continue
+
+            if op == 'line':
+                try:
+                    x1 = float(cmd.get('x1', 0))
+                    y1 = float(cmd.get('y1', 0))
+                    x2 = float(cmd.get('x2', 0))
+                    y2 = float(cmd.get('y2', 0))
+                    x1t, y1t = apply_mat_to_point(top, x1, y1)
+                    x2t, y2t = apply_mat_to_point(top, x2, y2)
+                    stroke = cmd.get('stroke')
+                    stroke_alpha = cmd.get('stroke_alpha', None)
+                    sw = max(1, int(cmd.get('stroke_weight', 1)))
+                    if stroke is not None:
+                        try:
+                            if stroke_alpha is None:
+                                a_val = 255
+                            else:
+                                try:
+                                    a_val = int(max(0, min(1.0, float(stroke_alpha))) * 255)
+                                except Exception:
+                                    a_val = int(stroke_alpha)
+                            color = (int(stroke[0]), int(stroke[1]), int(stroke[2]), a_val)
+                            try:
+                                draw.line([(x1t, y1t), (x2t, y2t)], fill=color, width=sw)
+                            except TypeError:
+                                for off in range(sw):
+                                    draw.line([(x1t, y1t + off), (x2t, y2t + off)], fill=color)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                continue
+
+            if op == 'image':
                 img_obj = cmd.get('image')
                 try:
                     if img_obj is not None and hasattr(img_obj, 'to_pillow'):
@@ -634,15 +779,22 @@ class PCGraphics:
                         h = cmd.get('h') or sy
                         x = cmd.get('x', 0)
                         y = cmd.get('y', 0)
+                        # apply translation/scale from matrix to top-left and size
+                        tx, ty = apply_mat_to_point(top, x, y)
+                        # approximate scale from matrix
+                        sx_scale = math.hypot(top[0], top[3])
+                        sy_scale = math.hypot(top[1], top[4])
                         try:
-                            img.paste(src.resize((int(w), int(h))), (int(x), int(y)), src.resize((int(w), int(h))))
+                            resized = src.resize((max(1, int(float(w) * sx_scale)), max(1, int(float(h) * sy_scale))))
+                            img.paste(resized, (int(tx), int(ty)), resized)
                         except Exception:
                             try:
-                                img.paste(src.resize((int(w), int(h))), (int(x), int(y)))
+                                img.paste(src.resize((int(w), int(h))), (int(tx), int(ty)))
                             except Exception:
                                 pass
                 except Exception:
                     pass
+                continue
 
         return img
 

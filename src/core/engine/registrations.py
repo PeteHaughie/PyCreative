@@ -314,6 +314,180 @@ def register_state_apis(engine: 'Engine'):
             engine.api.register('color_mode', _set_color_mode)
         except Exception:
             pass
+        # Expose small color helpers (pure ops) so sketches can query
+        # components and HSB values via `self.red(self_color)` or
+        # `self.hue(self_color)` etc. These are pure functions in
+        # core.color and safe to attach as API helpers.
+        try:
+            from core.color import red as _red, green as _green, blue as _blue, alpha as _alpha, rgb_to_hsb as _rgb_to_hsb, color as _color_fn, lerp_color as _lerp_color
+            # hsb->rgb helper for color-mode-aware color() wrapper
+            try:
+                from core.color import hsb_to_rgb as _hsb_to_rgb
+            except Exception:
+                _hsb_to_rgb = None
+
+            # Support color inputs as either a packed ARGB int (legacy
+            # core.color.ops API) or an (r,g,b) or (r,g,b,a) tuple/list
+            # returned by `PCImage.get()` / Pillow. Normalize to r,g,b ints
+            # before delegating to pure helpers.
+            def _unpack_rgb(c):
+                # None or missing pixel -> treat as black
+                if c is None:
+                    return 0, 0, 0
+                # Packed int path
+                try:
+                    if isinstance(c, int):
+                        return int(_red(c)), int(_green(c)), int(_blue(c))
+                except Exception:
+                    pass
+                # Tuple/list path: accept (r,g,b) or (r,g,b,a)
+                try:
+                    if isinstance(c, (tuple, list)) and len(c) >= 3:
+                        r = c[0]
+                        g = c[1]
+                        b = c[2]
+                        # Some callers may supply floats in 0..1 range; scale
+                        # up if values look fractional.
+                        def _scale_if_frac(v):
+                            try:
+                                fv = float(v)
+                                if 0.0 <= fv <= 1.0:
+                                    return int(round(fv * 255.0))
+                                return int(round(fv))
+                            except Exception:
+                                try:
+                                    return int(v)
+                                except Exception:
+                                    return 0
+
+                        return _scale_if_frac(r), _scale_if_frac(g), _scale_if_frac(b)
+                except Exception:
+                    pass
+                # Fallback: unknown format -> treat as black rather than
+                # raising so sorting/rendering remains robust when image
+                # pixels are missing or malformed.
+                return 0, 0, 0
+
+            def _red_wrap(c):
+                r, g, b = _unpack_rgb(c)
+                return float(r)
+
+            def _green_wrap(c):
+                r, g, b = _unpack_rgb(c)
+                return float(g)
+
+            def _blue_wrap(c):
+                r, g, b = _unpack_rgb(c)
+                return float(b)
+
+            def _alpha_wrap(c):
+                # If input is packed int, use core helper; if tuple, try index 3
+                try:
+                    if isinstance(c, int):
+                        return float(_alpha(c))
+                except Exception:
+                    pass
+                try:
+                    if isinstance(c, (tuple, list)) and len(c) >= 4:
+                        a = c[3]
+                        af = float(a)
+                        if af <= 1.0:
+                            return af * 255.0
+                        return af
+                except Exception:
+                    pass
+                return 255.0
+
+            engine.api.register('red', lambda *a, **k: _red_wrap(a[0] if a else None))
+            engine.api.register('green', lambda *a, **k: _green_wrap(a[0] if a else None))
+            engine.api.register('blue', lambda *a, **k: _blue_wrap(a[0] if a else None))
+            engine.api.register('alpha', lambda *a, **k: _alpha_wrap(a[0] if a else None))
+            # Register a color() wrapper that respects engine.color_mode and
+            # engine.color_mode_max when the sketch uses HSB mode. The pure
+            # core.color.color() helper is unaware of engine state and
+            # treats arguments as raw numbers; Processing's color() is
+            # affected by colorMode(), so we emulate that behavior here.
+            def _color_wrapper(*args):
+                try:
+                    mode = getattr(engine, 'color_mode', 'RGB')
+                except Exception:
+                    mode = 'RGB'
+                maxs = getattr(engine, 'color_mode_max', None)
+                # If in HSB mode and we have the hsb->rgb helper,
+                # convert h,s,b(,a) -> r,g,b(,a) using the configured maxima.
+                if str(mode).upper() == 'HSB' and _hsb_to_rgb is not None:
+                    try:
+                        if len(args) >= 3:
+                            h_in, s_in, b_in = args[0], args[1], args[2]
+                            # Normalize using maxima if provided
+                            if maxs is not None and len(maxs) >= 3:
+                                h = float(h_in) / float(maxs[0])
+                                s = float(s_in) / float(maxs[1])
+                                v = float(b_in) / float(maxs[2])
+                            else:
+                                # Fallback heuristics: if values are <=1 treat
+                                # as fractions, otherwise scale assuming common
+                                # HSB ranges (h up to 360, s/v up to 255)
+                                def _norm_val(x, fallback_div):
+                                    xf = float(x)
+                                    if xf <= 1.0:
+                                        return xf
+                                    return xf / float(fallback_div)
+
+                                h = _norm_val(h_in, 360.0)
+                                s = _norm_val(s_in, 100.0)
+                                v = _norm_val(b_in, 100.0)
+
+                            r, g, b = _hsb_to_rgb(h, s, v)
+                            # Handle alpha if present
+                            if len(args) >= 4:
+                                a_in = args[3]
+                                if maxs is not None and len(maxs) >= 4:
+                                    af = float(a_in) / float(maxs[3])
+                                else:
+                                    af = float(a_in)
+                                # If caller provided 0..1 floats, keep as fraction
+                                if af <= 1.0:
+                                    a_val = int(round(af * 255.0))
+                                else:
+                                    # If supplied in larger-scale (e.g., 0..255), clamp
+                                    a_val = int(round(af))
+                                return _color_fn(int(r), int(g), int(b), int(a_val))
+                            return _color_fn(int(r), int(g), int(b))
+                    except Exception:
+                        # Fall back to pure _color_fn on any conversion error
+                        try:
+                            return _color_fn(*args)
+                        except Exception:
+                            raise
+                # Default: delegate to the pure color helper
+                return _color_fn(*args)
+
+            engine.api.register('color', lambda *a, **k: _color_wrapper(*a, **k))
+            engine.api.register('lerp_color', lambda *a, **k: _lerp_color(*a, **k))
+
+            def _hue(c):
+                r, g, b = _unpack_rgb(c)
+                h, s, v = _rgb_to_hsb(r, g, b)
+                return h
+
+            def _saturation(c):
+                r, g, b = _unpack_rgb(c)
+                h, s, v = _rgb_to_hsb(r, g, b)
+                return s
+
+            def _brightness(c):
+                r, g, b = _unpack_rgb(c)
+                h, s, v = _rgb_to_hsb(r, g, b)
+                return v
+
+            engine.api.register('hue', lambda *a, **k: _hue(a[0] if a else None))
+            engine.api.register('saturation', lambda *a, **k: _saturation(a[0] if a else None))
+            engine.api.register('brightness', lambda *a, **k: _brightness(a[0] if a else None))
+        except Exception:
+            # best-effort only; don't fail engine startup if color helpers
+            # can't be registered for some reason.
+            pass
     except Exception:
         # Best-effort only
         pass
